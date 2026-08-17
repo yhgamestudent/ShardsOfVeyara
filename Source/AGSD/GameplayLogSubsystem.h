@@ -14,6 +14,8 @@ class AGSD_API UGameplayLogSubsystem : public UGameInstanceSubsystem
 	GENERATED_BODY()
 
 public:
+	virtual void Deinitialize() override;
+
 	// 세이브 및 로드에 사용될 실제 로그 데이터 구조체
 	UPROPERTY(BlueprintReadWrite, Category = "GameplayLog")
 	FGameplayLogData LogData;
@@ -104,4 +106,101 @@ public:
 	// 19. 가드 사용 횟수 증가
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
 	void IncrementGuardUsageCount();
+
+	// ==========================================
+	// 📌 9대 가설 & 18종 차트 로깅 헬퍼 함수
+	// ==========================================
+
+	// 20. 맵별 플레이 체류 시간 누적
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Stage")
+	void AddStagePlayTime(const FString& StageName, float DeltaSeconds);
+
+	// 21. 맵별 포탈 도달 소요 시간 기록
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Stage")
+	void RecordStageClearPortalTime(const FString& StageName, float TimeSeconds);
+
+	// 22. 맵별 플레이어 이동거리 누적
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Stage")
+	void AddStageMovementDistance(const FString& StageName, float DistanceMeters);
+
+	// 23. 맵별 상호작용 키 입력 횟수 증가
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Stage")
+	void IncrementStageInteraction(const FString& StageName);
+
+	// 24. 맵별 낙사/낙하 발생 및 체크포인트 리스폰 기록
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Stage")
+	void RecordStageFallRespawn(const FString& StageName, FVector FallLocation);
+
+	// 25. 튜토리얼 스킵 및 대화 지문 넘기기 기록
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Tutorial")
+	void IncrementTutorialFullSkip();
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Tutorial")
+	void IncrementDialogueLineSkip();
+
+	// 26. UI 옵션 변경 및 대화 로그 재확인
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|UI")
+	void IncrementOptionChange();
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|UI")
+	void IncrementDialogueLogRecheck();
+
+	// 27. 사망 기록 (사망 원인 & 위치)
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Combat")
+	void RecordPlayerDeath(const FString& StageName, const FString& DeathReason, FVector DeathLocation);
+
+	// 28. 점프 / 대시 입력 수 증가
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Controls")
+	void IncrementStageJump(const FString& StageName);
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Controls")
+	void IncrementStageDash(const FString& StageName);
+
+	// 29. 기믹 파훼 및 보스 패턴 회피
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Gimmick")
+	void IncrementStageGimmickClear(const FString& StageName, const FString& GimmickType = TEXT(""));
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Gimmick")
+	void RecordGimmickClear(const FString& GimmickName, const FString& StageName = TEXT(""));
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Gimmick")
+	void IncrementBossPatternDodge(const FString& StageName);
+
+	// 30. 보스전 입장 / 사망 / 클리어
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Boss")
+	void RecordBossEnter(const FString& BossName);
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Boss")
+	void RecordBossDeath(const FString& BossName);
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Boss")
+	void RecordBossClear(const FString& BossName, float BattleTimeSeconds, int32 LootAcquiredCount);
+
+	// 31. 포션 소모 & 체력 잔량
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
+	void RecordPotionUsage(const FString& StageName, const FString& PotionType);
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
+	void UpdateLatestHealthPercent(float HealthPercent);
+
+	// 32. 봉헌 제단 이용
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
+	void IncrementTributeAltarUsage();
+
+	// 33. 가해 딜량 vs 피격 딜량 누적
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Combat")
+	void AddStageDamageDealt(const FString& StageName, float Damage);
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Combat")
+	void AddStageDamageTaken(const FString& StageName, float Damage);
+
+	// ==========================================
+	// 📌 데이터 내보내기 (구글 시트 / CSV 파이프라인)
+	// ==========================================
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Export")
+	FString GenerateCSVString() const;
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Export")
+	bool ExportLogsToCSVFile(const FString& FilePath);
 };

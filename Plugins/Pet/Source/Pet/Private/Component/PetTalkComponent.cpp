@@ -11,6 +11,7 @@
 #include "HUD/ConversationSubtitle.h"
 #include "HUD/TravelSubtitle.h"
 #include "Kismet/GameplayStatics.h"
+#include "GameFramework/Character.h"
 #include "Ping/PingActor.h"
 #include "Header/PetState.h"
 #include "Header/PetType.h"
@@ -452,6 +453,19 @@ void UPetTalkComponent::SkipCurrentDialogue()
 		return;
 	}
 
+	// [지문 개별 넘기기 로그 기록]
+	UTextLog::WriteTextLogByKeyword(TEXT("지문 개별 넘기기"));
+	if (UWorld* World = GetWorld())
+	{
+		if (ACharacter* Player = UGameplayStatics::GetPlayerCharacter(World, 0))
+		{
+			if (UFunction* Func = Player->FindFunction(TEXT("LogDialogueLineSkip")))
+			{
+				Player->ProcessEvent(Func, nullptr);
+			}
+		}
+	}
+
 	//  현재 진행 중인 타이머 강제 종료
 	GetWorld()->GetTimerManager().ClearTimer(ConversationTimerHandle);
 
@@ -582,6 +596,16 @@ void UPetTalkComponent::OnPressedLogButton()
 			ConversationSubtitleInstance->LogWidgetInstance->SetVisibility( ESlateVisibility::Visible );
 
 			UTextLog::WriteTextLogByKeyword(TEXT("대화 로그 버튼 사용"));
+			if (UWorld* World = GetWorld())
+			{
+				if (ACharacter* Player = UGameplayStatics::GetPlayerCharacter(World, 0))
+				{
+					if (UFunction* Func = Player->FindFunction(TEXT("LogDialogueLogRecheck")))
+					{
+						Player->ProcessEvent(Func, nullptr);
+					}
+				}
+			}
 			
 			// 대화 일시정지시켜서 다음으로 못 넘어가도록
 			GetWorld()->GetTimerManager().PauseTimer(ConversationTimerHandle);

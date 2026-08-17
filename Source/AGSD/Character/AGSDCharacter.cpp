@@ -12,6 +12,7 @@
 #include "Framework/Application/SlateApplication.h"
 #include "Chest.h"
 #include "Blueprint/UserWidget.h"
+#include "GameplayLogSubsystem.h"
 #include "Engine/LocalPlayer.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -153,6 +154,20 @@ void AAGSDCharacter::TryInteract()
 	if (InteractionComponent)
 	{
 		InteractionComponent->TryInteract();
+		
+		if (UWorld* World = GetWorld())
+		{
+			FString MapName = World->GetMapName();
+			MapName.RemoveFromStart(World->StreamingLevelsPrefix);
+
+			if (UGameInstance* GameInst = GetGameInstance())
+			{
+				if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+				{
+					LogSubsystem->IncrementStageInteraction(MapName);
+				}
+			}
+		}
 	}
 }
 
@@ -495,6 +510,18 @@ void AAGSDCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	GI->PlayerHealth = Health;
 	GI->MaxPlayerHealth = MaxHealth;
 	GI->bHasPet = bHasPet;
+
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			if (MaxHealth > 0.0f)
+			{
+				LogSubsystem->UpdateLatestHealthPercent((Health / MaxHealth) * 100.0f);
+			}
+			LogSubsystem->ExportLogsToCSVFile(TEXT(""));
+		}
+	}
 }
 
 
@@ -572,8 +599,24 @@ float AAGSDCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& 
 
 	if ( DamageToApply > 0.f )
 	{
-		Health = FMath::Clamp(Health - DamageToApply, 0, MaxHealth);
+		Health = FMath::Clamp(Health - DamageToApply, 0.f, MaxHealth);
 		if (HealthBar) HealthBar->HealthProgressBar->SetPercent(Health / MaxHealth);
+
+		if (UWorld* World = GetWorld())
+		{
+			FString MapName = World->GetMapName();
+			MapName.RemoveFromStart(World->StreamingLevelsPrefix);
+
+			if (UGameInstance* GameInst = GetGameInstance())
+			{
+				if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+				{
+					LogSubsystem->AddStageDamageTaken(MapName, DamageToApply);
+					LogSubsystem->UpdateLatestHealthPercent((MaxHealth > 0.f) ? (Health / MaxHealth * 100.f) : 0.f);
+				}
+			}
+		}
+
 		if ( Health <= 0.f )
 		{
 			// ─── [사망 원인 로그 기록 추가] ───
@@ -584,6 +627,20 @@ float AAGSDCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& 
 			}
 			UTextLog::WriteTextLogByString(TEXT("플레이어 사망원인"), CauseName);
 			// ───────────────────────────────────
+
+			if (UWorld* World = GetWorld())
+			{
+				FString MapName = World->GetMapName();
+				MapName.RemoveFromStart(World->StreamingLevelsPrefix);
+
+				if (UGameInstance* GameInst = GetGameInstance())
+				{
+					if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+					{
+						LogSubsystem->RecordPlayerDeath(MapName, CauseName, GetActorLocation());
+					}
+				}
+			}
 
 			bCanBeDamage = false;
 			Die();
@@ -776,6 +833,20 @@ void AAGSDCharacter::Jump()
 	{
 		Jumping->Play();
 		UTextLog::WriteTextLogByKeyword(TEXT("점프"));
+
+		if (UWorld* World = GetWorld())
+		{
+			FString MapName = World->GetMapName();
+			MapName.RemoveFromStart(World->StreamingLevelsPrefix);
+
+			if (UGameInstance* GameInst = GetGameInstance())
+			{
+				if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+				{
+					LogSubsystem->IncrementStageJump(MapName);
+				}
+			}
+		}
 	}
 	Super::Jump();
 }
@@ -790,12 +861,49 @@ void AAGSDCharacter::SprintStart()
 {
 	bIsSprinting = true;
 	UpdateSprintSpeed();
+
+	if (UWorld* World = GetWorld())
+	{
+		FString MapName = World->GetMapName();
+		MapName.RemoveFromStart(World->StreamingLevelsPrefix);
+
+		if (UGameInstance* GameInst = GetGameInstance())
+		{
+			if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+			{
+				LogSubsystem->IncrementStageDash(MapName);
+			}
+		}
+	}
 }
 
 void AAGSDCharacter::SprintEnd()
 {
 	bIsSprinting = false;
 	UpdateSprintSpeed();
+}
+
+void AAGSDCharacter::FellOutOfWorld(const UDamageType& dmgType)
+{
+	RecordFallRespawn();
+	Super::FellOutOfWorld(dmgType);
+}
+
+void AAGSDCharacter::RecordFallRespawn()
+{
+	if (UWorld* World = GetWorld())
+	{
+		FString MapName = World->GetMapName();
+		MapName.RemoveFromStart(World->StreamingLevelsPrefix);
+
+		if (UGameInstance* GameInst = GetGameInstance())
+		{
+			if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+			{
+				LogSubsystem->RecordStageFallRespawn(MapName, GetActorLocation());
+			}
+		}
+	}
 }
 
 void AAGSDCharacter::UpdateSprintSpeed()
@@ -1916,6 +2024,13 @@ void AAGSDCharacter::SkipTutorialPressed()
 	FString CurrentLevelName = UGameplayStatics::GetCurrentLevelName(GetWorld(), true);
 	if (TutorialMapNames.Contains(CurrentLevelName))
 	{
+		if (UGameInstance* GameInst = GetGameInstance())
+		{
+			if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+			{
+				LogSubsystem->IncrementTutorialFullSkip();
+			}
+		}
 		OnSkipTutorialTriggered();
 	}
 }
@@ -2581,7 +2696,7 @@ void AAGSDCharacter::UpdateCharacterStateFromEquip()
 	}
 }
 
-// ─── [로그 데이터 관련: 이동 거리 측정] ───
+// ─── [로그 데이터 관련: 이동 거리 및 맵별 체류 시간 측정] ───
 void AAGSDCharacter::SetTotalDistance()
 {
 	FVector CurrentLocation = GetActorLocation();
@@ -2592,5 +2707,164 @@ void AAGSDCharacter::SetTotalDistance()
 	{
 		TotalDistance += FrameDistance;
 		LastLocation = CurrentLocation;
+
+		if (UWorld* World = GetWorld())
+		{
+			FString MapName = World->GetMapName();
+			MapName.RemoveFromStart(World->StreamingLevelsPrefix);
+
+			if (UGameInstance* GameInst = GetGameInstance())
+			{
+				if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+				{
+					LogSubsystem->AddStageMovementDistance(MapName, FrameDistance / 100.f);
+					LogSubsystem->AddStagePlayTime(MapName, World->GetDeltaSeconds());
+				}
+			}
+		}
 	}
+}
+
+// ─── [Task 2 UI & 튜토리얼 로깅 헬퍼 함수] ───
+
+void AAGSDCharacter::LogDialogueLineSkip()
+{
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->IncrementDialogueLineSkip();
+		}
+	}
+}
+
+void AAGSDCharacter::LogDialogueLogRecheck()
+{
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->IncrementDialogueLogRecheck();
+		}
+	}
+}
+
+void AAGSDCharacter::LogOptionChange()
+{
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->IncrementOptionChange();
+		}
+	}
+}
+
+void AAGSDCharacter::LogPotionUsage(const FString& PotionType)
+{
+	if (UWorld* World = GetWorld())
+	{
+		FString MapName = World->GetMapName();
+		MapName.RemoveFromStart(World->StreamingLevelsPrefix);
+		
+		if (UGameInstance* GameInst = GetGameInstance())
+		{
+			if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+			{
+				LogSubsystem->RecordPotionUsage(MapName, PotionType);
+			}
+		}
+	}
+}
+
+void AAGSDCharacter::LogNPCDialogue(const FString& NPCName)
+{
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->RecordNPCDialogue(NPCName);
+		}
+	}
+}
+
+// ─── [Task 3 보스전 & 기믹 로깅 헬퍼 함수] ───
+
+void AAGSDCharacter::LogBossEnter(const FString& BossName)
+{
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->RecordBossEnter(BossName);
+		}
+	}
+}
+
+void AAGSDCharacter::LogBossDeath(const FString& BossName)
+{
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->RecordBossDeath(BossName);
+		}
+	}
+}
+
+void AAGSDCharacter::LogBossClear(const FString& BossName, float BattleTimeSeconds, int32 LootCount)
+{
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->RecordBossClear(BossName, BattleTimeSeconds, LootCount);
+		}
+	}
+}
+
+void AAGSDCharacter::LogGimmickClear(const FString& GimmickName)
+{
+	if (UWorld* World = GetWorld())
+	{
+		FString MapName = World->GetMapName();
+		MapName.RemoveFromStart(World->StreamingLevelsPrefix);
+
+		if (UGameInstance* GameInst = GetGameInstance())
+		{
+			if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+			{
+				LogSubsystem->IncrementStageGimmickClear(MapName, GimmickName);
+			}
+		}
+	}
+}
+
+void AAGSDCharacter::LogBossPatternDodge()
+{
+	if (UWorld* World = GetWorld())
+	{
+		FString MapName = World->GetMapName();
+		MapName.RemoveFromStart(World->StreamingLevelsPrefix);
+
+		if (UGameInstance* GameInst = GetGameInstance())
+		{
+			if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+			{
+				LogSubsystem->IncrementBossPatternDodge(MapName);
+			}
+		}
+	}
+}
+
+bool AAGSDCharacter::LogExportCSV(const FString& FilePath)
+{
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			return LogSubsystem->ExportLogsToCSVFile(FilePath);
+		}
+	}
+	return false;
 }

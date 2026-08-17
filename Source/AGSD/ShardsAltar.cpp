@@ -9,6 +9,10 @@
 #include "InteractionOwnerInterface.h"
 #include "Tribute/Tribute.h"
 #include "Components/SphereComponent.h"
+#include "SOVGameInstance.h"
+#include "GameplayLogSubsystem.h"
+#include "AGSDPlayerController.h"
+#include "NiagaraFunctionLibrary.h"
 
 // Sets default values
 AShardsAltar::AShardsAltar()
@@ -109,6 +113,14 @@ void AShardsAltar::Interact_Implementation(AAGSDCharacter* player)
 	player->SubItemAmount();
 	SpawnShards(ShardsAmount++);
 	GI->ShardsAmount = ShardsAmount;
+
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->IncrementTributeAltarUsage();
+		}
+	}
 }
 
 void AShardsAltar::ShowWidget_Implementation(ACharacter* player)

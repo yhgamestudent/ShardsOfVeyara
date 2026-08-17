@@ -11,6 +11,7 @@
 #include "TimerManager.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/AnimInstance.h"
+#include "GameplayLogSubsystem.h"
 
 ACombatEnemy::ACombatEnemy()
 {
@@ -197,6 +198,19 @@ void ACombatEnemy::ApplyDamage(float Damage, AActor* DamageCauser, const FVector
 	// only process knockback and effects if we received nonzero damage
 	if (ActualDamage > 0.0f)
 	{
+		if (UWorld* World = GetWorld())
+		{
+			FString MapName = World->GetMapName();
+			MapName.RemoveFromStart(World->StreamingLevelsPrefix);
+			if (UGameInstance* GameInst = GetGameInstance())
+			{
+				if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+				{
+					LogSubsystem->AddStageDamageDealt(MapName, ActualDamage);
+				}
+			}
+		}
+
 		// apply the knockback impulse
 		GetCharacterMovement()->AddImpulse(DamageImpulse, true);
 
@@ -221,6 +235,14 @@ void ACombatEnemy::ApplyDamage(float Damage, AActor* DamageCauser, const FVector
 
 void ACombatEnemy::HandleDeath()
 {
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->RecordMonsterKill(GetName());
+		}
+	}
+
 	// hide the life bar
 	LifeBar->SetHiddenInGame(true);
 

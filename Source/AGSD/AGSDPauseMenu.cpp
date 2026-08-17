@@ -3,6 +3,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "AGSDCharacter.h"
+#include "GameplayLogSubsystem.h"
 
 void UAGSDPauseMenu::NativeConstruct()
 {
@@ -105,6 +106,14 @@ void UAGSDPauseMenu::OnReturnToMainMenuClicked()
 
 void UAGSDPauseMenu::OnSettingsClicked()
 {
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->IncrementOptionChange();
+		}
+	}
+
 	// 설정창 위젯 생성 및 표시
 	if (SettingsMenuClass)
 	{

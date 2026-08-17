@@ -5,6 +5,7 @@
 
 #include "AGSDCharacter.h"
 #include "AGSDInteractionComponent.h"
+#include "GameplayLogSubsystem.h"
 #include "InteractionOwnerInterface.h"
 #include "TextLog.h"
 #include "Tribute/TributeTextUI.h"
@@ -216,6 +217,14 @@ void ATribute::SuccessInsert(FString ItemID, int32 AmountToRemove)
 		Player->AddDamage(10.0f);
 		SetNextTributeUI(++TributeLevel);
 		UTextLog::WriteTextLogByFloat(TEXT("봉헌 단계"), TributeLevel);
+		
+		if (UGameInstance* GameInst = GetGameInstance())
+		{
+			if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+			{
+				LogSubsystem->IncrementTributeAltarUsage();
+			}
+		}
 	} 
 }
 

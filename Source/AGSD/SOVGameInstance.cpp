@@ -171,6 +171,12 @@ void USOVGameInstance::SaveGame()
 
 		// 파일 쓰기 (동기식)
 		UGameplayStatics::SaveGameToSlot(SaveInstance, SaveGameSlot, 0);
+
+		// CSV 로그 파일 자동 동기화 내보내기
+		if (UGameplayLogSubsystem* LogSubsystem = GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->ExportLogsToCSVFile(TEXT(""));
+		}
 	}
 }
 

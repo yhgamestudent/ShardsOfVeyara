@@ -382,6 +382,43 @@ public:
 	void Die();
 	UFUNCTION(BlueprintCallable)
 	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, class AController* EventInstigator, AActor* DamageCauser) override;
+	virtual void FellOutOfWorld(const UDamageType& dmgType) override;
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+	void RecordFallRespawn();
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Tutorial")
+	void LogDialogueLineSkip();
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|UI")
+	void LogDialogueLogRecheck();
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|UI")
+	void LogOptionChange();
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
+	void LogPotionUsage(const FString& PotionType);
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|NPC")
+	void LogNPCDialogue(const FString& NPCName);
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Boss")
+	void LogBossEnter(const FString& BossName);
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Boss")
+	void LogBossDeath(const FString& BossName);
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Boss")
+	void LogBossClear(const FString& BossName, float BattleTimeSeconds = 0.f, int32 LootCount = 0);
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Gimmick")
+	void LogGimmickClear(const FString& GimmickName = TEXT(""));
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Gimmick")
+	void LogBossPatternDodge();
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Export")
+	bool LogExportCSV(const FString& FilePath = TEXT(""));
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	USOVGameInstance* GI;

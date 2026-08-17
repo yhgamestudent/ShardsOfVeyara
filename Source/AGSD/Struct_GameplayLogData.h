@@ -84,5 +84,111 @@ struct FGameplayLogData
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog")
 	int32 GuardUsageCount = 0;
 
-    // 플레이어 사망원인은 제외됨
+	// ==========================================
+	// 📌 9대 가설 & 18종 차트 검증용 추가 수집 항목
+	// ==========================================
+
+	// 20. 맵별 플레이 체류 시간 (MapName -> Seconds)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
+	TMap<FString, float> StagePlayTimes;
+
+	// 21. 맵별 포탈/클리어 도달 소요 시간 (MapName -> Seconds)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
+	TMap<FString, float> StageClearPortalTimes;
+
+	// 22. 맵별 플레이어 이동거리 (MapName -> Meters)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
+	TMap<FString, float> StageMovementDistances;
+
+	// 23. 맵별 상호작용 키 입력 횟수 (MapName -> Count)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
+	TMap<FString, int32> StageInteractionCounts;
+
+	// 24. 맵별 낙사/낙하 및 체크포인트 리스폰 횟수 (MapName -> Count)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
+	TMap<FString, int32> StageFallRespawnCounts;
+
+	// 25. F키 튜토리얼 통스킵 횟수 & 개별 대화 지문 넘기기 횟수
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Tutorial")
+	int32 TutorialFullSkipCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Tutorial")
+	int32 DialogueLineSkipCount = 0;
+
+	// 26. 옵션 변경 횟수 및 대화 로그 재확인 횟수
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|UI")
+	int32 OptionChangeCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|UI")
+	int32 DialogueLogRecheckCount = 0;
+
+	// 27. 사망 원인 분포 (Reason -> Count)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Combat")
+	TMap<FString, int32> DeathReasonCounts;
+
+	// 28. 맵별 조작 입력 분포 (Jump / Dash)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Controls")
+	TMap<FString, int32> StageJumpCounts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Controls")
+	TMap<FString, int32> StageDashCounts;
+
+	// 29. 맵별 환경 기믹 / 기믹 종류별 파훼 / 보스 패턴 대응 횟수
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Gimmick")
+	TMap<FString, int32> StageGimmickClearCounts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Gimmick")
+	TMap<FString, int32> GimmickClearCounts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Gimmick")
+	TMap<FString, int32> BossPatternDodgeCounts;
+
+	// 30. 맵별 보스전 입장 / 사망 / 클리어 횟수
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Boss")
+	TMap<FString, int32> BossEnterCounts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Boss")
+	TMap<FString, int32> BossDeathCounts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Boss")
+	TMap<FString, int32> BossClearCounts;
+
+	// 31. 맵별 보스전 소요 시간 & 드롭 전리품/재화 획득량
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Boss")
+	TMap<FString, float> BossBattleTimes;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Boss")
+	TMap<FString, int32> BossLootAcquiredCounts;
+
+	// 32. 연금술 포션 맵별 소모 횟수 & 종류(ItemID)별 소모 횟수 & 최신 체력 잔량 (%)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Reward")
+	TMap<FString, int32> PotionUsagePerMap;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Reward")
+	TMap<FString, int32> PotionUsageByType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Reward")
+	float LatestPlayerHealthPercent = 100.f;
+
+	// 33. 봉헌 제단 상호작용 횟수
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Reward")
+	int32 TributeAltarUsageCount = 0;
+
+	// 34. 맵별 몬스터 가해 딜량 vs 피격 딜량
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Combat")
+	TMap<FString, float> StageDamageDealt;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Combat")
+	TMap<FString, float> StageDamageTaken;
+
+	// ==========================================
+	// 📌 5대 정밀 수집 체계 (공간 히트맵 좌표)
+	// ==========================================
+
+	// 35. 공간 좌표 사망/낙사 위치 트래킹 (히트맵 시각화용)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Spatial")
+	TArray<FVector> DeathPositions;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Spatial")
+	TArray<FVector> FallRespawnPositions;
 };

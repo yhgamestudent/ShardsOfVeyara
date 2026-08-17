@@ -15,6 +15,7 @@
 #include "Inventory/UI/AGSDItemNotificationWidget.h"
 #include "Struct_ItemData.h"
 #include "Engine/DataTable.h"
+#include "GameplayLogSubsystem.h"
 #include "Kismet/GameplayStatics.h"
 #include "Blueprint/DragDropOperation.h"
 #include "EnhancedInputSubsystems.h"
@@ -139,9 +140,16 @@ void UAlchemyUI::InsertMaterial(UAlchemyCropSlotBase* InsertedSlot)
 
 				// 포션 완성 처리 (기존에 솥 내부 2개 재료에 대한 TargetRecipe가 세팅되어 있음)
 				FString PotionItemID = Table->TargetRecipe.ItemID;
-				if (PotionItemID.IsEmpty())
+				if (PotionItemID.IsEmpty() || PotionItemID == TEXT("Sludge"))
 				{
 					PotionItemID = TEXT("Sludge"); // 예외 방지 디폴트
+					if (UGameInstance* GameInst = Character->GetGameInstance())
+					{
+						if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+						{
+							LogSubsystem->IncrementFailedPotionCrafting();
+						}
+					}
 				}
 
 				// 인벤토리에 완성된 포션 지급

@@ -4,6 +4,7 @@
 #include "NavigationSystem.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Engine/World.h"
+#include "GameplayLogSubsystem.h"
 
 APortalSpawner::APortalSpawner()
 {
@@ -24,6 +25,14 @@ void APortalSpawner::BeginPlay()
 void APortalSpawner::OnBossDestroyed(AActor* DestroyedActor)
 {
 	if (!DestroyedActor || !PortalClass) return;
+
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->RecordBossClear(DestroyedActor->GetName(), 0.f, 0);
+		}
+	}
 
 	// 1. 보스의 위치와 정면 방향을 가져옵니다.
 	FVector BossLocation = DestroyedActor->GetActorLocation();
