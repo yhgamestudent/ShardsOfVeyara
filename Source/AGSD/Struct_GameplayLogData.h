@@ -13,6 +13,33 @@ struct FInteractionCountMap
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
 	TMap<FString, int32> ActorCounts;
 };
+
+// 📌 NPC 코인 거래 정밀 기록 구조체
+USTRUCT(BlueprintType)
+struct FNPCTransactionRecord
+{
+	GENERATED_BODY()
+
+	// 거래가 이루어진 맵 이름
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Economy")
+	FString StageName;
+
+	// 거래 대상 NPC 이름
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Economy")
+	FString NPCName;
+
+	// 구매/거래한 아이템 이름 또는 상세 내용
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Economy")
+	FString ItemOrDetail;
+
+	// 소모한 총 코인량
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Economy")
+	int32 Cost = 0;
+
+	// 거래 수량
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Economy")
+	int32 Quantity = 1;
+};
 USTRUCT(BlueprintType)
 struct FGameplayLogData
 {
@@ -149,6 +176,12 @@ struct FGameplayLogData
 
 	// 29. 맵별 환경 기믹 / 기믹 종류별 파훼 / 보스 패턴 대응 횟수
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Gimmick")
+	TMap<FString, float> GimmickStartTimes;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Gimmick")
+	TMap<FString, float> GimmickClearTimes;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Gimmick")
 	TMap<FString, int32> StageGimmickClearCounts;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Gimmick")
@@ -194,6 +227,85 @@ struct FGameplayLogData
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Combat")
 	TMap<FString, float> StageDamageTaken;
+
+	// ==========================================
+	// 📌 맵(Stage)별 세부 지표 확장 필드
+	// ==========================================
+
+	// 맵별 가드 사용 횟수 & 가드 경감 피해량
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Combat")
+	TMap<FString, int32> StageGuardCounts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Combat")
+	TMap<FString, float> StageDamageMitigatedByGuard;
+
+	// 맵별 획득 / 소모 코인
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Economy")
+	TMap<FString, int32> StageAcquiredCoins;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Economy")
+	TMap<FString, int32> StageConsumedCoins;
+
+	// NPC 거래 상세 이력 (개별 거래 건별 시계열 기록)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Economy")
+	TArray<FNPCTransactionRecord> NPCTransactions;
+
+	// 맵별 + NPC별 + 아이템별 코인 소모 집계 (Map_NPC_Item -> TotalCoinsSpent)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Economy")
+	TMap<FString, int32> StageNPCCoinConsumption;
+
+	// 맵별 아이템 획득 / 버리기 / 인벤토리 풀 발생
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Inventory")
+	TMap<FString, int32> StageItemsAcquired;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Inventory")
+	TMap<FString, int32> StageItemsDiscarded;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Inventory")
+	TMap<FString, int32> StageInventoryFullCounts;
+
+	// 맵별 일시정지 횟수
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|UI")
+	TMap<FString, int32> StagePauseCounts;
+
+	// 맵별 + 콤보명 콤보 사용 및 완주 횟수 (Map_Combo -> Count)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Combat")
+	TMap<FString, int32> StageUsedComboCounts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Combat")
+	TMap<FString, int32> StageCompletedComboCounts;
+
+	// 맵별 + 몬스터명 처치 수 (Map_Monster -> Count)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Combat")
+	TMap<FString, int32> StageMonsterKillCounts;
+
+	// 맵별 + 작물명 수확 수량 및 비약 사용 (Map_Crop -> Count)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Farming")
+	TMap<FString, int32> StageCropHarvestCounts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Farming")
+	TMap<FString, int32> StageElixirUsageCounts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Farming")
+	TMap<FString, float> StageCropGrowthDelayDueToWeeds;
+
+	// 맵별 + NPC명 대화 횟수 (Map_NPC -> Count)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|NPC")
+	TMap<FString, int32> StageNPCDialogueCounts;
+
+	// 맵별 봉헌 제단 이용 횟수
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Reward")
+	TMap<FString, int32> StageTributeAltarUsageCounts;
+
+	// 맵별 옵션 변경 및 대화 지문 넘기기/로그 확인
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|UI")
+	TMap<FString, int32> StageOptionChangeCounts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Tutorial")
+	TMap<FString, int32> StageDialogueLineSkipCounts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|UI")
+	TMap<FString, int32> StageDialogueLogRecheckCounts;
 
 	// ==========================================
 	// 📌 5대 정밀 수집 체계 (공간 히트맵 좌표)

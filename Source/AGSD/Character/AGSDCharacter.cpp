@@ -245,6 +245,21 @@ void AAGSDCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
+	if (UWorld* World = GetWorld())
+	{
+		FString MapName = World->GetMapName();
+		MapName.RemoveFromStart(World->StreamingLevelsPrefix);
+
+		if (UGameInstance* GameInst = GetGameInstance())
+		{
+			if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+			{
+				LogSubsystem->AddPlayTime(DeltaSeconds);
+				LogSubsystem->AddStagePlayTime(MapName, DeltaSeconds);
+			}
+		}
+	}
+
 	SetTotalDistance();
 
 	if (ComboGuideComponent)
@@ -595,7 +610,19 @@ float AAGSDCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& 
 		float MitigatedDamage = DamageToApply;
 		if (GuardComponent->ProcessDamageMitigation(DamageToApply, MitigatedDamage))
 		{
+			const float MitigatedAmount = DamageToApply - MitigatedDamage;
 			DamageToApply = MitigatedDamage;
+
+			if (MitigatedAmount > 0.f)
+			{
+				if (UGameInstance* GameInst = GetGameInstance())
+				{
+					if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+					{
+						LogSubsystem->AddDamageMitigatedByGuard(MitigatedAmount);
+					}
+				}
+			}
 		}
 	}
 	
@@ -1502,6 +1529,23 @@ void AAGSDCharacter::PlayStage(int32 Index)
 				AnimInstance->Montage_SetEndDelegate(MontageEndedDelegate, Stage.AttackMontage);
 				
 				bPlaySuccess = true;
+
+				if (UGameInstance* GameInst = GetGameInstance())
+				{
+					if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+					{
+						FString ComboName = Stage.AttackName.IsEmpty() ? FString::Printf(TEXT("Combo_Dir%d"), (int32)CurrentComboData->DirectionRequirement) : Stage.AttackName.ToString();
+
+						if (Index == 0)
+						{
+							LogSubsystem->RecordUsedCombo(ComboName);
+						}
+						if (Index == CurrentComboData->Stages.Num() - 1)
+						{
+							LogSubsystem->RecordCompletedCombo(ComboName);
+						}
+					}
+				}
 			}
 		}
 	}
@@ -2434,6 +2478,14 @@ void AAGSDCharacter::Input_Pause()
 				PlayerController->SetInputMode(InputMode);
 
 				UGameplayStatics::SetGamePaused(GetWorld(), true);
+
+				if (UGameInstance* GameInst = GetGameInstance())
+				{
+					if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+					{
+						LogSubsystem->IncrementPauseCount();
+					}
+				}
 			}
 		}
 	}
@@ -2722,7 +2774,6 @@ void AAGSDCharacter::SetTotalDistance()
 				if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
 				{
 					LogSubsystem->AddStageMovementDistance(MapName, FrameDistance / 100.f);
-					LogSubsystem->AddStagePlayTime(MapName, World->GetDeltaSeconds());
 				}
 			}
 		}
@@ -2871,4 +2922,45 @@ bool AAGSDCharacter::LogExportCSV(const FString& FilePath)
 		}
 	}
 	return false;
+}
+
+void AAGSDCharacter::AddCoin(int32 Amount)
+{
+	if (Amount <= 0) return;
+
+	Coin += Amount;
+	if (GI)
+	{
+		GI->Coin = Coin;
+	}
+
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->AddAcquiredCoins(Amount);
+		}
+	}
+}
+
+bool AAGSDCharacter::ConsumeCoin(int32 Amount)
+{
+	if (Amount <= 0) return false;
+	if (Coin < Amount) return false;
+
+	Coin -= Amount;
+	if (GI)
+	{
+		GI->Coin = Coin;
+	}
+
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->AddConsumedCoins(Amount);
+		}
+	}
+
+	return true;
 }

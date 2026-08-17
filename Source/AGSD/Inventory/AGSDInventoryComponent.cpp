@@ -8,6 +8,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
 #include "Engine/DataTable.h"
+#include "GameplayLogSubsystem.h"
 
 UAGSDInventoryComponent::UAGSDInventoryComponent()
 {
@@ -155,6 +156,24 @@ bool UAGSDInventoryComponent::AddItem(FStruct_ItemData ItemData, int32& OutRemai
 
 		OnInventorySlotUpdated.Broadcast(EmptySlot);
 		OnItemAdded.Broadcast(EmptySlot, InventorySlots[EmptySlot].ItemData);
+	}
+
+	if (bAddedAny || OutRemainingQty > 0)
+	{
+		if (UGameInstance* GI = GetGameInstance())
+		{
+			if (UGameplayLogSubsystem* LogSubsystem = GI->GetSubsystem<UGameplayLogSubsystem>())
+			{
+				if (bAddedAny)
+				{
+					LogSubsystem->IncrementItemsAcquiredCount();
+				}
+				if (OutRemainingQty > 0)
+				{
+					LogSubsystem->IncrementInventoryFullOccurrence();
+				}
+			}
+		}
 	}
 
 	return bAddedAny;
@@ -377,6 +396,14 @@ bool UAGSDInventoryComponent::DropItem(int32 SlotIndex)
 	const FStruct_ItemData RemovedData = ItemData;
 	ClearSlot(SlotIndex);
 	OnItemRemoved.Broadcast(SlotIndex, RemovedData);
+
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GI->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->IncrementItemsDiscardedCount();
+		}
+	}
 
 	return true;
 }

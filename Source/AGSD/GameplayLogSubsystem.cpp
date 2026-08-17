@@ -3,17 +3,42 @@
 #include "Misc/Paths.h"
 #include "Misc/Guid.h"
 #include "HAL/FileManager.h"
+#include "Engine/World.h"
 
 void UGameplayLogSubsystem::InitNewSession()
 {
-	// 로그 데이터를 완전히 쒈초화하고 새 UUID를 세션 ID로 할당합니다
+	// 로그 데이터를 완전히 초기화하고 새 UUID를 세션 ID로 할당합니다
 	LogData = FGameplayLogData();
 	LogData.PlayerSessionID = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
 }
 
-void UGameplayLogSubsystem::AddCropGrowthDelayDueToWeeds(float DelaySeconds)
+FString UGameplayLogSubsystem::GetTargetStageName(const FString& InStageName) const
+{
+	if (!InStageName.IsEmpty())
+	{
+		return InStageName;
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		FString MapName = World->GetMapName();
+		MapName.RemoveFromStart(World->StreamingLevelsPrefix);
+		if (!MapName.IsEmpty())
+		{
+			return MapName;
+		}
+	}
+
+	return TEXT("Unknown_Stage");
+}
+
+void UGameplayLogSubsystem::AddCropGrowthDelayDueToWeeds(float DelaySeconds, const FString& StageName)
 {
 	LogData.TotalCropGrowthDelayDueToWeeds += DelaySeconds;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	float& StageDelay = LogData.StageCropGrowthDelayDueToWeeds.FindOrAdd(TargetStage);
+	StageDelay += DelaySeconds;
 }
 
 void UGameplayLogSubsystem::RecordPlayerPositionAtDateChange(int32 Day, FVector Position)
@@ -26,32 +51,77 @@ void UGameplayLogSubsystem::IncrementFailedPotionCrafting()
 	LogData.FailedPotionCraftingCount++;
 }
 
-void UGameplayLogSubsystem::RecordUsedCombo(const FString& ComboName)
+void UGameplayLogSubsystem::RecordUsedCombo(const FString& ComboName, const FString& StageName)
 {
 	int32& Count = LogData.UsedComboCounts.FindOrAdd(ComboName);
 	Count++;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	FString Key = FString::Printf(TEXT("%s_%s"), *TargetStage, *ComboName);
+	int32& StageCount = LogData.StageUsedComboCounts.FindOrAdd(Key);
+	StageCount++;
 }
 
-void UGameplayLogSubsystem::RecordCompletedCombo(const FString& ComboName)
+void UGameplayLogSubsystem::RecordCompletedCombo(const FString& ComboName, const FString& StageName)
 {
 	int32& Count = LogData.CompletedComboCounts.FindOrAdd(ComboName);
 	Count++;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	FString Key = FString::Printf(TEXT("%s_%s"), *TargetStage, *ComboName);
+	int32& StageCount = LogData.StageCompletedComboCounts.FindOrAdd(Key);
+	StageCount++;
 }
 
-void UGameplayLogSubsystem::RecordElixirUsageOnCrop(const FString& CropName)
+void UGameplayLogSubsystem::RecordElixirUsageOnCrop(const FString& CropName, const FString& StageName)
 {
 	int32& Count = LogData.ElixirUsagePerCrop.FindOrAdd(CropName);
 	Count++;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	FString Key = FString::Printf(TEXT("%s_%s"), *TargetStage, *CropName);
+	int32& StageCount = LogData.StageElixirUsageCounts.FindOrAdd(Key);
+	StageCount++;
 }
 
-void UGameplayLogSubsystem::AddAcquiredCoins(int32 Amount)
+void UGameplayLogSubsystem::AddAcquiredCoins(int32 Amount, const FString& StageName)
 {
 	LogData.TotalAcquiredCoins += Amount;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	int32& StageAmount = LogData.StageAcquiredCoins.FindOrAdd(TargetStage);
+	StageAmount += Amount;
 }
 
-void UGameplayLogSubsystem::AddConsumedCoins(int32 Amount)
+void UGameplayLogSubsystem::AddConsumedCoins(int32 Amount, const FString& StageName)
 {
 	LogData.TotalConsumedCoins += Amount;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	int32& StageAmount = LogData.StageConsumedCoins.FindOrAdd(TargetStage);
+	StageAmount += Amount;
+}
+
+void UGameplayLogSubsystem::RecordNPCTransaction(const FString& NPCName, const FString& ItemOrDetail, int32 CoinCost, int32 Quantity, const FString& StageName)
+{
+	FString TargetStage = GetTargetStageName(StageName);
+
+	// 1. 코인 총 소모량 및 맵별 소모량 누적
+	LogData.TotalConsumedCoins += CoinCost;
+	LogData.StageConsumedCoins.FindOrAdd(TargetStage) += CoinCost;
+
+	// 2. 맵_NPC_아이템 소모 누적 TMap
+	FString DetailKey = FString::Printf(TEXT("%s_%s_%s"), *TargetStage, *NPCName, *ItemOrDetail);
+	LogData.StageNPCCoinConsumption.FindOrAdd(DetailKey) += CoinCost;
+
+	// 3. 개별 거래 이력 구조체 추가
+	FNPCTransactionRecord Record;
+	Record.StageName = TargetStage;
+	Record.NPCName = NPCName;
+	Record.ItemOrDetail = ItemOrDetail;
+	Record.Cost = CoinCost;
+	Record.Quantity = Quantity;
+	LogData.NPCTransactions.Add(Record);
 }
 
 void UGameplayLogSubsystem::RecordMapClearTime(const FString& MapName, float TimeSeconds)
@@ -59,9 +129,13 @@ void UGameplayLogSubsystem::RecordMapClearTime(const FString& MapName, float Tim
 	LogData.MapClearTimes.Add(MapName, TimeSeconds);
 }
 
-void UGameplayLogSubsystem::AddDamageMitigatedByGuard(float MitigatedDamage)
+void UGameplayLogSubsystem::AddDamageMitigatedByGuard(float MitigatedDamage, const FString& StageName)
 {
 	LogData.TotalDamageMitigatedByGuard += MitigatedDamage;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	float& StageMitigated = LogData.StageDamageMitigatedByGuard.FindOrAdd(TargetStage);
+	StageMitigated += MitigatedDamage;
 }
 
 void UGameplayLogSubsystem::AddPlayTime(float TimeSeconds)
@@ -69,47 +143,82 @@ void UGameplayLogSubsystem::AddPlayTime(float TimeSeconds)
 	LogData.TotalPlayTime += TimeSeconds;
 }
 
-void UGameplayLogSubsystem::IncrementPauseCount()
+void UGameplayLogSubsystem::IncrementPauseCount(const FString& StageName)
 {
 	LogData.PauseCount++;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	int32& StageCount = LogData.StagePauseCounts.FindOrAdd(TargetStage);
+	StageCount++;
 }
 
-void UGameplayLogSubsystem::IncrementItemsAcquiredCount()
+void UGameplayLogSubsystem::IncrementItemsAcquiredCount(const FString& StageName)
 {
 	LogData.TotalItemsAcquired++;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	int32& StageCount = LogData.StageItemsAcquired.FindOrAdd(TargetStage);
+	StageCount++;
 }
 
-void UGameplayLogSubsystem::IncrementItemsDiscardedCount()
+void UGameplayLogSubsystem::IncrementItemsDiscardedCount(const FString& StageName)
 {
 	LogData.TotalItemsDiscarded++;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	int32& StageCount = LogData.StageItemsDiscarded.FindOrAdd(TargetStage);
+	StageCount++;
 }
 
-void UGameplayLogSubsystem::IncrementInventoryFullOccurrence()
+void UGameplayLogSubsystem::IncrementInventoryFullOccurrence(const FString& StageName)
 {
 	LogData.InventoryFullOccurrenceCount++;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	int32& StageCount = LogData.StageInventoryFullCounts.FindOrAdd(TargetStage);
+	StageCount++;
 }
 
-void UGameplayLogSubsystem::RecordNPCDialogue(const FString& NPCName)
+void UGameplayLogSubsystem::RecordNPCDialogue(const FString& NPCName, const FString& StageName)
 {
 	int32& Count = LogData.NPCDialogueCounts.FindOrAdd(NPCName);
 	Count++;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	FString Key = FString::Printf(TEXT("%s_%s"), *TargetStage, *NPCName);
+	int32& StageCount = LogData.StageNPCDialogueCounts.FindOrAdd(Key);
+	StageCount++;
 }
 
-void UGameplayLogSubsystem::RecordMonsterKill(const FString& MonsterName)
+void UGameplayLogSubsystem::RecordMonsterKill(const FString& MonsterName, const FString& StageName)
 {
 	int32& Count = LogData.MonsterKillCounts.FindOrAdd(MonsterName);
 	Count++;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	FString Key = FString::Printf(TEXT("%s_%s"), *TargetStage, *MonsterName);
+	int32& StageCount = LogData.StageMonsterKillCounts.FindOrAdd(Key);
+	StageCount++;
 }
 
-void UGameplayLogSubsystem::RecordCropHarvest(const FString& CropName, int32 Amount)
+void UGameplayLogSubsystem::RecordCropHarvest(const FString& CropName, int32 Amount, const FString& StageName)
 {
 	int32& Count = LogData.CropHarvestCounts.FindOrAdd(CropName);
 	Count += Amount;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	FString Key = FString::Printf(TEXT("%s_%s"), *TargetStage, *CropName);
+	int32& StageCount = LogData.StageCropHarvestCounts.FindOrAdd(Key);
+	StageCount += Amount;
 }
 
-void UGameplayLogSubsystem::IncrementGuardUsageCount()
+void UGameplayLogSubsystem::IncrementGuardUsageCount(const FString& StageName)
 {
 	LogData.GuardUsageCount++;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	int32& StageCount = LogData.StageGuardCounts.FindOrAdd(TargetStage);
+	StageCount++;
 }
 
 // ==========================================
@@ -155,19 +264,31 @@ void UGameplayLogSubsystem::IncrementTutorialFullSkip()
 	LogData.TutorialFullSkipCount++;
 }
 
-void UGameplayLogSubsystem::IncrementDialogueLineSkip()
+void UGameplayLogSubsystem::IncrementDialogueLineSkip(const FString& StageName)
 {
 	LogData.DialogueLineSkipCount++;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	int32& StageCount = LogData.StageDialogueLineSkipCounts.FindOrAdd(TargetStage);
+	StageCount++;
 }
 
-void UGameplayLogSubsystem::IncrementOptionChange()
+void UGameplayLogSubsystem::IncrementOptionChange(const FString& StageName)
 {
 	LogData.OptionChangeCount++;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	int32& StageCount = LogData.StageOptionChangeCounts.FindOrAdd(TargetStage);
+	StageCount++;
 }
 
-void UGameplayLogSubsystem::IncrementDialogueLogRecheck()
+void UGameplayLogSubsystem::IncrementDialogueLogRecheck(const FString& StageName)
 {
 	LogData.DialogueLogRecheckCount++;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	int32& StageCount = LogData.StageDialogueLogRecheckCounts.FindOrAdd(TargetStage);
+	StageCount++;
 }
 
 void UGameplayLogSubsystem::RecordPlayerDeath(const FString& StageName, const FString& DeathReason, FVector DeathLocation)
@@ -201,16 +322,17 @@ void UGameplayLogSubsystem::IncrementStageGimmickClear(const FString& StageName,
 	}
 }
 
-void UGameplayLogSubsystem::RecordGimmickClear(const FString& GimmickName, const FString& StageName)
+void UGameplayLogSubsystem::RecordGimmickStart(const FString& GimmickName, const FString& StageName, float TimeSeconds)
 {
-	FString TargetStage = StageName;
-	if (TargetStage.IsEmpty() && GetWorld())
-	{
-		TargetStage = GetWorld()->GetMapName();
-		TargetStage.RemoveFromStart(GetWorld()->StreamingLevelsPrefix);
-	}
+	FString TargetStage = GetTargetStageName(StageName);
+	LogData.GimmickStartTimes.Add(GimmickName, TimeSeconds);
+}
 
-	IncrementStageGimmickClear(TargetStage, GimmickName);
+void UGameplayLogSubsystem::RecordGimmickClear(const FString& GimmickName, const FString& StageName, float TimeSeconds)
+{
+	FString TargetStage = GetTargetStageName(StageName);
+	LogData.GimmickClearTimes.Add(GimmickName, TimeSeconds);
+	IncrementStageGimmickClear(GimmickName);
 }
 
 void UGameplayLogSubsystem::IncrementBossPatternDodge(const FString& StageName)
@@ -241,7 +363,8 @@ void UGameplayLogSubsystem::RecordBossClear(const FString& BossName, float Battl
 
 void UGameplayLogSubsystem::RecordPotionUsage(const FString& StageName, const FString& PotionType)
 {
-	int32& Count = LogData.PotionUsagePerMap.FindOrAdd(StageName);
+	FString TargetStage = GetTargetStageName(StageName);
+	int32& Count = LogData.PotionUsagePerMap.FindOrAdd(TargetStage);
 	Count++;
 
 	if (!PotionType.IsEmpty())
@@ -256,9 +379,13 @@ void UGameplayLogSubsystem::UpdateLatestHealthPercent(float HealthPercent)
 	LogData.LatestPlayerHealthPercent = HealthPercent;
 }
 
-void UGameplayLogSubsystem::IncrementTributeAltarUsage()
+void UGameplayLogSubsystem::IncrementTributeAltarUsage(const FString& StageName)
 {
 	LogData.TributeAltarUsageCount++;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	int32& StageCount = LogData.StageTributeAltarUsageCounts.FindOrAdd(TargetStage);
+	StageCount++;
 }
 
 void UGameplayLogSubsystem::AddStageDamageDealt(const FString& StageName, float Damage)
@@ -302,7 +429,7 @@ FString UGameplayLogSubsystem::GenerateCSVString() const
 	CSV += FString::Printf(TEXT("%s,General,GuardUsageCount,,%d\n"), *SessionID, LogData.GuardUsageCount);
 	CSV += FString::Printf(TEXT("%s,General,TotalDamageMitigatedByGuard,,%.2f\n"), *SessionID, LogData.TotalDamageMitigatedByGuard);
 	CSV += FString::Printf(TEXT("%s,General,TotalCropGrowthDelayDueToWeeds,,%.2f\n"), *SessionID, LogData.TotalCropGrowthDelayDueToWeeds);
-
+	
 	CSV += FString::Printf(TEXT("%s,Tutorial,FullSkipCount,,%d\n"), *SessionID, LogData.TutorialFullSkipCount);
 	CSV += FString::Printf(TEXT("%s,Tutorial,DialogueLineSkipCount,,%d\n"), *SessionID, LogData.DialogueLineSkipCount);
 
@@ -311,7 +438,7 @@ FString UGameplayLogSubsystem::GenerateCSVString() const
 
 	CSV += FString::Printf(TEXT("%s,Reward,TributeAltarUsageCount,,%d\n"), *SessionID, LogData.TributeAltarUsageCount);
 	CSV += FString::Printf(TEXT("%s,Reward,LatestHealthPercent,,%.2f\n"), *SessionID, LogData.LatestPlayerHealthPercent);
-
+	
 	// 2. 스테이지별 이동 및 행동 지표
 	for (const auto& Pair : LogData.StagePlayTimes)
 	{
@@ -348,6 +475,14 @@ FString UGameplayLogSubsystem::GenerateCSVString() const
 	for (const auto& Pair : LogData.StageDashCounts)
 	{
 		CSV += FString::Printf(TEXT("%s,StageDashCount,Dashes,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.GimmickStartTimes)
+	{
+		CSV += FString::Printf(TEXT("%s,GimmickStartTime,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.GimmickClearTimes)
+	{
+		CSV += FString::Printf(TEXT("%s,GimmickClearTime,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.StageGimmickClearCounts)
 	{
@@ -434,7 +569,101 @@ FString UGameplayLogSubsystem::GenerateCSVString() const
 		CSV += FString::Printf(TEXT("%s,MapClearTime,ClearSeconds,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 
-	// 5. 공간 히트맵 좌표 데이터
+	// 5. 맵(Stage)별 정밀 세부 지표
+	for (const auto& Pair : LogData.StageGuardCounts)
+	{
+		CSV += FString::Printf(TEXT("%s,Combat,StageGuardCount,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageDamageMitigatedByGuard)
+	{
+		CSV += FString::Printf(TEXT("%s,Combat,StageDamageMitigatedByGuard,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageAcquiredCoins)
+	{
+		CSV += FString::Printf(TEXT("%s,Economy,StageAcquiredCoins,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageConsumedCoins)
+	{
+		CSV += FString::Printf(TEXT("%s,Economy,StageConsumedCoins,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageNPCCoinConsumption)
+	{
+		CSV += FString::Printf(TEXT("%s,Economy,StageNPCCoinConsumption,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (int32 i = 0; i < LogData.NPCTransactions.Num(); ++i)
+	{
+		const FNPCTransactionRecord& Rec = LogData.NPCTransactions[i];
+		CSV += FString::Printf(TEXT("%s,NPCTransaction,Trade_%d,%s_%s_%s_Qty%d,%d\n"),
+			*SessionID,
+			i + 1,
+			*Rec.StageName,
+			*Rec.NPCName,
+			*Rec.ItemOrDetail,
+			Rec.Quantity,
+			Rec.Cost);
+	}
+	for (const auto& Pair : LogData.StageItemsAcquired)
+	{
+		CSV += FString::Printf(TEXT("%s,Inventory,StageItemsAcquired,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageItemsDiscarded)
+	{
+		CSV += FString::Printf(TEXT("%s,Inventory,StageItemsDiscarded,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageInventoryFullCounts)
+	{
+		CSV += FString::Printf(TEXT("%s,Inventory,StageInventoryFullCount,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StagePauseCounts)
+	{
+		CSV += FString::Printf(TEXT("%s,UI,StagePauseCount,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageUsedComboCounts)
+	{
+		CSV += FString::Printf(TEXT("%s,Combat,StageUsedCombo,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageCompletedComboCounts)
+	{
+		CSV += FString::Printf(TEXT("%s,Combat,StageCompletedCombo,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageMonsterKillCounts)
+	{
+		CSV += FString::Printf(TEXT("%s,Combat,StageMonsterKill,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageCropHarvestCounts)
+	{
+		CSV += FString::Printf(TEXT("%s,Farming,StageCropHarvest,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageElixirUsageCounts)
+	{
+		CSV += FString::Printf(TEXT("%s,Farming,StageElixirUsage,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageCropGrowthDelayDueToWeeds)
+	{
+		CSV += FString::Printf(TEXT("%s,Farming,StageCropGrowthDelayDueToWeeds,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageNPCDialogueCounts)
+	{
+		CSV += FString::Printf(TEXT("%s,NPC,StageNPCDialogue,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageTributeAltarUsageCounts)
+	{
+		CSV += FString::Printf(TEXT("%s,Reward,StageTributeAltarUsage,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageOptionChangeCounts)
+	{
+		CSV += FString::Printf(TEXT("%s,UI,StageOptionChange,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageDialogueLineSkipCounts)
+	{
+		CSV += FString::Printf(TEXT("%s,Tutorial,StageDialogueLineSkip,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageDialogueLogRecheckCounts)
+	{
+		CSV += FString::Printf(TEXT("%s,UI,StageDialogueLogRecheck,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+
+	// 6. 공간 히트맵 좌표 데이터
 	for (const auto& Pair : LogData.PlayerPositionsAtDateChange)
 	{
 		CSV += FString::Printf(TEXT("%s,PlayerPositionAtDateChange,Day_%d,%s,1\n"), *SessionID, Pair.Key, *Pair.Value.ToString());

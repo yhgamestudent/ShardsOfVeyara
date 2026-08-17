@@ -30,7 +30,18 @@ void APortalSpawner::OnBossDestroyed(AActor* DestroyedActor)
 	{
 		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
 		{
-			LogSubsystem->RecordBossClear(DestroyedActor->GetName(), 0.f, 0);
+			FString MapName = TEXT("Unknown");
+			float PlayTime = 0.f;
+			if (UWorld* World = GetWorld())
+			{
+				MapName = World->GetMapName();
+				MapName.RemoveFromStart(World->StreamingLevelsPrefix);
+				PlayTime = LogSubsystem->GetLogData().StagePlayTimes.FindRef(MapName);
+			}
+
+			LogSubsystem->RecordBossClear(DestroyedActor->GetName(), PlayTime, 0);
+			LogSubsystem->RecordStageClearPortalTime(MapName, PlayTime);
+			LogSubsystem->RecordMapClearTime(MapName, PlayTime);
 		}
 	}
 

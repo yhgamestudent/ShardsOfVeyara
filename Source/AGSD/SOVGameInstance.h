@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameplayLogSubsystem.h"
 #include "PlotSaveData.h"
 #include "Alchemy/AlchemySaveData.h"
 #include "SaveData.h"
@@ -92,6 +93,9 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Setting")
 	float MouseSensitivity = 5.f;
 	
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Setting")
+	FString PlayerSessionID = TEXT("Unknown");
+
 	// 경작지로부터 데이터를 받아서 저장/갱신하는 함수
 	UFUNCTION(BlueprintCallable, Category = "Farming")
 	void UpdatePlotData(FPlotSaveData NewData);

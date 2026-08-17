@@ -8,6 +8,7 @@
 #include "InteractionOwnerInterface.h"
 #include "AGSDPlayerController.h"
 #include "TextLog.h"
+#include "GameplayLogSubsystem.h"
 
 // Sets default values
 ACrop::ACrop()
@@ -177,6 +178,15 @@ void ACrop::Interact_Implementation(AAGSDCharacter* player)
 		OnHarvested.Broadcast();
 	}
 	UTextLog::WriteTextLogByStringAndFloat(TEXT("작물 수확"), CropData->CropName.ToString(), FinalQuantity);
+
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GI->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->RecordCropHarvest(CropData->CropName.ToString(), FinalQuantity);
+		}
+	}
+
 	Destroy();
 }
 

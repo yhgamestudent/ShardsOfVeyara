@@ -96,6 +96,7 @@ bool USOVGameInstance::GetAlchemyData(FString name, FAlchemySaveData& OutData)
 FSaveData USOVGameInstance::GetSaveData()
 {
 	FSaveData SaveData;
+	SaveData.PlayerSessionID = PlayerSessionID;
 	SaveData.NoRegenItem = NoRegenItem;
 	SaveData.Level = Level;
 	SaveData.TeleportationTag = TeleportationTag;
@@ -129,6 +130,7 @@ FSaveData USOVGameInstance::GetSaveData()
 
 void USOVGameInstance::SetSaveData(FSaveData SaveData)
 {
+	PlayerSessionID = SaveData.PlayerSessionID;
 	NoRegenItem = SaveData.NoRegenItem;
 	Level = SaveData.Level;
 	TeleportationTag = SaveData.TeleportationTag;

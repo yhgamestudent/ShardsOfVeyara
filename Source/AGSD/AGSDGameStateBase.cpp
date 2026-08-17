@@ -5,6 +5,8 @@
 
 #include "SOVGameInstance.h"
 #include "Net/UnrealNetwork.h"
+#include "GameplayLogSubsystem.h"
+#include "Kismet/GameplayStatics.h"
 
 void AAGSDGameStateBase::OnRep_CurrentDay()
 {
@@ -43,6 +45,17 @@ void AAGSDGameStateBase::AdvanceDay()
 
 	// 💡 날짜가 바뀌었음을 모든 구독자에게 알립니다.
 	OnDayChangedDelegate.Broadcast(CurrentDay);
+
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GI->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			if (APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(this, 0))
+			{
+				LogSubsystem->RecordPlayerPositionAtDateChange(CurrentDay, PlayerPawn->GetActorLocation());
+			}
+		}
+	}
     
 	// (선택 사항: 디버깅 로그)
 	UE_LOG(LogTemp, Warning, TEXT("Game Day Advanced to Day %d!"), CurrentDay);

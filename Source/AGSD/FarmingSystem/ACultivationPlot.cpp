@@ -13,6 +13,7 @@
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
 #include "TextLog.h"
+#include "GameplayLogSubsystem.h"
 
 // Sets default values
 AACultivationPlot::AACultivationPlot()
@@ -45,6 +46,14 @@ void AACultivationPlot::HandleDayPassed(int32 CurrentDay)
 			DelayedDays++;
 			FString LogMsg = FString::Printf(TEXT("%s (누적 %d일 지연)"), *CropData->CropName.ToString(), DelayedDays);
 			UTextLog::WriteTextLogByString(TEXT("성장 지연"), LogMsg);
+
+			if (UGameInstance* GameInst = GetGameInstance())
+			{
+				if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+				{
+					LogSubsystem->AddCropGrowthDelayDueToWeeds(1.0f);
+				}
+			}
 		}
 		else if (ScheduledDay <= CurrentDay) AdvanceGrowth();
 	}
@@ -367,6 +376,15 @@ void AACultivationPlot::ApplyFertilizer(int32 Amount)
 		PlantedCrop->SetBonusYield(BonusYield);
 	}
 	UpdateFertilizerEffect();
+
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			FString TargetCropName = (CropData && !CropData->CropName.IsEmpty()) ? CropData->CropName.ToString() : SeedName.ToString();
+			LogSubsystem->RecordElixirUsageOnCrop(TargetCropName);
+		}
+	}
 }
 
 void AACultivationPlot::ApplyGrowthElixir()
@@ -376,6 +394,15 @@ void AACultivationPlot::ApplyGrowthElixir()
 		while (!FullyGrown)
 		{
 			AdvanceGrowth();
+		}
+
+		if (UGameInstance* GameInst = GetGameInstance())
+		{
+			if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+			{
+				FString TargetCropName = (CropData && !CropData->CropName.IsEmpty()) ? CropData->CropName.ToString() : SeedName.ToString();
+				LogSubsystem->RecordElixirUsageOnCrop(TargetCropName);
+			}
 		}
 	}
 }

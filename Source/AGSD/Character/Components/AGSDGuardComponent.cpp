@@ -4,6 +4,7 @@
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameplayLogSubsystem.h"
 
 UAGSDGuardComponent::UAGSDGuardComponent()
 {
@@ -54,6 +55,14 @@ void UAGSDGuardComponent::StartBlock()
 	OwnerCharacter->SetCharacterState(ECharacterState::Block);
 	OwnerCharacter->UpdateSprintSpeed();
 	OwnerCharacter->UpdateCharacterRotationSettings();
+
+	if (UGameInstance* GameInst = OwnerCharacter->GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->IncrementGuardUsageCount();
+		}
+	}
 }
 
 void UAGSDGuardComponent::StopBlock()

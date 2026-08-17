@@ -11,6 +11,7 @@
 #include "Components/TextBlock.h"
 #include "Kismet/GameplayStatics.h"
 #include "ConfirmationDialog.h"
+#include "GameplayLogSubsystem.h"
 #include "Struct_MapData.h"
 #include "Components/Image.h"
 #include "Navigation/PathFollowingComponent.h"
@@ -104,6 +105,11 @@ void USaveGameSlot::OnClickEmptySlotButton()
 	{
 		GI->InitializeVariables();
 		GI->SaveGameSlot = SlotName;
+		if (UGameplayLogSubsystem* LogSubsystem = GI->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->InitNewSession();
+			GI->PlayerSessionID = LogSubsystem->GetLogData().PlayerSessionID;
+		}
 	}
 	UGameplayStatics::OpenLevel(GetWorld(), FName("Tutorial_Village"));
 }

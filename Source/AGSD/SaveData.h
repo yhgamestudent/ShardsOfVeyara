@@ -12,6 +12,9 @@ struct FSaveData : public FTableRowBase
 {
 	GENERATED_BODY()
 
+	UPROPERTY()	
+	FString PlayerSessionID;
+	
 	UPROPERTY()
 	TArray<FString> NoRegenItem;
 
@@ -83,6 +86,7 @@ struct FSaveData : public FTableRowBase
 
 	FSaveData()
 	{
+		PlayerSessionID = TEXT("Unknown");
 		CurrentDay = 1;
 		CurrentTime = 360.f;
 		ShardsAmount = 0;

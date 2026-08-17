@@ -5,6 +5,7 @@
 #include "Struct_GameplayLogData.h"
 #include "GameplayLogSubsystem.generated.h"
 
+
 /**
  * 게임 플레이 중 발생하는 각종 이벤트 로그를 중앙에서 관리하는 서브시스템입니다.
  */
@@ -35,13 +36,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "GameplayLog")
 	FString GetPlayerSessionID() const { return LogData.PlayerSessionID; }
 	
+	// 현재 맵(Stage) 이름 조회 (지정되지 않았을 시 현재 월드에서 자동 추출)
+	UFUNCTION(BlueprintPure, Category = "GameplayLog")
+	FString GetTargetStageName(const FString& InStageName = TEXT("")) const;
+
 	// ==========================================
-	// 로깅 헬퍼 함수들 (블루프린트에서 쉽게 호출 가능)
+	// 로깅 헬퍼 함수들 (블루프린트 및 C++에서 호출 가능)
 	// ==========================================
 
 	// 1. 잡초 방지로 인한 작물 성장 지연 기간 추가
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
-	void AddCropGrowthDelayDueToWeeds(float DelaySeconds);
+	void AddCropGrowthDelayDueToWeeds(float DelaySeconds, const FString& StageName = TEXT(""));
 
 	// 2. 날짜 전환 시점의 플레이어 위치 기록
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
@@ -53,23 +58,27 @@ public:
 
 	// 4. 공격 시 사용한 콤보 기록
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
-	void RecordUsedCombo(const FString& ComboName);
+	void RecordUsedCombo(const FString& ComboName, const FString& StageName = TEXT(""));
 
 	// 5. 끝까지 진행한 콤보 기록
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
-	void RecordCompletedCombo(const FString& ComboName);
+	void RecordCompletedCombo(const FString& ComboName, const FString& StageName = TEXT(""));
 
 	// 6. 작물 별 풍요/성장 비약 사용 기록
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
-	void RecordElixirUsageOnCrop(const FString& CropName);
+	void RecordElixirUsageOnCrop(const FString& CropName, const FString& StageName = TEXT(""));
 
 	// 7. 획득한 코인 갯수 추가
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
-	void AddAcquiredCoins(int32 Amount);
+	void AddAcquiredCoins(int32 Amount, const FString& StageName = TEXT(""));
 
 	// 8. 소모한 골드량 추가
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
-	void AddConsumedCoins(int32 Amount);
+	void AddConsumedCoins(int32 Amount, const FString& StageName = TEXT(""));
+
+	// 8-1. NPC 거래로 인한 코인 소모 상세 기록 (어디서, 어떤 NPC와, 어떤 거래/아이템, 얼마)
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Economy")
+	void RecordNPCTransaction(const FString& NPCName, const FString& ItemOrDetail, int32 CoinCost, int32 Quantity = 1, const FString& StageName = TEXT(""));
 
 	// 9. 맵 별 클리어 시간 기록
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
@@ -77,7 +86,7 @@ public:
 
 	// 10. 가드로 경감한 피해량 누적
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
-	void AddDamageMitigatedByGuard(float MitigatedDamage);
+	void AddDamageMitigatedByGuard(float MitigatedDamage, const FString& StageName = TEXT(""));
 
 	// 11. 게임 총 플레이 시간 누적
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
@@ -85,35 +94,35 @@ public:
 
 	// 12. 일시정지 횟수 증가
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
-	void IncrementPauseCount();
+	void IncrementPauseCount(const FString& StageName = TEXT(""));
 
 	// 13. 아이템 획득 횟수 증가
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
-	void IncrementItemsAcquiredCount();
+	void IncrementItemsAcquiredCount(const FString& StageName = TEXT(""));
 
 	// 14. 아이템 버리기 횟수 증가
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
-	void IncrementItemsDiscardedCount();
+	void IncrementItemsDiscardedCount(const FString& StageName = TEXT(""));
 
 	// 15. 인벤토리 가득 참 발생 횟수 증가
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
-	void IncrementInventoryFullOccurrence();
+	void IncrementInventoryFullOccurrence(const FString& StageName = TEXT(""));
 
 	// 16. NPC별 대화 횟수 증가
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
-	void RecordNPCDialogue(const FString& NPCName);
+	void RecordNPCDialogue(const FString& NPCName, const FString& StageName = TEXT(""));
 
 	// 17. 몬스터 종류별 처치 수 증가
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
-	void RecordMonsterKill(const FString& MonsterName);
+	void RecordMonsterKill(const FString& MonsterName, const FString& StageName = TEXT(""));
 
 	// 18. 작물 종류별 수확 수량 추가
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
-	void RecordCropHarvest(const FString& CropName, int32 Amount);
+	void RecordCropHarvest(const FString& CropName, int32 Amount, const FString& StageName = TEXT(""));
 
 	// 19. 가드 사용 횟수 증가
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
-	void IncrementGuardUsageCount();
+	void IncrementGuardUsageCount(const FString& StageName = TEXT(""));
 
 	// ==========================================
 	// 📌 9대 가설 & 18종 차트 로깅 헬퍼 함수
@@ -144,14 +153,14 @@ public:
 	void IncrementTutorialFullSkip();
 
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Tutorial")
-	void IncrementDialogueLineSkip();
+	void IncrementDialogueLineSkip(const FString& StageName = TEXT(""));
 
 	// 26. UI 옵션 변경 및 대화 로그 재확인
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|UI")
-	void IncrementOptionChange();
+	void IncrementOptionChange(const FString& StageName = TEXT(""));
 
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|UI")
-	void IncrementDialogueLogRecheck();
+	void IncrementDialogueLogRecheck(const FString& StageName = TEXT(""));
 
 	// 27. 사망 기록 (사망 원인 & 위치)
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Combat")
@@ -167,10 +176,13 @@ public:
 	// 29. 기믹 파훼 및 보스 패턴 회피
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Gimmick")
 	void IncrementStageGimmickClear(const FString& StageName, const FString& GimmickType = TEXT(""));
-
+	
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Gimmick")
-	void RecordGimmickClear(const FString& GimmickName, const FString& StageName = TEXT(""));
-
+	void RecordGimmickStart(const FString& GimmickName, const FString& StageName = TEXT(""), float TimeSeconds = 0.0f);
+	
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Gimmick")
+	void RecordGimmickClear(const FString& GimmickName, const FString& StageName = TEXT(""), float TimeSeconds = 0.0f);
+	
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Gimmick")
 	void IncrementBossPatternDodge(const FString& StageName);
 
@@ -193,7 +205,7 @@ public:
 
 	// 32. 봉헌 제단 이용
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
-	void IncrementTributeAltarUsage();
+	void IncrementTributeAltarUsage(const FString& StageName = TEXT(""));
 
 	// 33. 가해 딜량 vs 피격 딜량 누적
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Combat")

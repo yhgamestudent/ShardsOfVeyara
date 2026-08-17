@@ -198,6 +198,12 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PlayerState")
 	int Coin;
 
+	UFUNCTION(BlueprintCallable, Category = "PlayerState")
+	void AddCoin(int32 Amount);
+
+	UFUNCTION(BlueprintCallable, Category = "PlayerState")
+	bool ConsumeCoin(int32 Amount);
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="PlayerState")
 	bool bIsAttacking = false;
 
