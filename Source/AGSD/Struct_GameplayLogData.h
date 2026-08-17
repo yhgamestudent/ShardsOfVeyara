@@ -3,10 +3,24 @@
 #include "CoreMinimal.h"
 #include "Struct_GameplayLogData.generated.h"
 
+// 📌 23번 중첩 TMap 해결을 위한 래핑 구조체
+USTRUCT(BlueprintType)
+struct FInteractionCountMap
+{
+	GENERATED_BODY()
+
+	// 오브젝트(Actor) 이름 -> 상호작용 횟수
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
+	TMap<FString, int32> ActorCounts;
+};
 USTRUCT(BlueprintType)
 struct FGameplayLogData
 {
 	GENERATED_BODY()
+
+	// 플레이어 세션 고유 ID (새 게임 시작 시 UUID로 생성되어 세이브 파일과 함께 유지됩니다)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog")
+	FString PlayerSessionID;
 
 	// 1. 잡초 방지로 인한 작물 성장 지연 기간
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog")
@@ -100,9 +114,9 @@ struct FGameplayLogData
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
 	TMap<FString, float> StageMovementDistances;
 
-	// 23. 맵별 상호작용 키 입력 횟수 (MapName -> Count)
+	// 23. 맵별 + 오브젝트별 상호작용 키 입력 횟수 (MapName -> FInteractionCountMap)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
-	TMap<FString, int32> StageInteractionCounts;
+	TMap<FString, FInteractionCountMap> StageInteractionCounts;
 
 	// 24. 맵별 낙사/낙하 및 체크포인트 리스폰 횟수 (MapName -> Count)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")

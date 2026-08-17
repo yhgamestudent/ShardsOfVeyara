@@ -160,11 +160,15 @@ void AAGSDCharacter::TryInteract()
 			FString MapName = World->GetMapName();
 			MapName.RemoveFromStart(World->StreamingLevelsPrefix);
 
+			// 실제 상호작용한 액터 이름을 합께 기록
+			AActor* InteractedActor = InteractionComponent->GetCurrentInteractableActor();
+			FString ActorName = IsValid(InteractedActor) ? InteractedActor->GetName() : TEXT("None");
+
 			if (UGameInstance* GameInst = GetGameInstance())
 			{
 				if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
 				{
-					LogSubsystem->IncrementStageInteraction(MapName);
+					LogSubsystem->IncrementStageInteraction(MapName, ActorName);
 				}
 			}
 		}

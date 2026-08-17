@@ -27,6 +27,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
 	void SetLogData(const FGameplayLogData& InLogData) { LogData = InLogData; }
 
+	// 새 게임 시작 시 호출 — 새 UUID로 세션 ID를 초기화합니다
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+	void InitNewSession();
+
+	// 현재 세션 ID 조회
+	UFUNCTION(BlueprintPure, Category = "GameplayLog")
+	FString GetPlayerSessionID() const { return LogData.PlayerSessionID; }
+	
 	// ==========================================
 	// 로깅 헬퍼 함수들 (블루프린트에서 쉽게 호출 가능)
 	// ==========================================
@@ -123,9 +131,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Stage")
 	void AddStageMovementDistance(const FString& StageName, float DistanceMeters);
 
-	// 23. 맵별 상호작용 키 입력 횟수 증가
+	// 23. 맵별 + 오브젝트별 상호작용 키 입력 횟수 증가
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Stage")
-	void IncrementStageInteraction(const FString& StageName);
+	void IncrementStageInteraction(const FString& StageName, const FString& ActorName);
 
 	// 24. 맵별 낙사/낙하 발생 및 체크포인트 리스폰 기록
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Stage")

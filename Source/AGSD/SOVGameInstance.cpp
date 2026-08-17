@@ -192,8 +192,16 @@ void USOVGameInstance::LoadGame()
         
 		if (LoadedInstance)
 		{
-			// 불러온 데이터를 인스턴스 변수에 적용
+			// 불러온 데이터를 인스턴스 변수에 적용 (기존 PlayerSessionID 유지)
 			SetSaveData(LoadedInstance->SaveData);
+		}
+		else
+		{
+			// 세이브 파일이 없으면 새 게임 시작 — 새 PlayerSessionID 생성
+			if (UGameplayLogSubsystem* LogSubsystem = GetSubsystem<UGameplayLogSubsystem>())
+			{
+				LogSubsystem->InitNewSession();
+			}
 		}
 	}
 }

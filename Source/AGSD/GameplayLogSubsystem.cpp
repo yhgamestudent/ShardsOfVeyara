@@ -1,6 +1,15 @@
 #include "GameplayLogSubsystem.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/Guid.h"
+#include "HAL/FileManager.h"
+
+void UGameplayLogSubsystem::InitNewSession()
+{
+	// 로그 데이터를 완전히 쒈초화하고 새 UUID를 세션 ID로 할당합니다
+	LogData = FGameplayLogData();
+	LogData.PlayerSessionID = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
+}
 
 void UGameplayLogSubsystem::AddCropGrowthDelayDueToWeeds(float DelaySeconds)
 {
@@ -124,9 +133,13 @@ void UGameplayLogSubsystem::AddStageMovementDistance(const FString& StageName, f
 	Dist += DistanceMeters;
 }
 
-void UGameplayLogSubsystem::IncrementStageInteraction(const FString& StageName)
+void UGameplayLogSubsystem::IncrementStageInteraction(const FString& StageName, const FString& ActorName)
 {
-	int32& Count = LogData.StageInteractionCounts.FindOrAdd(StageName);
+	// 1. FInteractionCountMap 구조체를 FindOrAdd로 가져옵니다.
+	FInteractionCountMap& InteractionMap = LogData.StageInteractionCounts.FindOrAdd(StageName);
+
+	// 2. 구조체 내부의 ActorCounts TMap에 카운트 누적
+	int32& Count = InteractionMap.ActorCounts.FindOrAdd(ActorName);
 	Count++;
 }
 
@@ -274,156 +287,165 @@ void UGameplayLogSubsystem::Deinitialize()
 
 FString UGameplayLogSubsystem::GenerateCSVString() const
 {
-	FString CSV = TEXT("Category,MetricName,Key,Value\n");
+	FString SessionID = LogData.PlayerSessionID.IsEmpty() ? TEXT("Unknown") : LogData.PlayerSessionID;
+	FString CSV = FString::Printf(TEXT("PlayerSessionID,Category,MetricName,Key,Value\n"));
 
 	// 1. 단일 수치 지표 (General, Tutorial, UI, Reward)
-	CSV += FString::Printf(TEXT("General,TotalPlayTime,,%.2f\n"), LogData.TotalPlayTime);
-	CSV += FString::Printf(TEXT("General,TotalAcquiredCoins,,%d\n"), LogData.TotalAcquiredCoins);
-	CSV += FString::Printf(TEXT("General,TotalConsumedCoins,,%d\n"), LogData.TotalConsumedCoins);
-	CSV += FString::Printf(TEXT("General,FailedPotionCraftingCount,,%d\n"), LogData.FailedPotionCraftingCount);
-	CSV += FString::Printf(TEXT("General,PauseCount,,%d\n"), LogData.PauseCount);
-	CSV += FString::Printf(TEXT("General,TotalItemsAcquired,,%d\n"), LogData.TotalItemsAcquired);
-	CSV += FString::Printf(TEXT("General,TotalItemsDiscarded,,%d\n"), LogData.TotalItemsDiscarded);
-	CSV += FString::Printf(TEXT("General,InventoryFullOccurrenceCount,,%d\n"), LogData.InventoryFullOccurrenceCount);
-	CSV += FString::Printf(TEXT("General,GuardUsageCount,,%d\n"), LogData.GuardUsageCount);
-	CSV += FString::Printf(TEXT("General,TotalDamageMitigatedByGuard,,%.2f\n"), LogData.TotalDamageMitigatedByGuard);
-	CSV += FString::Printf(TEXT("General,TotalCropGrowthDelayDueToWeeds,,%.2f\n"), LogData.TotalCropGrowthDelayDueToWeeds);
+	CSV += FString::Printf(TEXT("%s,General,TotalPlayTime,,%.2f\n"), *SessionID, LogData.TotalPlayTime);
+	CSV += FString::Printf(TEXT("%s,General,TotalAcquiredCoins,,%d\n"), *SessionID, LogData.TotalAcquiredCoins);
+	CSV += FString::Printf(TEXT("%s,General,TotalConsumedCoins,,%d\n"), *SessionID, LogData.TotalConsumedCoins);
+	CSV += FString::Printf(TEXT("%s,General,FailedPotionCraftingCount,,%d\n"), *SessionID, LogData.FailedPotionCraftingCount);
+	CSV += FString::Printf(TEXT("%s,General,PauseCount,,%d\n"), *SessionID, LogData.PauseCount);
+	CSV += FString::Printf(TEXT("%s,General,TotalItemsAcquired,,%d\n"), *SessionID, LogData.TotalItemsAcquired);
+	CSV += FString::Printf(TEXT("%s,General,TotalItemsDiscarded,,%d\n"), *SessionID, LogData.TotalItemsDiscarded);
+	CSV += FString::Printf(TEXT("%s,General,InventoryFullOccurrenceCount,,%d\n"), *SessionID, LogData.InventoryFullOccurrenceCount);
+	CSV += FString::Printf(TEXT("%s,General,GuardUsageCount,,%d\n"), *SessionID, LogData.GuardUsageCount);
+	CSV += FString::Printf(TEXT("%s,General,TotalDamageMitigatedByGuard,,%.2f\n"), *SessionID, LogData.TotalDamageMitigatedByGuard);
+	CSV += FString::Printf(TEXT("%s,General,TotalCropGrowthDelayDueToWeeds,,%.2f\n"), *SessionID, LogData.TotalCropGrowthDelayDueToWeeds);
 
-	CSV += FString::Printf(TEXT("Tutorial,FullSkipCount,,%d\n"), LogData.TutorialFullSkipCount);
-	CSV += FString::Printf(TEXT("Tutorial,DialogueLineSkipCount,,%d\n"), LogData.DialogueLineSkipCount);
+	CSV += FString::Printf(TEXT("%s,Tutorial,FullSkipCount,,%d\n"), *SessionID, LogData.TutorialFullSkipCount);
+	CSV += FString::Printf(TEXT("%s,Tutorial,DialogueLineSkipCount,,%d\n"), *SessionID, LogData.DialogueLineSkipCount);
 
-	CSV += FString::Printf(TEXT("UI,OptionChangeCount,,%d\n"), LogData.OptionChangeCount);
-	CSV += FString::Printf(TEXT("UI,DialogueLogRecheckCount,,%d\n"), LogData.DialogueLogRecheckCount);
+	CSV += FString::Printf(TEXT("%s,UI,OptionChangeCount,,%d\n"), *SessionID, LogData.OptionChangeCount);
+	CSV += FString::Printf(TEXT("%s,UI,DialogueLogRecheckCount,,%d\n"), *SessionID, LogData.DialogueLogRecheckCount);
 
-	CSV += FString::Printf(TEXT("Reward,TributeAltarUsageCount,,%d\n"), LogData.TributeAltarUsageCount);
-	CSV += FString::Printf(TEXT("Reward,LatestHealthPercent,,%.2f\n"), LogData.LatestPlayerHealthPercent);
+	CSV += FString::Printf(TEXT("%s,Reward,TributeAltarUsageCount,,%d\n"), *SessionID, LogData.TributeAltarUsageCount);
+	CSV += FString::Printf(TEXT("%s,Reward,LatestHealthPercent,,%.2f\n"), *SessionID, LogData.LatestPlayerHealthPercent);
 
 	// 2. 스테이지별 이동 및 행동 지표
 	for (const auto& Pair : LogData.StagePlayTimes)
 	{
-		CSV += FString::Printf(TEXT("StagePlayTime,PlayTime,%s,%.2f\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,StagePlayTime,PlayTime,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.StageClearPortalTimes)
 	{
-		CSV += FString::Printf(TEXT("StageClearPortalTime,PortalTime,%s,%.2f\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,StageClearPortalTime,PortalTime,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.StageMovementDistances)
 	{
-		CSV += FString::Printf(TEXT("StageMovementDistance,DistanceMeters,%s,%.2f\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,StageMovementDistance,DistanceMeters,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
-	for (const auto& Pair : LogData.StageInteractionCounts)
+	for (const auto& StagePair : LogData.StageInteractionCounts)
 	{
-		CSV += FString::Printf(TEXT("StageInteractionCount,Interactions,%s,%d\n"), *Pair.Key, Pair.Value);
+		// StagePair.Value.ActorCounts 로 TMap에 접근하여 순회
+		for (const auto& ActorPair : StagePair.Value.ActorCounts)
+		{
+			CSV += FString::Printf(TEXT("%s,StageInteractionCount,Interactions,%s_%s,%d\n"),
+				*SessionID,
+				*StagePair.Key,
+				*ActorPair.Key,
+				ActorPair.Value);
+		}
 	}
 	for (const auto& Pair : LogData.StageFallRespawnCounts)
 	{
-		CSV += FString::Printf(TEXT("StageFallRespawnCount,FallRespawns,%s,%d\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,StageFallRespawnCount,FallRespawns,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.StageJumpCounts)
 	{
-		CSV += FString::Printf(TEXT("StageJumpCount,Jumps,%s,%d\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,StageJumpCount,Jumps,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.StageDashCounts)
 	{
-		CSV += FString::Printf(TEXT("StageDashCount,Dashes,%s,%d\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,StageDashCount,Dashes,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.StageGimmickClearCounts)
 	{
-		CSV += FString::Printf(TEXT("StageGimmickClearCount,StageClears,%s,%d\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,StageGimmickClearCount,StageClears,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.GimmickClearCounts)
 	{
-		CSV += FString::Printf(TEXT("GimmickClearCount,GimmickClears,%s,%d\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,GimmickClearCount,GimmickClears,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.BossPatternDodgeCounts)
 	{
-		CSV += FString::Printf(TEXT("BossPatternDodgeCount,PatternDodges,%s,%d\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,BossPatternDodgeCount,PatternDodges,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 
 	// 3. 전투 및 보스전 지표
 	for (const auto& Pair : LogData.BossEnterCounts)
 	{
-		CSV += FString::Printf(TEXT("BossEnterCount,BossEnters,%s,%d\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,BossEnterCount,BossEnters,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.BossDeathCounts)
 	{
-		CSV += FString::Printf(TEXT("BossDeathCount,BossDeaths,%s,%d\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,BossDeathCount,BossDeaths,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.BossClearCounts)
 	{
-		CSV += FString::Printf(TEXT("BossClearCount,BossClears,%s,%d\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,BossClearCount,BossClears,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.BossBattleTimes)
 	{
-		CSV += FString::Printf(TEXT("BossBattleTime,BattleSeconds,%s,%.2f\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,BossBattleTime,BattleSeconds,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.BossLootAcquiredCounts)
 	{
-		CSV += FString::Printf(TEXT("BossLootCount,LootAmount,%s,%d\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,BossLootCount,LootAmount,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.PotionUsagePerMap)
 	{
-		CSV += FString::Printf(TEXT("PotionUsagePerMap,PotionCount,%s,%d\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,PotionUsagePerMap,PotionCount,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.PotionUsageByType)
 	{
-		CSV += FString::Printf(TEXT("PotionUsageByType,PotionCount,%s,%d\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,PotionUsageByType,PotionCount,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.StageDamageDealt)
 	{
-		CSV += FString::Printf(TEXT("StageDamageDealt,DamageDealt,%s,%.2f\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,StageDamageDealt,DamageDealt,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.StageDamageTaken)
 	{
-		CSV += FString::Printf(TEXT("StageDamageTaken,DamageTaken,%s,%.2f\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,StageDamageTaken,DamageTaken,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.DeathReasonCounts)
 	{
-		CSV += FString::Printf(TEXT("DeathReason,Deaths,%s,%d\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,DeathReason,Deaths,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.MonsterKillCounts)
 	{
-		CSV += FString::Printf(TEXT("MonsterKill,Kills,%s,%d\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,MonsterKill,Kills,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 
 	// 4. 거점/파밍/상호작용/콤보 지표
 	for (const auto& Pair : LogData.CropHarvestCounts)
 	{
-		CSV += FString::Printf(TEXT("CropHarvest,HarvestAmount,%s,%d\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,CropHarvest,HarvestAmount,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.ElixirUsagePerCrop)
 	{
-		CSV += FString::Printf(TEXT("ElixirUsage,ElixirCount,%s,%d\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,ElixirUsage,ElixirCount,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.UsedComboCounts)
 	{
-		CSV += FString::Printf(TEXT("UsedCombo,ComboUsed,%s,%d\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,UsedCombo,ComboUsed,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.CompletedComboCounts)
 	{
-		CSV += FString::Printf(TEXT("CompletedCombo,ComboCompleted,%s,%d\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,CompletedCombo,ComboCompleted,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.NPCDialogueCounts)
 	{
-		CSV += FString::Printf(TEXT("NPCDialogue,Dialogues,%s,%d\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,NPCDialogue,Dialogues,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.MapClearTimes)
 	{
-		CSV += FString::Printf(TEXT("MapClearTime,ClearSeconds,%s,%.2f\n"), *Pair.Key, Pair.Value);
+		CSV += FString::Printf(TEXT("%s,MapClearTime,ClearSeconds,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 
 	// 5. 공간 히트맵 좌표 데이터
 	for (const auto& Pair : LogData.PlayerPositionsAtDateChange)
 	{
-		CSV += FString::Printf(TEXT("PlayerPositionAtDateChange,Day_%d,%s,1\n"), Pair.Key, *Pair.Value.ToString());
+		CSV += FString::Printf(TEXT("%s,PlayerPositionAtDateChange,Day_%d,%s,1\n"), *SessionID, Pair.Key, *Pair.Value.ToString());
 	}
 	for (int32 i = 0; i < LogData.DeathPositions.Num(); ++i)
 	{
-		CSV += FString::Printf(TEXT("DeathPosition,DeathIndex_%d,%s,1\n"), i + 1, *LogData.DeathPositions[i].ToString());
+		CSV += FString::Printf(TEXT("%s,DeathPosition,DeathIndex_%d,%s,1\n"), *SessionID, i + 1, *LogData.DeathPositions[i].ToString());
 	}
 	for (int32 i = 0; i < LogData.FallRespawnPositions.Num(); ++i)
 	{
-		CSV += FString::Printf(TEXT("FallRespawnPosition,FallIndex_%d,%s,1\n"), i + 1, *LogData.FallRespawnPositions[i].ToString());
+		CSV += FString::Printf(TEXT("%s,FallRespawnPosition,FallIndex_%d,%s,1\n"), *SessionID, i + 1, *LogData.FallRespawnPositions[i].ToString());
 	}
 
 	return CSV;
@@ -438,5 +460,24 @@ bool UGameplayLogSubsystem::ExportLogsToCSVFile(const FString& FilePath)
 	}
 
 	FString CSVContent = GenerateCSVString();
+
+	// 파일이 이미 존재하면 헤더를 제외하고 데이터 행만 append
+	if (IFileManager::Get().FileExists(*SavePath))
+	{
+		// 첫 담락(헤더 행)을 제거하고 나머지만 우리
+		FString DataOnly = CSVContent;
+		int32 NewlineIndex;
+		if (DataOnly.FindChar(TEXT('\n'), NewlineIndex))
+		{
+			DataOnly = DataOnly.RightChop(NewlineIndex + 1);
+		}
+		return FFileHelper::SaveStringToFile(
+			DataOnly, *SavePath,
+			FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM,
+			&IFileManager::Get(),
+			EFileWrite::FILEWRITE_Append);
+	}
+
+	// 파일이 없으면 헤더 포함 신규 생성
 	return FFileHelper::SaveStringToFile(CSVContent, *SavePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
 }
