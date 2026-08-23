@@ -178,3 +178,8 @@ bool AWeeds::CanInteract_Implementation(AAGSDCharacter* player)
 	return true;
 }
 
+FString AWeeds::GetInteractionActionType_Implementation(AAGSDCharacter* player)
+{
+	return TEXT("Weeding");
+}
+

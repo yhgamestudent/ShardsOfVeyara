@@ -130,6 +130,11 @@ bool AChest::CanInteract_Implementation(AAGSDCharacter* player)
 	return player->bCanOpenChest;
 }
 
+FString AChest::GetInteractionActionType_Implementation(AAGSDCharacter* player)
+{
+	return TEXT("Chest");
+}
+
 void AChest::Open_Chest_UI()
 {
 	APlayerController* PC = UGameplayStatics::GetPlayerController(GetWorld(), 0);

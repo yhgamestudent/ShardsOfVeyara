@@ -3,6 +3,7 @@
 #include "AGSDPlayerController.h"
 #include "Interaction.h"
 #include "Components/PrimitiveComponent.h"
+#include "GameplayLogSubsystem.h"
 
 UAGSDInteractionComponent::UAGSDInteractionComponent()
 {
@@ -57,6 +58,17 @@ void UAGSDInteractionComponent::TryInteract()
 
 	if (CanInteract && IsValid(CurrentInteractableActor) && CurrentInteractableActor->Implements<UInteraction>())
 	{
+		// 📜 상호작용 행동 종류 확인 및 로그 횟수 자동 증가
+		FString ActionType = IInteraction::Execute_GetInteractionActionType(CurrentInteractableActor, OwnerCharacter);
+
+		if (UGameInstance* GI = OwnerCharacter->GetGameInstance())
+		{
+			if (UGameplayLogSubsystem* LogSubsystem = GI->GetSubsystem<UGameplayLogSubsystem>())
+			{
+				LogSubsystem->RecordInteractionAction(ActionType);
+			}
+		}
+
 		IInteraction::Execute_Interact(CurrentInteractableActor, OwnerCharacter);
 	}
 }

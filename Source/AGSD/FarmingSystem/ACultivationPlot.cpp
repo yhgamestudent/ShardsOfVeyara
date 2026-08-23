@@ -130,6 +130,29 @@ bool AACultivationPlot::CanInteract_Implementation(AAGSDCharacter* player)
 	return false;
 }
 
+FString AACultivationPlot::GetInteractionActionType_Implementation(AAGSDCharacter* player)
+{
+	// 1. 작물이 없고 씨앗을 들고 있는 경우 -> "Planting" (씨앗 심기)
+	if (PlantedCrop == nullptr)
+	{
+		if (player && player->HoldingState == EHoldingState::EHS_Seed)
+		{
+			return TEXT("Planting");
+		}
+	}
+	// 2. 작물이 있고 아직 다 자라지 않았을 때 물약을 들고 있는 경우 -> "UsePotionOnCrop" (물약/비약 투여)
+	else if (!FullyGrown && player)
+	{
+		FString ItemIDStr = player->GetHoldingItemData().ItemID;
+		if (ItemIDStr.Contains(TEXT("Growth")) || ItemIDStr.Contains(TEXT("Rich")))
+		{
+			return TEXT("UsePotionOnCrop");
+		}
+	}
+
+	return TEXT("CultivationPlot");
+}
+
 //오버랩 종료 함수 구현부
 void AACultivationPlot::OnEndOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
 {
@@ -167,6 +190,15 @@ void AACultivationPlot::Interact_Implementation(AAGSDCharacter* player)
 		
 		PlantCrop();
 		PlantedCrop->MeshUpdate(CurrentGrowStageIndex);
+
+		// 📜 작물 심기 행동 횟수 및 시각 로깅
+		if (UGameInstance* GameInst = player->GetGameInstance())
+		{
+			if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+			{
+				LogSubsystem->RecordCropPlant(SeedName.ToString());
+			}
+		}
 		return;
 	}
 

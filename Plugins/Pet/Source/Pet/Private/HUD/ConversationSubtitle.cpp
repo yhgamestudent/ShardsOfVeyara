@@ -4,6 +4,8 @@
 #include "Components/Button.h"
 #include "Components/TextBlock.h"
 #include "HUD/ConversationLog.h"
+#include "Kismet/GameplayStatics.h"
+#include "GameFramework/Character.h"
 
 void UConversationSubtitle::NativeConstruct()
 {
@@ -53,6 +55,19 @@ void UConversationSubtitle::PlayFadeInAnimation()
 {
 	//보이게 설정
 	SetVisibility(ESlateVisibility::Visible);
+
+	// 📜 대화 활성 상태를 플레이어에게 전달하여 대화 시간 누적 시작
+	if (UWorld* World = GetWorld())
+	{
+		if (ACharacter* Player = UGameplayStatics::GetPlayerCharacter(World, 0))
+		{
+			if (UFunction* Func = Player->FindFunction(TEXT("SetCurrentActionCategory")))
+			{
+				FString Category = TEXT("Dialogue");
+				Player->ProcessEvent(Func, &Category);
+			}
+		}
+	}
 	
 	if (FadeInAnim)
 	{
@@ -81,11 +96,34 @@ void UConversationSubtitle::PlayFadeOutAnimation()
 void UConversationSubtitle::OnFadeOutFinished()
 {
 	SetVisibility(ESlateVisibility::Hidden);
+
+	// 📜 대화 종료 상태를 플레이어에게 전달하여 대화 시간 누적 종료
+	if (UWorld* World = GetWorld())
+	{
+		if (ACharacter* Player = UGameplayStatics::GetPlayerCharacter(World, 0))
+		{
+			if (UFunction* Func = Player->FindFunction(TEXT("SetCurrentActionCategory")))
+			{
+				FString Category = TEXT("");
+				Player->ProcessEvent(Func, &Category);
+			}
+		}
+	}
 }
 
 void UConversationSubtitle::OnPressedSkipButton()
 {
-	//UE_LOG(LogTemp, Warning, TEXT("OnPressedSkipButton"));
+	// 📜 대화 스킵 버튼 클릭 로그 기록
+	if (UWorld* World = GetWorld())
+	{
+		if (ACharacter* Player = UGameplayStatics::GetPlayerCharacter(World, 0))
+		{
+			if (UFunction* Func = Player->FindFunction(TEXT("LogDialogueLineSkip")))
+			{
+				Player->ProcessEvent(Func, nullptr);
+			}
+		}
+	}
 
 	if (OnSkipClicked.IsBound())
 	{
@@ -95,7 +133,17 @@ void UConversationSubtitle::OnPressedSkipButton()
 
 void UConversationSubtitle::OnPressedLogButton()
 {
-	//UE_LOG(LogTemp, Warning, TEXT("OnPressedLogButton"));
+	// 📜 대화 로그(히스토리) 확인 버튼 클릭 로그 기록
+	if (UWorld* World = GetWorld())
+	{
+		if (ACharacter* Player = UGameplayStatics::GetPlayerCharacter(World, 0))
+		{
+			if (UFunction* Func = Player->FindFunction(TEXT("LogDialogueLogRecheck")))
+			{
+				Player->ProcessEvent(Func, nullptr);
+			}
+		}
+	}
 
 	if (OnLogClicked.IsBound())
 	{

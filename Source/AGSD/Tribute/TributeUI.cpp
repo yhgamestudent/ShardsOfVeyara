@@ -36,6 +36,10 @@ void UTributeUI::NativeConstruct()
 	if (PC)
 	{
 		FarmerChar = Cast<AAGSDCharacter>(PC->GetPawn());
+		if (FarmerChar)
+		{
+			FarmerChar->SetCurrentActionCategory(TEXT("TributeAltar"));
+		}
 	}
 }
 
@@ -44,6 +48,7 @@ void UTributeUI::NativeDestruct()
 	if (FarmerChar)
 	{
 		FarmerChar->UnregisterCloseableUI(this);
+		FarmerChar->SetCurrentActionCategory(TEXT(""));
 	}
 	Super::NativeDestruct();
 }

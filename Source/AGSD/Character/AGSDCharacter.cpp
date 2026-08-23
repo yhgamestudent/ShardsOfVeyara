@@ -261,6 +261,7 @@ void AAGSDCharacter::Tick(float DeltaSeconds)
 	}
 
 	SetTotalDistance();
+	UpdateActionDurationLogging(DeltaSeconds);
 
 	if (ComboGuideComponent)
 	{
@@ -1235,8 +1236,26 @@ void AAGSDCharacter::UseEquippedItem()
 		AActor* DefaultActor = Cast<AActor>(HoldingItemData.ItemBPClass->GetDefaultObject());
 		if (DefaultActor && DefaultActor->Implements<UUsableItem>())
 		{
+			// 🛡️ 체력 물약인 경우: 체력이 이미 가득 차 있다면 사용 차단 (아이템 낭비 및 로그 데이터 왜곡 방지)
+			if (HoldingItemData.ItemID.Contains(TEXT("Health")) || HoldingItemData.ItemID.Contains(TEXT("Heal")))
+			{
+				if (Health >= MaxHealth)
+				{
+					return;
+				}
+			}
+
 			IUsableItem::Execute_UseItem(DefaultActor, this);
 			bUsed = true;
+
+			// 📜 체력 물약 등 소비 아이템 사용 로깅
+			if (UGameInstance* GameInst = GetGameInstance())
+			{
+				if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+				{
+					LogSubsystem->RecordHealthPotionUsage(HoldingItemData.ItemID);
+				}
+			}
 		}
 	}
 
@@ -2518,7 +2537,32 @@ void AAGSDCharacter::RegisterCloseableUI(UUserWidget* NewUI)
 	if (NewUI && NewUI->GetClass()->ImplementsInterface(UUIClosable::StaticClass()))
 	{
 		ActiveCloseableUI = NewUI;
-		UE_LOG(LogTemp, Log, TEXT("RegisterCloseableUI - Successfully registered: %s"), *NewUI->GetName());
+
+		// 📜 UI 이름 및 클래스에 따라 행동 카테고리 자동 지정
+		FString UIName = NewUI->GetName();
+		if (UIName.Contains(TEXT("Pause")))
+		{
+			SetCurrentActionCategory(TEXT("PauseMenu"));
+		}
+		else if (UIName.Contains(TEXT("Alchemy")) || UIName.Contains(TEXT("Potion")))
+		{
+			SetCurrentActionCategory(TEXT("PotionCrafting"));
+		}
+		else if (UIName.Contains(TEXT("Tribute")) || UIName.Contains(TEXT("Altar")))
+		{
+			SetCurrentActionCategory(TEXT("TributeAltar"));
+		}
+		else if (UIName.Contains(TEXT("Chest")) || UIName.Contains(TEXT("Inventory")))
+		{
+			SetCurrentActionCategory(TEXT("Inventory"));
+		}
+		else
+		{
+			// 위 특수 UI 외의 모든 팝업/상점/대장간/요리/NPC UI는 'NPC_Service'로 자동 배정!
+			SetCurrentActionCategory(TEXT("NPC_Service"));
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("RegisterCloseableUI - Successfully registered: %s (ActionCategory: %s)"), *NewUI->GetName(), *CurrentActionCategory);
 	}
 }
 
@@ -2527,6 +2571,7 @@ void AAGSDCharacter::UnregisterCloseableUI(UUserWidget* UI)
 	if (ActiveCloseableUI.Get() == UI)
 	{
 		ActiveCloseableUI = nullptr;
+		SetCurrentActionCategory(TEXT(""));
 		UE_LOG(LogTemp, Log, TEXT("UnregisterCloseableUI - Successfully unregistered"));
 	}
 }
@@ -2964,3 +3009,104 @@ bool AAGSDCharacter::ConsumeCoin(int32 Amount)
 
 	return true;
 }
+
+// ─── [로그 데이터: 세분화된 행동 소요 시간 자동 판별 및 누적] ───
+
+void AAGSDCharacter::SetCurrentActionCategory(const FString& NewCategory)
+{
+	CurrentActionCategory = NewCategory;
+}
+
+void AAGSDCharacter::SetActionNPCService(bool bActive)
+{
+	SetCurrentActionCategory(bActive ? TEXT("NPC_Service") : TEXT(""));
+}
+
+void AAGSDCharacter::UpdateActionDurationLogging(float DeltaSeconds)
+{
+	if (DeltaSeconds <= 0.0f) return;
+
+	FString DeterminedCategory;
+
+	// 1. 인벤토리 상태 특수 처리: 인벤토리가 열려있더라도 걷거나 달리는 중이면 Movement로 배정하여 물리적 정합성 유지!
+	if (CurrentActionCategory.Equals(TEXT("Inventory"), ESearchCase::IgnoreCase))
+	{
+		if (GetCharacterMovement() && GetCharacterMovement()->IsFalling())
+		{
+			DeterminedCategory = TEXT("Airborne");
+		}
+		else if (GetVelocity().Size2D() > 15.0f)
+		{
+			DeterminedCategory = TEXT("Movement");
+		}
+		else
+		{
+			DeterminedCategory = TEXT("Inventory");
+		}
+	}
+	// 2. 다른 명시적 UI / 상호작용 카테고리가 있는 경우 (Dialogue, PotionCrafting, TributeAltar, NPC_Service 등)
+	else if (!CurrentActionCategory.IsEmpty())
+	{
+		DeterminedCategory = CurrentActionCategory;
+	}
+	else
+	{
+		// 3. 캐릭터 몽타주 및 전투 상태 판별
+		UAnimInstance* AnimInst = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
+		UAnimMontage* CurrentMontage = AnimInst ? AnimInst->GetCurrentActiveMontage() : nullptr;
+		FString MontageName = CurrentMontage ? CurrentMontage->GetName() : TEXT("");
+
+		if (CharacterState == ECharacterState::Block || 
+			MontageName.Contains(TEXT("Attack")) ||  
+			MontageName.Contains(TEXT("Combo")) || 
+			MontageName.Contains(TEXT("Skill")) ||
+			MontageName.Contains(TEXT("Parry")) ||
+			MontageName.Contains(TEXT("Hit")))
+		{
+			DeterminedCategory = TEXT("Combat");
+		}
+		else if (MontageName.Contains(TEXT("Plant")) || MontageName.Contains(TEXT("Weed")))
+		{
+			DeterminedCategory = TEXT("Weeding");
+		}
+		else if (MontageName.Contains(TEXT("Harvest")) || MontageName.Contains(TEXT("Farm")) || MontageName.Contains(TEXT("Water")))
+		{
+			DeterminedCategory = TEXT("Farming");
+		}
+		else if (MontageName.Contains(TEXT("Door")) || MontageName.Contains(TEXT("Switch")))
+		{
+			DeterminedCategory = TEXT("GimmickObject");
+		}
+		else if (GetCharacterMovement() && GetCharacterMovement()->IsFalling())
+		{
+			// 4. 공중 체공 / 점프 / 낙하
+			DeterminedCategory = TEXT("Airborne");
+		}
+		else if (GetVelocity().Size2D() > 15.0f)
+		{
+			// 5. 지상 이동 (걷기 / 달리기)
+			DeterminedCategory = TEXT("Movement");
+		}
+		else 
+		{
+			// 6. 지상 정지 관찰 / 고민 (Idle)
+			DeterminedCategory = TEXT("Idle");
+		}
+	}
+
+	// 6. 서브시스템에 해당 카테고리 소요 시간 누적
+	if (UWorld* World = GetWorld())
+	{
+		FString MapName = World->GetMapName();
+		MapName.RemoveFromStart(World->StreamingLevelsPrefix);
+
+		if (UGameInstance* GameInst = GetGameInstance())
+		{
+			if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+			{
+				LogSubsystem->AddStageActionDuration(DeterminedCategory, DeltaSeconds, MapName);
+			}
+		}
+	}
+}
+

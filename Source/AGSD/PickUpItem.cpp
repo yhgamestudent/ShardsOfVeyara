@@ -13,6 +13,7 @@
 #include "Inventory/AGSDInventoryComponent.h"
 #include "Inventory/UI/AGSDPlayerHUD.h"
 #include "TextLog.h"
+#include "SOVGameInstance.h"
 
 APickUpItem::APickUpItem()
 {
@@ -45,9 +46,38 @@ APickUpItem::APickUpItem()
 
 }
 
+FString APickUpItem::GetUniqueItemKey() const
+{
+	FString MapName = TEXT("");
+	if (UWorld* World = GetWorld())
+	{
+		MapName = World->GetMapName();
+		MapName.RemoveFromStart(World->StreamingLevelsPrefix);
+	}
+	return MapName + TEXT("_") + GetName();
+}
+
 void APickUpItem::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// 🚫 리젠 방지 아이템인 경우, 이미 획득한 기록이 있으면 월드에서 즉시 제거
+	if (bNoRegen)
+	{
+		if (UGameInstance* GameInst = GetGameInstance())
+		{
+			if (USOVGameInstance* GI = Cast<USOVGameInstance>(GameInst))
+			{
+				FString UniqueKey = GetUniqueItemKey();
+				if (GI->NoRegenItem.Contains(UniqueKey) || GI->NoRegenItem.Contains(GetName()))
+				{
+					Destroy();
+					return;
+				}
+			}
+		}
+	}
+
 	if (Holding)
 	{
 		CollisionBox->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -93,7 +123,7 @@ void APickUpItem::Interact_Implementation(AAGSDCharacter* player)
 	{
 		return;
 	}
-
+	
 	int32 OutRemainingQty = 0;
 	FStruct_ItemData OutItemData;
 
@@ -102,6 +132,18 @@ void APickUpItem::Interact_Implementation(AAGSDCharacter* player)
 
 	if (bAdded)
 	{
+		// 🚫 리젠 방지 아이템인 경우 GameInstance 장부에 기록
+		if (bNoRegen)
+		{
+			if (UGameInstance* GameInst = player->GetGameInstance())
+			{
+				if (USOVGameInstance* GI = Cast<USOVGameInstance>(GameInst))
+				{
+					GI->NoRegenItem.AddUnique(GetUniqueItemKey());
+				}
+			}
+		}
+
 		// 실제 획득 수량 계산
 		int32 AcquiredQty = Amount - OutRemainingQty;
 
@@ -113,7 +155,7 @@ void APickUpItem::Interact_Implementation(AAGSDCharacter* player)
 		{
 			player->PlayerHUDRef->AddItemNotification(OutItemData, AcquiredQty);
 		}
-
+		
 		// 부분 획득 정책 반영 (완전히 획득했으면 소멸, 남았다면 수량 갱신 후 월드 잔류)
 		if (OutRemainingQty <= 0)
 		{
@@ -135,6 +177,11 @@ void APickUpItem::ShowWidget_Implementation(ACharacter* player)
 bool APickUpItem::CanInteract_Implementation(AAGSDCharacter* player)
 {
 	return true;
+}
+
+FString APickUpItem::GetInteractionActionType_Implementation(AAGSDCharacter* player)
+{
+	return TEXT("PickUpItem");
 }
 
 void APickUpItem::DisableCollisionForHolding()

@@ -186,7 +186,6 @@ void ACrop::Interact_Implementation(AAGSDCharacter* player)
 			LogSubsystem->RecordCropHarvest(CropData->CropName.ToString(), FinalQuantity);
 		}
 	}
-
 	Destroy();
 }
 
@@ -199,6 +198,11 @@ void ACrop::ShowWidget_Implementation(ACharacter* player)
 bool ACrop::CanInteract_Implementation(AAGSDCharacter* player)
 {
 	return true;
+}
+
+FString ACrop::GetInteractionActionType_Implementation(AAGSDCharacter* player)
+{
+	return TEXT("CropHarvest");
 }
 
 void ACrop::MeshUpdate(int32 currentGrowStageIndex)

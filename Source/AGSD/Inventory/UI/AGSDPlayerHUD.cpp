@@ -87,6 +87,7 @@ void UAGSDPlayerHUD::ToggleInventory()
 			if (AAGSDCharacter* Character = Cast<AAGSDCharacter>(OwningPawn))
 			{
 				Character->RegisterCloseableUI(this);
+				Character->SetCurrentActionCategory(TEXT("Inventory"));
 			}
 		}
 	}
@@ -102,6 +103,14 @@ void UAGSDPlayerHUD::CloseInventory()
 	if (HotbarSlide)
 	{
 		PlayAnimation(HotbarSlide, 0.0f, 1, EUMGSequencePlayMode::Reverse);
+	}
+
+	if (APawn* OwningPawn = GetOwningPlayerPawn())
+	{
+		if (AAGSDCharacter* Character = Cast<AAGSDCharacter>(OwningPawn))
+		{
+			Character->SetCurrentActionCategory(TEXT(""));
+		}
 	}
 
 	if (APlayerController* PC = GetOwningPlayer())

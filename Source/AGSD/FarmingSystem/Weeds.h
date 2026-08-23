@@ -56,6 +56,7 @@ public:
 	virtual void Interact_Implementation(AAGSDCharacter* player) override;
 	virtual void ShowWidget_Implementation(ACharacter* player) override;
 	virtual bool CanInteract_Implementation(AAGSDCharacter* player) override;
+	virtual FString GetInteractionActionType_Implementation(AAGSDCharacter* player) override;
 
 	UPROPERTY(BlueprintAssignable, Category = "Events")
 	FOnWeedingDelegate OnWeeding;

@@ -156,6 +156,11 @@ bool AAppleTree::CanInteract_Implementation(AAGSDCharacter* player)
 	return bHasApple;
 }
 
+FString AAppleTree::GetInteractionActionType_Implementation(AAGSDCharacter* player)
+{
+	return TEXT("AppleHarvest");
+}
+
 void AAppleTree::ShowWidget_Implementation(ACharacter* player)
 {
 	if (!bHasApple) return;

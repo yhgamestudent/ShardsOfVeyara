@@ -55,6 +55,7 @@ void UAlchemyUI::NativeConstruct()
 		{
 			OwningCharacter = Character;
 			Character->RegisterCloseableUI(this);
+			Character->SetCurrentActionCategory(TEXT("PotionCrafting"));
 		}
 	}
 }
@@ -64,6 +65,7 @@ void UAlchemyUI::NativeDestruct()
 	if (OwningCharacter.IsValid())
 	{
 		OwningCharacter->UnregisterCloseableUI(this);
+		OwningCharacter->SetCurrentActionCategory(TEXT(""));
 	}
 	Super::NativeDestruct();
 }

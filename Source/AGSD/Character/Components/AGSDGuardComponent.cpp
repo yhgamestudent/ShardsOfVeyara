@@ -61,6 +61,7 @@ void UAGSDGuardComponent::StartBlock()
 		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
 		{
 			LogSubsystem->IncrementGuardUsageCount();
+			LogSubsystem->RecordInteractionAction(TEXT("Combat_Guard"));
 		}
 	}
 }
@@ -122,6 +123,15 @@ void UAGSDGuardComponent::HandleJustGuardSuccess()
 	);
 
 	UE_LOG(LogTemp, Warning, TEXT("Just Guard Success!"));
+
+	// 🛡️ 저스트 가드(패링) 성공 행동 횟수 로깅
+	if (UGameInstance* GameInst = OwnerCharacter->GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->RecordInteractionAction(TEXT("Combat_Parry"));
+		}
+	}
 
 	// 저스트 가드 성공 시 즉시 가드 상태 해제 후 패리 콤보 시작
 	StopBlock();

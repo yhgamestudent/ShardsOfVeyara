@@ -9,6 +9,7 @@
 #include "FarmingGameMode.h"
 #include "TextLog.h"
 #include "Components/BoxComponent.h"
+#include "GameplayLogSubsystem.h"
 
 // Sets default values
 ABed::ABed()
@@ -35,8 +36,12 @@ void ABed::WakeUp()
 	{
 		GM->NextDay(WakeUpTime);
 	}
-	TargetPlayer->HealthRecovery(TargetPlayer->getPlayerMaxhealth());
-	TargetPlayer->EnableInput(TargetPlayer->getPlayerController());
+	if (TargetPlayer)
+	{
+		TargetPlayer->HealthRecovery(TargetPlayer->getPlayerMaxhealth());
+		TargetPlayer->EnableInput(TargetPlayer->getPlayerController());
+		TargetPlayer->SetCurrentActionCategory(TEXT("")); // 🔄 기상 시 기본 상태로 복귀
+	}
 	if (FadeWidget) FadeWidget->SetTargetOpacity(0.f);
 }
 
@@ -44,6 +49,16 @@ void ABed::Interact_Implementation(AAGSDCharacter* player)
 {
 	TargetPlayer = player;
 	TargetPlayer->DisableInput(TargetPlayer->getPlayerController());
+	TargetPlayer->SetCurrentActionCategory(TEXT("Sleep")); // 🛌 취침 시간 누적 시작
+
+	if (UGameInstance* GameInst = TargetPlayer->GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->IncrementSleepCount(); // 📜 취침 횟수 1 증가
+		}
+	}
+
 	if (TargetPlayer && TargetPlayer->Implements<UInteractionOwnerInterface>())
 	{
 		if (IInteractionOwnerInterface* InteractOwner = Cast<IInteractionOwnerInterface>(TargetPlayer))
@@ -74,6 +89,11 @@ void ABed::ShowWidget_Implementation(ACharacter* player)
 bool ABed::CanInteract_Implementation(AAGSDCharacter* player)
 {
 	return true;
+}
+
+FString ABed::GetInteractionActionType_Implementation(AAGSDCharacter* player)
+{
+	return TEXT("BedSleep");
 }
 
 void ABed::OnBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp,

@@ -116,13 +116,25 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
 	void RecordMonsterKill(const FString& MonsterName, const FString& StageName = TEXT(""));
 
-	// 18. 작물 종류별 수확 수량 추가
-	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+	// 18. 작물 종류별 수확 수량 및 수확 행동 횟수 추가
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Farming")
 	void RecordCropHarvest(const FString& CropName, int32 Amount, const FString& StageName = TEXT(""));
 
+	// 작물 심기 행동 횟수 및 시각 기록
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Farming")
+	void RecordCropPlant(const FString& CropOrSeedName = TEXT(""), const FString& StageName = TEXT(""));
+
+	// 상호작용 행동 시행 횟수 기록 (IInteraction 연동)
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Interaction")
+	void RecordInteractionAction(const FString& ActionType, const FString& StageName = TEXT(""));
+
 	// 19. 가드 사용 횟수 증가
-	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Combat")
 	void IncrementGuardUsageCount(const FString& StageName = TEXT(""));
+
+	// 체력 물약 사용 횟수 기록
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Combat")
+	void RecordHealthPotionUsage(const FString& PotionName = TEXT("HealthPotion"), const FString& StageName = TEXT(""));
 
 	// ==========================================
 	// 📌 9대 가설 & 18종 차트 로깅 헬퍼 함수
@@ -213,6 +225,44 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Combat")
 	void AddStageDamageTaken(const FString& StageName, float Damage);
+
+	// ==========================================
+	// 📌 누적 막대 그래프(Stacked Bar Chart) 정밀 로깅 함수
+	// ==========================================
+
+	// 36. 숲 맵 체크포인트 도달 및 구간별 소요 시간 & 이동거리 자동 계산
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Time")
+	void RecordCheckpointReach(int32 CheckpointIndex, const FString& StageName = TEXT(""), float CustomDeltaSeconds = 0.0f, float CustomDeltaDistance = 0.0f);
+
+	// 37. 던전 맵 기믹 방 진입 / 퇴장(클리어) 타이머 & 이동거리 측정
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Time")
+	void StartGimmickRoom(const FString& RoomName, const FString& StageName = TEXT(""));
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Time")
+	void EndGimmickRoom(const FString& RoomName, const FString& StageName = TEXT(""), bool bMarkAsCleared = true, float CustomDurationSeconds = 0.0f, float CustomDistanceMeters = 0.0f);
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Time")
+	void RecordGimmickRoomTime(const FString& RoomName, float DurationSeconds, const FString& StageName = TEXT(""));
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Spatial")
+	void RecordGimmickRoomDistance(const FString& RoomName, float DistanceMeters, const FString& StageName = TEXT(""));
+
+	UFUNCTION(BlueprintPure, Category = "GameplayLog|Time")
+	bool IsGimmickRoomCleared(const FString& RoomName, const FString& StageName = TEXT("")) const;
+
+	// 38. 맵별 6대 행동 소요 시간 누적 (Movement, Airborne, Combat, Interaction, PuzzleOrGimmick, UI_Pause)
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Time")
+	void AddStageActionDuration(const FString& ActionCategory, float DeltaSeconds, const FString& StageName = TEXT(""));
+
+	// 39. 성공한 물약 제작 수 & 취침 횟수 & 클리어 플래그
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
+	void IncrementSuccessfulPotionCrafting(int32 Amount = 1);
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Farming")
+	void IncrementSleepCount(const FString& StageName = TEXT(""));
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+	void SetGameCompleted(bool bCompleted = true);
 
 	// ==========================================
 	// 📌 데이터 내보내기 (구글 시트 / CSV 파이프라인)

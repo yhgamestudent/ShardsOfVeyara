@@ -121,9 +121,30 @@ struct FGameplayLogData
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog")
 	TMap<FString, int32> CropHarvestCounts;
 
+	// 수확 행동 시행 횟수 (총 상호작용 횟수)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Farming")
+	int32 TotalCropHarvestActionCount = 0;
+
+	// 작물 심기 시행 횟수 및 최초 심기 시각
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Farming")
+	int32 TotalCropPlantCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Farming")
+	float FirstCropPlantTime = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Farming")
+	TArray<float> CropPlantTimestamps;
+
 	// 19. 가드 사용 횟수
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog")
 	int32 GuardUsageCount = 0;
+
+	// 체력 물약 사용 횟수 (Total 및 맵별)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Combat")
+	int32 TotalHealthPotionUsageCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Combat")
+	TMap<FString, int32> StageHealthPotionUsageCounts;
 
 	// ==========================================
 	// 📌 9대 가설 & 18종 차트 검증용 추가 수집 항목
@@ -283,11 +304,23 @@ struct FGameplayLogData
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Farming")
 	TMap<FString, int32> StageCropHarvestCounts;
 
+	// 맵별 수확 행동 시행 횟수 (Map -> Count)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Farming")
+	TMap<FString, int32> StageCropHarvestActionCounts;
+
+	// 맵별 작물 심기 시행 횟수 (Map -> Count)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Farming")
+	TMap<FString, int32> StageCropPlantCounts;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Farming")
 	TMap<FString, int32> StageElixirUsageCounts;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Farming")
 	TMap<FString, float> StageCropGrowthDelayDueToWeeds;
+
+	// 맵별 + 상호작용 행동 시행 횟수 (Map_ActionType -> Count)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Interaction")
+	TMap<FString, int32> StageInteractionActionCounts;
 
 	// 맵별 + NPC명 대화 횟수 (Map_NPC -> Count)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|NPC")
@@ -317,4 +350,63 @@ struct FGameplayLogData
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Spatial")
 	TArray<FVector> FallRespawnPositions;
+
+	// ==========================================
+	// 📌 누적 막대 그래프(Stacked Bar Chart) 정밀 시간 체계
+	// ==========================================
+
+	// 36. 숲 맵 등 체크포인트 구간별 순수 소요 시간 (Map_CPName -> SectionSeconds)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Time")
+	TMap<FString, float> StageCheckpointSectionTimes;
+
+	// 직전 체크포인트 도달 시각 (구간 시간 자동 산출용 런타임 캐시)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Time")
+	TMap<FString, float> LastCheckpointTimes;
+
+	// 숲 맵 등 체크포인트 구간별 순수 이동거리 (Map_CPName -> SectionMeters)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Spatial")
+	TMap<FString, float> StageCheckpointSectionDistances;
+
+	// 직전 체크포인트 도달 시점의 이동거리 (구간 이동거리 자동 산출용 런타임 캐시)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Spatial")
+	TMap<FString, float> LastCheckpointDistances;
+
+	// 맵별 도달한 최대 체크포인트 인덱스 (역주행 시 시간 왜곡 방지 필터)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Time")
+	TMap<FString, int32> MaxReachedCheckpointIndex;
+
+	// 37. 던전 맵 등 기믹 방별 순수 소요 시간 (Map_RoomName -> RoomSeconds)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Time")
+	TMap<FString, float> StageGimmickRoomTimes;
+
+	// 기믹 방 진입 시각 (소요 시간 자동 산출용 런타임 캐시)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Time")
+	TMap<FString, float> ActiveGimmickRoomStartTimes;
+
+	// 던전 맵 등 기믹 방별 순수 이동거리 (Map_RoomName -> RoomMeters)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Spatial")
+	TMap<FString, float> StageGimmickRoomDistances;
+
+	// 기믹 방 진입 시점의 이동거리 (소요 거리 자동 산출용 런타임 캐시)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Spatial")
+	TMap<FString, float> ActiveGimmickRoomStartDistances;
+
+	// 기믹 방 클리어 완료 여부 (클리어 후 재진입 시 시간 왜곡 방지 필터)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Time")
+	TMap<FString, bool> ClearedGimmickRooms;
+
+	// 38. 맵별 6대 행동 소요 시간 (Map_ActionCategory -> Seconds)
+	// ActionCategory: Movement, Airborne, Combat, Interaction, PuzzleOrGimmick, UI_Pause
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Time")
+	TMap<FString, float> StageActionDurations;
+
+	// 39. 성공한 물약 제작 수 & 취침 횟수 & 세션 완료 플래그
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Reward")
+	int32 SuccessfulPotionCraftingCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Farming")
+	TMap<FString, int32> StageSleepCounts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog")
+	bool bIsGameCompleted = false;
 };

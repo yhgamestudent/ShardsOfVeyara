@@ -34,5 +34,9 @@ public:
 	UFUNCTION(BlueprintNativeEvent, Category = "Interaction")
 	bool CanInteract(AAGSDCharacter* player);
 	virtual bool CanInteract_Implementation(AAGSDCharacter* player) = 0;
+
+	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "Interaction")
+	FString GetInteractionActionType(AAGSDCharacter* player);
+	virtual FString GetInteractionActionType_Implementation(AAGSDCharacter* player) { return TEXT("Other"); }
 	
 };

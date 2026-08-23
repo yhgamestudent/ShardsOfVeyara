@@ -752,8 +752,19 @@ public:
 	void SetTotalDistance();
 	
 	float GetTotalDistance() const { return TotalDistance / 100.0f; } // 미터(m) 단위 변환 시
-	
-	
-	//
+
+	// ─── [로그 데이터: 세분화된 행동 소요 시간 측정] ───
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "GameplayLog|Action")
+	FString CurrentActionCategory = TEXT("");
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Action")
+	void SetCurrentActionCategory(const FString& NewCategory);
+
+	// NPC 상점 / 대장간 / 기능 UI 이용 상태 설정 헬퍼 (bActive: true 시작, false 종료)
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Action")
+	void SetActionNPCService(bool bActive);
+
+protected:
+	void UpdateActionDurationLogging(float DeltaSeconds);
 	
 };

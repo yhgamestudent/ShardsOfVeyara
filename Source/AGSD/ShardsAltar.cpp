@@ -134,6 +134,11 @@ bool AShardsAltar::CanInteract_Implementation(AAGSDCharacter* player)
 	return player->HoldingState == EHoldingState::EHS_Shard;
 }
 
+FString AShardsAltar::GetInteractionActionType_Implementation(AAGSDCharacter* player)
+{
+	return TEXT("ShardsAltar");
+}
+
 void AShardsAltar::SpawnShards(int32 i)
 {
 	// 3. 런타임 생성을 위해 NewObject 사용
