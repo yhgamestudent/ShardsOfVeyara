@@ -1,4 +1,26 @@
 # AGSD
+
+## 🛠️ 개발 환경 설정 (DVC & Git 동기화)
+
+본 프로젝트는 대용량 에셋(`Content/` 폴더)을 **DVC (Google Drive)** 로 관리합니다.  
+새로운 기기(노트북 등)에서 프로젝트를 처음 클론받았거나 DVC 동기화가 필요할 때 아래 단계를 진행해 주세요.
+
+### 1. DVC 설치
+```bash
+pip install "dvc[gdrive]"
+```
+
+### 2. DVC & Git Hooks 자동 설정
+프로젝트 루트에서 다음 스크립트를 1회 실행합니다:
+- **Windows**: `setup-dvc-hooks.bat` 더블 클릭 또는 CMD/PowerShell에서 실행
+- **Mac/Linux/Bash**: `./setup-dvc-hooks.sh` 실행
+
+> [!NOTE]
+> `setup-dvc-hooks`를 실행하면 `git commit`, `git push`, `git pull` 시 DVC가 자동으로 감지되어 함께 동기화됩니다.  
+> 최초 1회 실행 시 Google Drive 로그인 인증 창이 브라우저에 팝업될 수 있습니다.
+
+---
+
 ## 기획
 #### 농사 시스템
 - 비트, 당근, 양배추, 토마토, 옥수수, 쌀, 밀, 수박, 호박 9종의 씨앗과 작물이 있음

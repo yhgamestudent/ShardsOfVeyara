@@ -1,0 +1,12 @@
+#!/bin/sh
+# 브랜치 전환(checkout/switch) 시 DVC 데이터 자동 체크아웃/동기화
+
+# $3 값이 1이면 브랜치 전환(새 브랜치 체크아웃 등), 0이면 파일 체크아웃
+if [ "$3" = "1" ]; then
+    if command -v dvc >/dev/null 2>&1; then
+        echo "==> [DVC Hook] 브랜치 변경 감지: DVC 에셋 동기화 중 (dvc checkout)..."
+        dvc checkout
+    fi
+fi
+
+exit 0

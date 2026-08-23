@@ -1,0 +1,16 @@
+#!/bin/sh
+# Git Commit 시 DVC 변경사항 자동 커밋 및 스테이징
+
+if ! command -v dvc >/dev/null 2>&1; then
+    echo "==> [DVC Hook Warning] dvc 명령어를 찾을 수 없습니다. DVC 커밋을 건너뜁니다."
+    exit 0
+fi
+
+echo "==> [DVC Hook] Git Commit 전 DVC 변경사항 확인 및 반영 중..."
+# DVC 대상 변경사항 커밋
+dvc commit -f -q
+
+# 변경된 .dvc 파일 및 .dvcignore / .gitignore 자동 git add
+git add *.dvc **/*.dvc .dvcignore 2>/dev/null || true
+
+exit 0

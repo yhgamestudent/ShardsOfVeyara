@@ -1,0 +1,17 @@
+#!/bin/sh
+# Git Pull (Merge) 완료 후 Google Drive에서 최신 DVC 데이터 자동 다운로드
+
+if ! command -v dvc >/dev/null 2>&1; then
+    echo "==> [DVC Hook Warning] dvc 명령어를 찾을 수 없습니다. DVC 풀을 건너뜁니다."
+    exit 0
+fi
+
+echo "==> [DVC Hook] Git Pull 감지: Google Drive에서 최신 DVC 에셋 동기화 중 (dvc pull)..."
+dvc pull
+
+if [ $? -ne 0 ]; then
+    echo "==> [DVC Hook Warning] DVC 에셋 다운로드 중 일부 오류가 발생했습니다."
+    echo "    (수동으로 'dvc pull'을 실행하여 확인해 주세요.)"
+fi
+
+exit 0

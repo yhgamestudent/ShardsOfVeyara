@@ -1,0 +1,20 @@
+#!/bin/sh
+# Git Push 시 DVC 데이터 원격 저장소(Google Drive)로 자동 푸시
+
+if ! command -v dvc >/dev/null 2>&1; then
+    echo "==> [DVC Hook Warning] dvc 명령어를 찾을 수 없습니다. DVC 푸시를 건너뜁니다."
+    exit 0
+fi
+
+echo "==> [DVC Hook] Git Push 감지: Google Drive로 DVC 에셋 푸시 시작 (dvc push)..."
+dvc push
+status=$?
+
+if [ $status -ne 0 ]; then
+    echo "==> [DVC Hook ERROR] DVC 에셋 푸시에 실패하여 git push를 중단합니다."
+    echo "    (Google Drive 인증이나 네트워크 상태를 확인해 주세요. 수동 실행: dvc push)"
+    exit 1
+fi
+
+echo "==> [DVC Hook] DVC 에셋 푸시 완료."
+exit 0
