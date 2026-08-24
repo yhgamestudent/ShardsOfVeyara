@@ -447,6 +447,18 @@ struct FGameplayLogData
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
 	TMap<FString, float> FirstBossBattleTimes;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
+	TMap<FString, float> StageFirstClearCheckpointSectionTimes;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
+	TMap<FString, float> StageFirstClearCheckpointSectionDistances;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
+	TMap<FString, float> StageFirstClearGimmickRoomTimes;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
+	TMap<FString, float> StageFirstClearGimmickRoomDistances;
+
 	// ==========================================
 	// 📌 41. 맵별 단일 총합 지표 (MonsterKills, Deaths, CheckpointRetries)
 	// ==========================================

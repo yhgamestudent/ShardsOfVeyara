@@ -3050,7 +3050,7 @@ void AAGSDCharacter::UpdateActionDurationLogging(float DeltaSeconds)
 
 	FString DeterminedCategory;
 
-	// 1. 인벤토리 상태 특수 처리: 인벤토리가 열려있더라도 걷거나 달리는 중이면 Movement로 배정하여 물리적 정합성 유지!
+	// 1. 인벤토리 상태 특수 처리: 인벤토리가 열려있더라도 걷거나 달리는 중이면 Walk/Sprint로 배정하여 물리적 정합성 유지!
 	if (CurrentActionCategory.Equals(TEXT("Inventory"), ESearchCase::IgnoreCase))
 	{
 		if (GetCharacterMovement() && GetCharacterMovement()->IsFalling())
@@ -3059,7 +3059,7 @@ void AAGSDCharacter::UpdateActionDurationLogging(float DeltaSeconds)
 		}
 		else if (GetVelocity().Size2D() > 15.0f)
 		{
-			DeterminedCategory = TEXT("Movement");
+			DeterminedCategory = bIsSprinting ? TEXT("Sprint") : TEXT("Walk");
 		}
 		else
 		{
@@ -3106,8 +3106,8 @@ void AAGSDCharacter::UpdateActionDurationLogging(float DeltaSeconds)
 		}
 		else if (GetVelocity().Size2D() > 15.0f)
 		{
-			// 5. 지상 이동 (걷기 / 달리기)
-			DeterminedCategory = TEXT("Movement");
+			// 5. 지상 이동 (걷기 / 달리기 세분화)
+			DeterminedCategory = bIsSprinting ? TEXT("Sprint") : TEXT("Walk");
 		}
 		else 
 		{
