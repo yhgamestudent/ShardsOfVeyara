@@ -159,6 +159,8 @@ protected:
 	void OnDialogueChoiceSelect_0();
 	UFUNCTION()
 	void OnDialogueChoiceSelect_1();
+	UFUNCTION()
+	void OnDialogueLineTimerFinished(FName InNextDialogueID);
 	FName PendingChoice1_ID;
 	FName PendingChoice2_ID;
 	FText SpeakerName_Text;

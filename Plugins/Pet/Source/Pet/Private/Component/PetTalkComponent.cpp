@@ -419,20 +419,10 @@ void UPetTalkComponent::StartConversation(FName DialogueID)
         if (Duration <= 10.0f) Duration = 10.0f;
 
         //  다음 대사 예약 (체이닝 로직)
-    	
     	NextDialogueID = RowData->NextDialogueID;
     	
         FTimerDelegate TimerDel;
-        if (!NextDialogueID.IsNone() && NextDialogueID != FName("0")) // 다음 대화 ID가 있으면
-        {
-            // 다음 대화 ID가 있으면: Duration 후에 StartConversation을 다시 호출 (재귀)
-            TimerDel.BindUObject(this, &UPetTalkComponent::StartConversation, NextDialogueID);
-        }
-        else
-        {
-            // 다음 대화 ID가 없으면(None): Duration 후에 대화 종료
-            TimerDel.BindUObject(this, &UPetTalkComponent::EndConversation);
-        }
+        TimerDel.BindUObject(this, &UPetTalkComponent::OnDialogueLineTimerFinished, NextDialogueID);
 
         // 기존 타이머 초기화 후 새로 설정
         GetWorld()->GetTimerManager().ClearTimer(ConversationTimerHandle);
@@ -443,6 +433,31 @@ void UPetTalkComponent::StartConversation(FName DialogueID)
         UE_LOG(LogTemp, Error, TEXT("Dialogue ID '%s' not found in DataTable."), *DialogueID.ToString());
         EndConversation();
     }
+}
+
+void UPetTalkComponent::OnDialogueLineTimerFinished(FName InNextDialogueID)
+{
+	// [지문 정상 완독 로그 기록]
+	UTextLog::WriteTextLogByKeyword(TEXT("지문 정상 완독"));
+	if (UWorld* World = GetWorld())
+	{
+		if (ACharacter* Player = UGameplayStatics::GetPlayerCharacter(World, 0))
+		{
+			if (UFunction* Func = Player->FindFunction(TEXT("LogDialogueLineRead")))
+			{
+				Player->ProcessEvent(Func, nullptr);
+			}
+		}
+	}
+
+	if (!InNextDialogueID.IsNone() && InNextDialogueID != FName("0"))
+	{
+		StartConversation(InNextDialogueID);
+	}
+	else
+	{
+		EndConversation();
+	}
 }
 
 void UPetTalkComponent::SkipCurrentDialogue()

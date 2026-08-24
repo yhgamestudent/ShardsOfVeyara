@@ -170,12 +170,18 @@ struct FGameplayLogData
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
 	TMap<FString, int32> StageFallRespawnCounts;
 
-	// 25. F키 튜토리얼 통스킵 횟수 & 개별 대화 지문 넘기기 횟수
+	// 25. F키 튜토리얼 통스킵 횟수 & 대화 전체 스킵 버튼 횟수 & 지문 개별 넘김 횟수 & 지문 정상 완독 횟수
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Tutorial")
 	int32 TutorialFullSkipCount = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Tutorial")
+	int32 DialogueFullSkipCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Tutorial")
 	int32 DialogueLineSkipCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Tutorial")
+	int32 DialogueLineReadCount = 0;
 
 	// 26. 옵션 변경 횟수 및 대화 로그 재확인 횟수
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|UI")
@@ -224,6 +230,10 @@ struct FGameplayLogData
 	// 31. 맵별 보스전 소요 시간 & 드롭 전리품/재화 획득량
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Boss")
 	TMap<FString, float> BossBattleTimes;
+
+	// 보스전 시작 시각 (순수 전투 시간 자동 산출용 런타임 캐시)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Boss")
+	TMap<FString, float> ActiveBossBattleStartTimes;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Boss")
 	TMap<FString, int32> BossLootAcquiredCounts;
@@ -335,7 +345,13 @@ struct FGameplayLogData
 	TMap<FString, int32> StageOptionChangeCounts;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Tutorial")
+	TMap<FString, int32> StageDialogueFullSkipCounts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Tutorial")
 	TMap<FString, int32> StageDialogueLineSkipCounts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Tutorial")
+	TMap<FString, int32> StageDialogueLineReadCounts;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|UI")
 	TMap<FString, int32> StageDialogueLogRecheckCounts;
@@ -406,6 +422,45 @@ struct FGameplayLogData
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Farming")
 	TMap<FString, int32> StageSleepCounts;
+
+	// ==========================================
+	// 📌 40. 최초 1회차 완주 스냅샷 (First Clear Snapshot - 영구 보존)
+	// ==========================================
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
+	TMap<FString, float> StageFirstClearTimes;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
+	TMap<FString, float> StageFirstClearDistances;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
+	TMap<FString, float> StageFirstClearDamageTaken;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
+	TMap<FString, int32> StageFirstClearFallRespawns;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
+	TMap<FString, int32> StageFirstClearDeaths;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
+	TMap<FString, int32> StageFirstClearMonsterKills;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
+	TMap<FString, float> FirstBossBattleTimes;
+
+	// ==========================================
+	// 📌 41. 맵별 단일 총합 지표 (MonsterKills, Deaths, CheckpointRetries)
+	// ==========================================
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Combat")
+	TMap<FString, int32> StageTotalMonsterKillCounts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Combat")
+	TMap<FString, int32> StageTotalDeathCounts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
+	TMap<FString, int32> StageCheckpointRetryCounts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
+	TMap<FString, int32> CheckpointSectionRetryCounts;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog")
 	bool bIsGameCompleted = false;

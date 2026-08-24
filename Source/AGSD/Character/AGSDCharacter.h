@@ -394,7 +394,13 @@ public:
 	void RecordFallRespawn();
 
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Tutorial")
+	void LogDialogueFullSkip();
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Tutorial")
 	void LogDialogueLineSkip();
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Tutorial")
+	void LogDialogueLineRead();
 
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|UI")
 	void LogDialogueLogRecheck();

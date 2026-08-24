@@ -113,12 +113,12 @@ void UConversationSubtitle::OnFadeOutFinished()
 
 void UConversationSubtitle::OnPressedSkipButton()
 {
-	// 📜 대화 스킵 버튼 클릭 로그 기록
+	// 📜 대화 전체 스킵 버튼 클릭 로그 기록
 	if (UWorld* World = GetWorld())
 	{
 		if (ACharacter* Player = UGameplayStatics::GetPlayerCharacter(World, 0))
 		{
-			if (UFunction* Func = Player->FindFunction(TEXT("LogDialogueLineSkip")))
+			if (UFunction* Func = Player->FindFunction(TEXT("LogDialogueFullSkip")))
 			{
 				Player->ProcessEvent(Func, nullptr);
 			}

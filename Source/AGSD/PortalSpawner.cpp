@@ -39,7 +39,7 @@ void APortalSpawner::OnBossDestroyed(AActor* DestroyedActor)
 				PlayTime = LogSubsystem->GetLogData().StagePlayTimes.FindRef(MapName);
 			}
 
-			LogSubsystem->RecordBossClear(DestroyedActor->GetName(), PlayTime, 0);
+			LogSubsystem->RecordBossClear(DestroyedActor->GetName(), 0.0f, 0);
 			LogSubsystem->RecordStageClearPortalTime(MapName, PlayTime);
 			LogSubsystem->RecordMapClearTime(MapName, PlayTime);
 		}

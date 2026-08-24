@@ -2827,6 +2827,17 @@ void AAGSDCharacter::SetTotalDistance()
 
 // ─── [Task 2 UI & 튜토리얼 로깅 헬퍼 함수] ───
 
+void AAGSDCharacter::LogDialogueFullSkip()
+{
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->IncrementDialogueFullSkip();
+		}
+	}
+}
+
 void AAGSDCharacter::LogDialogueLineSkip()
 {
 	if (UGameInstance* GameInst = GetGameInstance())
@@ -2834,6 +2845,17 @@ void AAGSDCharacter::LogDialogueLineSkip()
 		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
 		{
 			LogSubsystem->IncrementDialogueLineSkip();
+		}
+	}
+}
+
+void AAGSDCharacter::LogDialogueLineRead()
+{
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->IncrementDialogueLineRead();
 		}
 	}
 }

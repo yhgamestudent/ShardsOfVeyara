@@ -160,12 +160,18 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Stage")
 	void RecordStageFallRespawn(const FString& StageName, FVector FallLocation);
 
-	// 25. 튜토리얼 스킵 및 대화 지문 넘기기 기록
+	// 25. 튜토리얼 스킵 및 대화 지문 넘기기/정상 완독/전체 스킵 기록
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Tutorial")
 	void IncrementTutorialFullSkip();
 
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Tutorial")
+	void IncrementDialogueFullSkip(const FString& StageName = TEXT(""));
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Tutorial")
 	void IncrementDialogueLineSkip(const FString& StageName = TEXT(""));
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Tutorial")
+	void IncrementDialogueLineRead(const FString& StageName = TEXT(""));
 
 	// 26. UI 옵션 변경 및 대화 로그 재확인
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|UI")
@@ -206,7 +212,7 @@ public:
 	void RecordBossDeath(const FString& BossName);
 
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Boss")
-	void RecordBossClear(const FString& BossName, float BattleTimeSeconds, int32 LootAcquiredCount);
+	void RecordBossClear(const FString& BossName, float BattleTimeSeconds = 0.0f, int32 LootAcquiredCount = 0);
 
 	// 31. 포션 소모 & 체력 잔량
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
@@ -225,6 +231,10 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Combat")
 	void AddStageDamageTaken(const FString& StageName, float Damage);
+
+	// 34. 최초 1회차 완주 스냅샷 기록 (First Clear Snapshot)
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|FirstClear")
+	void SnapshotStageFirstClear(const FString& StageName = TEXT(""), const FString& BossName = TEXT(""));
 
 	// ==========================================
 	// 📌 누적 막대 그래프(Stacked Bar Chart) 정밀 로깅 함수
