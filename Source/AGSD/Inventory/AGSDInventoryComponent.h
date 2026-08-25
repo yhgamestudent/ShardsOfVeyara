@@ -221,6 +221,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void SetAllSlots(const TArray<FStruct_InventorySlotData>& NewSlots);
 
+	/** 아이템 데이터 테이블을 반환합니다 */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Inventory")
+	UDataTable* GetItemDataTable() const { return ItemDataTable; }
+
 	/** 특정 인덱스가 유효한 슬롯 범위인지 확인합니다 */
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Inventory")
 	bool IsValidSlotIndex(int32 SlotIndex) const;

@@ -62,4 +62,37 @@ protected:
 	/** Input mapping context setup */
 	virtual void SetupInputComponent() override;
 
+	// ── 치트 콘솔 커맨드 (Cheat Console Commands) ──
+public:
+	/** 
+	 * 지정한 ID의 아이템을 인벤토리에 지급합니다.
+	 * 사용법: GiveItem <ItemID> <Amount> (예: GiveItem Apple 5)
+	 */
+	UFUNCTION(Exec, Category = "Cheats")
+	void GiveItem(const FString& ItemID, int32 Amount = 1);
+
+	/** 
+	 * 데이터 테이블의 모든 아이템을 인벤토리에 일괄 지급합니다.
+	 * 사용법: GiveAllItems <Amount> (예: GiveAllItems 1)
+	 */
+	UFUNCTION(Exec, Category = "Cheats")
+	void GiveAllItems(int32 Amount = 1);
+
+	/** 
+	 * 인벤토리의 모든 아이템을 비웁니다.
+	 * 사용법: ClearInventory
+	 */
+	UFUNCTION(Exec, Category = "Cheats")
+	void ClearInventory();
+
+	/** 
+	 * 사용 가능한 모든 아이템 ID 목록을 콘솔/로그에 출력합니다.
+	 * 사용법: ListItems
+	 */
+	UFUNCTION(Exec, Category = "Cheats")
+	void ListItems();
+
+private:
+	/** 플레이어 캐릭터의 인벤토리 컴포넌트를 가져오는 헬퍼 */
+	class UAGSDInventoryComponent* GetPlayerInventoryComponent() const;
 };
