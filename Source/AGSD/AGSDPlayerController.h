@@ -92,6 +92,20 @@ public:
 	UFUNCTION(Exec, Category = "Cheats")
 	void ListItems();
 
+	/** 
+	 * 플레이어의 공격력을 지정한 수치만큼 증가시킵니다.
+	 * 사용법: AddDamage <Amount> (예: AddDamage 50)
+	 */
+	UFUNCTION(Exec, Category = "Cheats")
+	void AddDamage(float Amount = 10.0f);
+
+	/** 
+	 * 플레이어의 공격력을 지정한 수치로 직접 설정합니다.
+	 * 사용법: SetDamage <NewDamage> (예: SetDamage 500)
+	 */
+	UFUNCTION(Exec, Category = "Cheats")
+	void SetDamage(float NewDamage);
+
 private:
 	/** 플레이어 캐릭터의 인벤토리 컴포넌트를 가져오는 헬퍼 */
 	class UAGSDInventoryComponent* GetPlayerInventoryComponent() const;

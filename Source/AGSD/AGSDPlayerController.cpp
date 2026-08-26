@@ -13,6 +13,8 @@
 #include "Engine/Engine.h"
 #include "Engine/DataTable.h"
 #include "Struct_ItemData.h"
+#include "Character/AGSDCharacter.h"
+#include "SOVGameInstance.h"
 
 AAGSDPlayerController::AAGSDPlayerController()
 {
@@ -266,4 +268,50 @@ void AAGSDPlayerController::ListItems()
 		}
 	}
 	UE_LOG(LogTemp, Log, TEXT("==========================================="));
+}
+
+void AAGSDPlayerController::AddDamage(float Amount)
+{
+	AAGSDCharacter* PlayerChar = Cast<AAGSDCharacter>(GetPawn());
+	if (!PlayerChar)
+	{
+		if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 4.f, FColor::Red, TEXT("[Cheat] Failed: Player character not found!"));
+		return;
+	}
+
+	PlayerChar->AddDamage(Amount);
+
+	// GameInstance 동기화
+	if (USOVGameInstance* GI = Cast<USOVGameInstance>(GetGameInstance()))
+	{
+		GI->Damage = PlayerChar->getDamage();
+	}
+
+	FString Msg = FString::Printf(TEXT("[Cheat] Added %.1f Damage! Current Damage: %.1f"), Amount, PlayerChar->getDamage());
+	UE_LOG(LogTemp, Log, TEXT("%s"), *Msg);
+	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 4.f, FColor::Green, Msg);
+}
+
+void AAGSDPlayerController::SetDamage(float NewDamage)
+{
+	AAGSDCharacter* PlayerChar = Cast<AAGSDCharacter>(GetPawn());
+	if (!PlayerChar)
+	{
+		if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 4.f, FColor::Red, TEXT("[Cheat] Failed: Player character not found!"));
+		return;
+	}
+
+	float CurrentDmg = PlayerChar->getDamage();
+	float Diff = NewDamage - CurrentDmg;
+	PlayerChar->AddDamage(Diff);
+
+	// GameInstance 동기화
+	if (USOVGameInstance* GI = Cast<USOVGameInstance>(GetGameInstance()))
+	{
+		GI->Damage = PlayerChar->getDamage();
+	}
+
+	FString Msg = FString::Printf(TEXT("[Cheat] Set Damage to %.1f!"), PlayerChar->getDamage());
+	UE_LOG(LogTemp, Log, TEXT("%s"), *Msg);
+	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 4.f, FColor::Green, Msg);
 }
