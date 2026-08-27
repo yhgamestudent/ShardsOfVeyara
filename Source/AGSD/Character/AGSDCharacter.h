@@ -423,6 +423,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Boss")
 	void LogBossClear(const FString& BossName, float BattleTimeSeconds = 0.f, int32 LootCount = 0);
 
+	UFUNCTION(BlueprintPure, Category = "GameplayLog|Boss")
+	bool IsBossBattleActive() const;
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Boss")
+	void SetBossBattleActive(bool bActive, const FString& BossName = TEXT(""));
+
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Gimmick")
 	void LogGimmickClear(const FString& GimmickName = TEXT(""));
 

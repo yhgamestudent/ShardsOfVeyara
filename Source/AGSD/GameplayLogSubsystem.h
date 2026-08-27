@@ -108,6 +108,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
 	void IncrementInventoryFullOccurrence(const FString& StageName = TEXT(""));
 
+	// 15-1. 인벤토리(가방) 열람 횟수 증가
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Inventory")
+	void IncrementInventoryOpenCount(const FString& StageName = TEXT(""));
+
 	// 16. NPC별 대화 횟수 증가
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
 	void RecordNPCDialogue(const FString& NPCName, const FString& StageName = TEXT(""));
@@ -140,9 +144,46 @@ public:
 	// 📌 9대 가설 & 18종 차트 로깅 헬퍼 함수
 	// ==========================================
 
-	// 20. 맵별 플레이 체류 시간 누적
+	// 20. 맵별 플레이 체류 시간 누적 (내부에서 탐험/보스/기타 상태에 맞춰 자동 세분화 누적)
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Stage")
 	void AddStagePlayTime(const FString& StageName, float DeltaSeconds);
+
+	// 20-1. 세분화된 플레이 시간 직접 누적 (탐험 / 보스전 / 기타)
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Time")
+	void AddCategorizedPlayTime(const FString& StageName, float DeltaSeconds);
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Time")
+	void AddExplorationPlayTime(const FString& StageName, float DeltaSeconds);
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Time")
+	void AddBossPlayTime(const FString& StageName, float DeltaSeconds);
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Time")
+	void AddEtcPlayTime(const FString& StageName, float DeltaSeconds);
+
+	// 맵 카테고리 판별 헬퍼 함수
+	UFUNCTION(BlueprintPure, Category = "GameplayLog|Stage")
+	bool IsEtcStage(const FString& StageName = TEXT("")) const;
+
+	UFUNCTION(BlueprintPure, Category = "GameplayLog|Stage")
+	bool IsExplorationStage(const FString& StageName = TEXT("")) const;
+
+	// 실시간 보스전 활성 상태 조회 및 수동 제어
+	UFUNCTION(BlueprintPure, Category = "GameplayLog|Boss")
+	bool IsBossBattleActive() const { return bIsBossBattleActive; }
+
+	UFUNCTION(BlueprintPure, Category = "GameplayLog|Boss")
+	FString GetActiveBossName() const { return CurrentActiveBossName; }
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Boss")
+	void SetBossBattleActive(bool bActive, const FString& BossName = TEXT(""));
+
+	// 스테이지별 보스 처치 완료 여부 조회 및 설정 (보스 처치 후 포탈 타기 전까지는 '기타' 시간으로 누적)
+	UFUNCTION(BlueprintPure, Category = "GameplayLog|Boss")
+	bool IsStageBossCleared(const FString& StageName = TEXT("")) const;
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Boss")
+	void SetStageBossCleared(const FString& StageName = TEXT(""), bool bCleared = true);
 
 	// 21. 맵별 포탈 도달 소요 시간 기록
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Stage")
@@ -214,6 +255,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Boss")
 	void RecordBossClear(const FString& BossName, float BattleTimeSeconds = 0.0f, int32 LootAcquiredCount = 0);
 
+	// 보스 체력 비율 갱신 (보스 체력 감소율 산출용)
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Boss")
+	void UpdateBossHealthRatio(const FString& BossName, float CurrentHealthRatio);
+
 	// 31. 포션 소모 & 체력 잔량
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
 	void RecordPotionUsage(const FString& StageName, const FString& PotionType);
@@ -268,6 +313,23 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
 	void IncrementSuccessfulPotionCrafting(int32 Amount = 1);
 
+	// 제작 성공한 포션 아이디 기록
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
+	void RecordPotionCrafted(const FString& PotionItemID);
+
+	// 데이터 테이블 기반 동적 기준치 및 봉헌 레벨 동기화
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Milestone")
+	void SetTargetCropTypeCount(int32 Count);
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Milestone")
+	void SetTargetPotionRecipeCount(int32 Count);
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Milestone")
+	void SetMaxTributeSteps(int32 Count);
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Milestone")
+	void UpdateCurrentTributeLevel(int32 Level);
+
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Farming")
 	void IncrementSleepCount(const FString& StageName = TEXT(""));
 
@@ -283,4 +345,24 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Export")
 	bool ExportLogsToCSVFile(const FString& FilePath);
+
+protected:
+	// 실시간 보스전 활성 상태 (레벨 스트리밍 환경에서 보스 전투 시작 ~ 처치/사망 구간 트래킹)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GameplayLog|Boss")
+	bool bIsBossBattleActive = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GameplayLog|Boss")
+	FString CurrentActiveBossName;
+
+	// 보스를 이미 처치 완료한 스테이지 목록 (처치 후 포탈 타기 전 체류 시간을 '기타' 시간으로 분류하기 위함)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GameplayLog|Boss")
+	TSet<FString> ClearedBossStages;
+
+	// 기타(비전투/거점/마을/튜토리얼/메뉴) 맵 판별용 기본 키워드 목록
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Config")
+	TArray<FString> EtcStageKeywords = { TEXT("Farm"), TEXT("Village"), TEXT("Tutorial"), TEXT("Menu"), TEXT("Lobby"), TEXT("Setting"), TEXT("Controller"), TEXT("Overview"), TEXT("Showcase"), TEXT("Demo") };
+
+	// 탐험 스테이지 맵 판별용 기본 키워드 목록
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Config")
+	TArray<FString> ExplorationStageKeywords = { TEXT("Forest"), TEXT("Dungeon"), TEXT("Cave"), TEXT("City"), TEXT("Lvl_Combat"), TEXT("Lvl_Platforming"), TEXT("Lvl_SideScrolling") };
 };

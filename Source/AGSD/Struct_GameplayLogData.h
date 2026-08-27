@@ -93,6 +93,16 @@ struct FGameplayLogData
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog")
 	float TotalPlayTime = 0.f;
 
+	// 게임 세부 총 플레이 시간 (탐험, 보스전, 기타/거점)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Time")
+	float TotalExplorationTime = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Time")
+	float TotalBossTime = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Time")
+	float TotalEtcTime = 0.f;
+
 	// 12. 일시정지 횟수
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog")
 	int32 PauseCount = 0;
@@ -153,6 +163,16 @@ struct FGameplayLogData
 	// 20. 맵별 플레이 체류 시간 (MapName -> Seconds)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
 	TMap<FString, float> StagePlayTimes;
+
+	// 맵별 세부 플레이 시간 (탐험, 보스전, 기타/거점)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
+	TMap<FString, float> StageExplorationTimes;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
+	TMap<FString, float> StageBossTimes;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
+	TMap<FString, float> StageEtcTimes;
 
 	// 21. 맵별 포탈/클리어 도달 소요 시간 (MapName -> Seconds)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
@@ -238,6 +258,10 @@ struct FGameplayLogData
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Boss")
 	TMap<FString, int32> BossLootAcquiredCounts;
 
+	// 보스별 최저 잔여 체력 비율 (0.0f ~ 1.0f, 체력 감소율 산출용)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Boss")
+	TMap<FString, float> BossMinHealthRatios;
+
 	// 32. 연금술 포션 맵별 소모 횟수 & 종류(ItemID)별 소모 횟수 & 최신 체력 잔량 (%)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Reward")
 	TMap<FString, int32> PotionUsagePerMap;
@@ -294,6 +318,10 @@ struct FGameplayLogData
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Inventory")
 	TMap<FString, int32> StageInventoryFullCounts;
+
+	// 맵별 인벤토리(가방) 열람 횟수
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Inventory")
+	TMap<FString, int32> StageInventoryOpenCounts;
 
 	// 맵별 일시정지 횟수
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|UI")
@@ -420,6 +448,22 @@ struct FGameplayLogData
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Reward")
 	int32 SuccessfulPotionCraftingCount = 0;
 
+	// 데이터 테이블 기반 동적 기준 수치 및 제작/봉헌 추적
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Milestone")
+	int32 TotalTargetCropTypes = 9;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Milestone")
+	int32 TotalTargetPotionRecipes = 7;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Milestone")
+	int32 MaxTargetTributeSteps = 3;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Milestone")
+	int32 CurrentTributeLevel = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Milestone")
+	TMap<FString, int32> CraftedPotionTypeCounts;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Farming")
 	TMap<FString, int32> StageSleepCounts;
 
@@ -428,6 +472,15 @@ struct FGameplayLogData
 	// ==========================================
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
 	TMap<FString, float> StageFirstClearTimes;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
+	TMap<FString, float> StageFirstClearExplorationTimes;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
+	TMap<FString, float> StageFirstClearBossTimes;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
+	TMap<FString, float> StageFirstClearEtcTimes;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
 	TMap<FString, float> StageFirstClearDistances;

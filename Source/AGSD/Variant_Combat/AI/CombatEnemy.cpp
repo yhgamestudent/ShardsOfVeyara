@@ -207,6 +207,13 @@ void ACombatEnemy::ApplyDamage(float Damage, AActor* DamageCauser, const FVector
 				if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
 				{
 					LogSubsystem->AddStageDamageDealt(MapName, ActualDamage);
+
+					FString EnemyName = GetName();
+					if (EnemyName.Contains(TEXT("Boss")) || EnemyName.Contains(TEXT("SkeletonMage")) || EnemyName.Contains(TEXT("Assassin")) || LogSubsystem->IsBossBattleActive())
+					{
+						float HealthRatio = (MaxHP > 0.0f) ? (CurrentHP / MaxHP) : 0.0f;
+						LogSubsystem->UpdateBossHealthRatio(EnemyName, HealthRatio);
+					}
 				}
 			}
 		}

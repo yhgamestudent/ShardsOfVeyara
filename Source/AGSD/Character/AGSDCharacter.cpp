@@ -2555,6 +2555,19 @@ void AAGSDCharacter::RegisterCloseableUI(UUserWidget* NewUI)
 		else if (UIName.Contains(TEXT("Chest")) || UIName.Contains(TEXT("Inventory")))
 		{
 			SetCurrentActionCategory(TEXT("Inventory"));
+
+			if (UWorld* World = GetWorld())
+			{
+				FString MapName = World->GetMapName();
+				MapName.RemoveFromStart(World->StreamingLevelsPrefix);
+				if (UGameInstance* GameInst = GetGameInstance())
+				{
+					if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+					{
+						LogSubsystem->IncrementInventoryOpenCount(MapName);
+					}
+				}
+			}
 		}
 		else
 		{
@@ -2941,6 +2954,29 @@ void AAGSDCharacter::LogBossClear(const FString& BossName, float BattleTimeSecon
 		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
 		{
 			LogSubsystem->RecordBossClear(BossName, BattleTimeSeconds, LootCount);
+		}
+	}
+}
+
+bool AAGSDCharacter::IsBossBattleActive() const
+{
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			return LogSubsystem->IsBossBattleActive();
+		}
+	}
+	return false;
+}
+
+void AAGSDCharacter::SetBossBattleActive(bool bActive, const FString& BossName)
+{
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->SetBossBattleActive(bActive, BossName);
 		}
 	}
 }

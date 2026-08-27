@@ -131,12 +131,26 @@ void APortalSpawner::OnPlayerItemAdded(int32 SlotIndex, const FStruct_ItemData& 
 
 bool APortalSpawner::IsItemAlreadyDroppedOrAcquired() const
 {
-	// 1. GameInstance의 1회성 드롭 기록(AlreadyDroppedItems) 및 조각 개수 확인
+	// 1. GameInstance의 1회성 드롭 기록(AlreadyDroppedItems) 확인
 	if (UGameInstance* GameInst = GetGameInstance())
 	{
 		if (USOVGameInstance* GI = Cast<USOVGameInstance>(GameInst))
 		{
-			if (!RequiredItemID.IsEmpty())
+			// 1) TargetBoss가 지정된 경우, 해당 보스 엔티티의 드롭 기록 확인 (가장 정확한 1회성 드롭 판정)
+			if (TargetBoss)
+			{
+				const FString BossClassName = TargetBoss->GetClass()->GetName();
+				const FString BossName = TargetBoss->GetName();
+				for (const FString& DroppedKey : GI->AlreadyDroppedItems)
+				{
+					if (DroppedKey.Contains(BossClassName) || DroppedKey.Contains(BossName))
+					{
+						return true;
+					}
+				}
+			}
+			// 2) RequiredItemID가 명시적으로 지정된 경우 해당 아이템의 드롭 기록 확인
+			else if (!RequiredItemID.IsEmpty())
 			{
 				for (const FString& DroppedKey : GI->AlreadyDroppedItems)
 				{
@@ -146,46 +160,24 @@ bool APortalSpawner::IsItemAlreadyDroppedOrAcquired() const
 					}
 				}
 			}
-			else if (TargetBoss)
-			{
-				// RequiredItemID가 비어있고 TargetBoss가 지정된 경우, 해당 보스의 드롭 기록 확인
-				const FString BossClassName = TargetBoss->GetClass()->GetName();
-				for (const FString& DroppedKey : GI->AlreadyDroppedItems)
-				{
-					if (DroppedKey.Contains(BossClassName) || DroppedKey.Contains(TargetBoss->GetName()))
-					{
-						return true;
-					}
-				}
-			}
-
-			// 차원 조각 수량이 이미 존재하는 경우 (이미 1개 이상 획득/제단 등록)
-			if (GI->ShardsAmount > 0)
-			{
-				return true;
-			}
 		}
 	}
 
-	// 2. 플레이어 인벤토리에 이미 해당 아이템 또는 퀘스트 아이템을 소지하고 있는지 확인
-	if (APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(this, 0))
+	// 2. 플레이어 인벤토리에 '정확히 해당 RequiredItemID'를 소지하고 있는지 확인 (RequiredItemID가 명시된 경우만)
+	if (!RequiredItemID.IsEmpty())
 	{
-		if (UAGSDInventoryComponent* InvComp = PlayerPawn->FindComponentByClass<UAGSDInventoryComponent>())
+		if (APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(this, 0))
 		{
-			for (const FStruct_InventorySlotData& Slot : InvComp->GetAllSlots())
+			if (UAGSDInventoryComponent* InvComp = PlayerPawn->FindComponentByClass<UAGSDInventoryComponent>())
 			{
-				if (!Slot.IsEmpty && Slot.ItemData.CurrentQuantity > 0)
+				for (const FStruct_InventorySlotData& Slot : InvComp->GetAllSlots())
 				{
-					if (!RequiredItemID.IsEmpty())
+					if (!Slot.IsEmpty && Slot.ItemData.CurrentQuantity > 0)
 					{
 						if (Slot.ItemData.ItemID.Equals(RequiredItemID, ESearchCase::IgnoreCase))
 						{
 							return true;
 						}
-					}
-					else if (Slot.ItemData.ItemType == EItemType::EIT_Quest)
-					{
-						return true;
 					}
 				}
 			}

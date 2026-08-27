@@ -478,6 +478,13 @@ void AACultivationPlot::SetSeedInfo(FName InSeedName, UDataTable* InSeedDataTabl
 	if (InSeedDataTable)
 	{
 		SeedDataTable = InSeedDataTable;
+		if (UGameInstance* GameInst = GetGameInstance())
+		{
+			if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+			{
+				LogSubsystem->SetTargetCropTypeCount(InSeedDataTable->GetRowNames().Num());
+			}
+		}
 	}
 	SeedName = InSeedName;
 }

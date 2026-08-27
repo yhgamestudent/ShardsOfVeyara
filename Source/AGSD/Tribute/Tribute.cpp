@@ -44,6 +44,15 @@ void ATribute::BeginPlay()
 	TributeLevel = GI->TributeLevel;
 	CurrentLevelTributeItems = GI->CurrentLevelTributeItems;
 	
+	if (GI)
+	{
+		if (UGameplayLogSubsystem* LogSubsystem = GI->GetSubsystem<UGameplayLogSubsystem>())
+		{
+			LogSubsystem->SetMaxTributeSteps(TributeDataTable->GetRowNames().Num());
+			LogSubsystem->UpdateCurrentTributeLevel(TributeLevel);
+		}
+	}
+
 	if (TributeLevel == 1)
 	{
 		SetNextTributeUI(TributeLevel);
@@ -228,6 +237,7 @@ void ATribute::SuccessInsert(FString ItemID, int32 AmountToRemove)
 			if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
 			{
 				LogSubsystem->IncrementTributeAltarUsage();
+				LogSubsystem->UpdateCurrentTributeLevel(TributeLevel);
 			}
 		}
 	} 

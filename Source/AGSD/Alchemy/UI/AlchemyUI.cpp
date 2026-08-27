@@ -153,6 +153,17 @@ void UAlchemyUI::InsertMaterial(UAlchemyCropSlotBase* InsertedSlot)
 						}
 					}
 				}
+				else
+				{
+					if (UGameInstance* GameInst = Character->GetGameInstance())
+					{
+						if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+						{
+							LogSubsystem->IncrementSuccessfulPotionCrafting(1);
+							LogSubsystem->RecordPotionCrafted(PotionItemID);
+						}
+					}
+				}
 
 				// 인벤토리에 완성된 포션 지급
 				int32 OutRemainingQty = 0;

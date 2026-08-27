@@ -16,6 +16,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Inventory/UI/AGSDPlayerHUD.h"
+#include "GameplayLogSubsystem.h"
 
 #if WITH_EDITOR
 #include "Commandlets/WorldPartitionCommandletHelpers.h"
@@ -70,6 +71,14 @@ void AAlchemyTable::BeginPlay()
 	{
 		static const FString ContextString(TEXT("Alchemy Recipe Context"));
 		AlchemyDataTable->GetAllRows<FPotionData>(ContextString, AlchemyRecipes);
+
+		if (GI)
+		{
+			if (UGameplayLogSubsystem* LogSubsystem = GI->GetSubsystem<UGameplayLogSubsystem>())
+			{
+				LogSubsystem->SetTargetPotionRecipeCount(AlchemyDataTable->GetRowNames().Num());
+			}
+		}
 	}
 	
 	FAlchemySaveData ItemIDData;

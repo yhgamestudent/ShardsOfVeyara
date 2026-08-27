@@ -10,6 +10,9 @@ void UGameplayLogSubsystem::InitNewSession()
 	// 로그 데이터를 완전히 초기화하고 새 UUID를 세션 ID로 할당합니다
 	LogData = FGameplayLogData();
 	LogData.PlayerSessionID = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
+	bIsBossBattleActive = false;
+	CurrentActiveBossName.Empty();
+	ClearedBossStages.Empty();
 }
 
 FString UGameplayLogSubsystem::GetTargetStageName(const FString& InStageName) const
@@ -30,6 +33,68 @@ FString UGameplayLogSubsystem::GetTargetStageName(const FString& InStageName) co
 	}
 
 	return TEXT("Unknown_Stage");
+}
+
+bool UGameplayLogSubsystem::IsEtcStage(const FString& StageName) const
+{
+	FString Target = GetTargetStageName(StageName);
+	for (const FString& Kw : EtcStageKeywords)
+	{
+		if (Target.Contains(Kw, ESearchCase::IgnoreCase))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool UGameplayLogSubsystem::IsExplorationStage(const FString& StageName) const
+{
+	FString Target = GetTargetStageName(StageName);
+	for (const FString& Kw : ExplorationStageKeywords)
+	{
+		if (Target.Contains(Kw, ESearchCase::IgnoreCase))
+		{
+			return true;
+		}
+	}
+	// 명시적 탐험 키워드에 없더라도 기타(거점/마을/메뉴) 맵이 아니면 탐험 맵으로 취급
+	return !IsEtcStage(Target);
+}
+
+void UGameplayLogSubsystem::SetBossBattleActive(bool bActive, const FString& BossName)
+{
+	bIsBossBattleActive = bActive;
+	if (bActive)
+	{
+		if (!BossName.IsEmpty())
+		{
+			CurrentActiveBossName = BossName;
+		}
+	}
+	else
+	{
+		CurrentActiveBossName.Empty();
+	}
+}
+
+bool UGameplayLogSubsystem::IsStageBossCleared(const FString& StageName) const
+{
+	FString Target = GetTargetStageName(StageName);
+	return ClearedBossStages.Contains(Target);
+}
+
+void UGameplayLogSubsystem::SetStageBossCleared(const FString& StageName, bool bCleared)
+{
+	FString Target = GetTargetStageName(StageName);
+	if (bCleared)
+	{
+		ClearedBossStages.Add(Target);
+	}
+	else
+	{
+		ClearedBossStages.Remove(Target);
+	}
 }
 
 void UGameplayLogSubsystem::AddCropGrowthDelayDueToWeeds(float DelaySeconds, const FString& StageName)
@@ -183,6 +248,13 @@ void UGameplayLogSubsystem::IncrementInventoryFullOccurrence(const FString& Stag
 	StageCount++;
 }
 
+void UGameplayLogSubsystem::IncrementInventoryOpenCount(const FString& StageName)
+{
+	FString TargetStage = GetTargetStageName(StageName);
+	int32& StageCount = LogData.StageInventoryOpenCounts.FindOrAdd(TargetStage);
+	StageCount++;
+}
+
 void UGameplayLogSubsystem::RecordNPCDialogue(const FString& NPCName, const FString& StageName)
 {
 	int32& Count = LogData.NPCDialogueCounts.FindOrAdd(NPCName);
@@ -285,8 +357,76 @@ void UGameplayLogSubsystem::RecordHealthPotionUsage(const FString& PotionName, c
 
 void UGameplayLogSubsystem::AddStagePlayTime(const FString& StageName, float DeltaSeconds)
 {
-	float& Time = LogData.StagePlayTimes.FindOrAdd(StageName);
+	if (DeltaSeconds <= 0.0f) return;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	float& Time = LogData.StagePlayTimes.FindOrAdd(TargetStage);
 	Time += DeltaSeconds;
+
+	// 세분화된 카테고리(탐험, 보스전, 기타) 자동 분배 누적
+	AddCategorizedPlayTime(TargetStage, DeltaSeconds);
+}
+
+void UGameplayLogSubsystem::AddCategorizedPlayTime(const FString& StageName, float DeltaSeconds)
+{
+	if (DeltaSeconds <= 0.0f) return;
+
+	FString TargetStage = GetTargetStageName(StageName);
+
+	// 1. 거점 / 튜토리얼 / 마을 / UI 등 기타 맵인 경우
+	if (IsEtcStage(TargetStage))
+	{
+		AddEtcPlayTime(TargetStage, DeltaSeconds);
+	}
+	// 2. 탐험 맵인 경우
+	else
+	{
+		// 2-1. 보스전 진행 중인 경우 (보스 몬스터와 전투 시작 후 ~ 격파/사망 전)
+		if (bIsBossBattleActive)
+		{
+			AddBossPlayTime(TargetStage, DeltaSeconds);
+		}
+		// 2-2. 해당 탐험 맵의 보스를 이미 처치 완료한 경우 (포탈 탑승 대기 및 아이템 정리 중 -> '기타' 시간으로 기록)
+		else if (ClearedBossStages.Contains(TargetStage))
+		{
+			AddEtcPlayTime(TargetStage, DeltaSeconds);
+		}
+		// 2-3. 보스전 시작 전 일반 탐험/필드 진행 중인 경우 -> '탐험' 시간으로 기록
+		else
+		{
+			AddExplorationPlayTime(TargetStage, DeltaSeconds);
+		}
+	}
+}
+
+void UGameplayLogSubsystem::AddExplorationPlayTime(const FString& StageName, float DeltaSeconds)
+{
+	if (DeltaSeconds <= 0.0f) return;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	LogData.TotalExplorationTime += DeltaSeconds;
+	float& StageTime = LogData.StageExplorationTimes.FindOrAdd(TargetStage);
+	StageTime += DeltaSeconds;
+}
+
+void UGameplayLogSubsystem::AddBossPlayTime(const FString& StageName, float DeltaSeconds)
+{
+	if (DeltaSeconds <= 0.0f) return;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	LogData.TotalBossTime += DeltaSeconds;
+	float& StageTime = LogData.StageBossTimes.FindOrAdd(TargetStage);
+	StageTime += DeltaSeconds;
+}
+
+void UGameplayLogSubsystem::AddEtcPlayTime(const FString& StageName, float DeltaSeconds)
+{
+	if (DeltaSeconds <= 0.0f) return;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	LogData.TotalEtcTime += DeltaSeconds;
+	float& StageTime = LogData.StageEtcTimes.FindOrAdd(TargetStage);
+	StageTime += DeltaSeconds;
 }
 
 void UGameplayLogSubsystem::RecordStageClearPortalTime(const FString& StageName, float TimeSeconds)
@@ -460,6 +600,10 @@ void UGameplayLogSubsystem::RecordBossEnter(const FString& BossName)
 
 	FString TargetStage = GetTargetStageName();
 	LogData.ActiveBossBattleStartTimes.Add(TargetStage, CurrentWorldTime);
+
+	// ⚔️ 실시간 보스전 활성화 (이 순간부터 맵 플레이 시간이 보스 시간으로 전환 누적됨)
+	bIsBossBattleActive = true;
+	CurrentActiveBossName = BossName;
 }
 
 void UGameplayLogSubsystem::RecordBossDeath(const FString& BossName)
@@ -471,6 +615,10 @@ void UGameplayLogSubsystem::RecordBossDeath(const FString& BossName)
 	LogData.ActiveBossBattleStartTimes.Remove(BossName);
 	FString TargetStage = GetTargetStageName();
 	LogData.ActiveBossBattleStartTimes.Remove(TargetStage);
+
+	// 🛡️ 보스전 비활성화 (사망 후 리스폰/재도전 전까지는 탐험 시간으로 복귀)
+	bIsBossBattleActive = false;
+	CurrentActiveBossName.Empty();
 }
 
 void UGameplayLogSubsystem::RecordBossClear(const FString& BossName, float BattleTimeSeconds, int32 LootAcquiredCount)
@@ -535,8 +683,42 @@ void UGameplayLogSubsystem::RecordBossClear(const FString& BossName, float Battl
 	FString TargetStage = GetTargetStageName();
 	LogData.ActiveBossBattleStartTimes.Remove(TargetStage);
 
+	// 🛡️ 보스전 비활성화 및 해당 스테이지 보스 처치 완료 등록 (이후 포탈 진입 전까지의 체류 시간은 '기타' 시간으로 누적)
+	bIsBossBattleActive = false;
+	CurrentActiveBossName.Empty();
+	ClearedBossStages.Add(TargetStage);
+	LogData.BossMinHealthRatios.Add(BossName, 0.0f);
+	LogData.BossMinHealthRatios.Add(TargetStage, 0.0f);
+
 	// 🏆 최초 1회차 완주 스냅샷 자동 기록
 	SnapshotStageFirstClear(TargetStage, BossName);
+}
+
+void UGameplayLogSubsystem::UpdateBossHealthRatio(const FString& BossName, float CurrentHealthRatio)
+{
+	float ClampedRatio = FMath::Clamp(CurrentHealthRatio, 0.0f, 1.0f);
+	FString TargetStage = GetTargetStageName();
+
+	// 보스명 및 스테이지명 기준으로 최저 잔여 체력 비율 갱신
+	float* ExistingBossRatio = LogData.BossMinHealthRatios.Find(BossName);
+	if (ExistingBossRatio)
+	{
+		*ExistingBossRatio = FMath::Min(*ExistingBossRatio, ClampedRatio);
+	}
+	else
+	{
+		LogData.BossMinHealthRatios.Add(BossName, ClampedRatio);
+	}
+
+	float* ExistingStageRatio = LogData.BossMinHealthRatios.Find(TargetStage);
+	if (ExistingStageRatio)
+	{
+		*ExistingStageRatio = FMath::Min(*ExistingStageRatio, ClampedRatio);
+	}
+	else
+	{
+		LogData.BossMinHealthRatios.Add(TargetStage, ClampedRatio);
+	}
 }
 
 void UGameplayLogSubsystem::SnapshotStageFirstClear(const FString& StageName, const FString& BossName)
@@ -550,6 +732,9 @@ void UGameplayLogSubsystem::SnapshotStageFirstClear(const FString& StageName, co
 	}
 
 	float CurrentPlayTime = LogData.StagePlayTimes.FindRef(TargetStage);
+	float CurrentExplorationTime = LogData.StageExplorationTimes.FindRef(TargetStage);
+	float CurrentBossTime = LogData.StageBossTimes.FindRef(TargetStage);
+	float CurrentEtcTime = LogData.StageEtcTimes.FindRef(TargetStage);
 	float CurrentDistance = LogData.StageMovementDistances.FindRef(TargetStage);
 	float CurrentDamageTaken = LogData.StageDamageTaken.FindRef(TargetStage);
 	int32 CurrentFallRespawns = LogData.StageFallRespawnCounts.FindRef(TargetStage);
@@ -557,6 +742,9 @@ void UGameplayLogSubsystem::SnapshotStageFirstClear(const FString& StageName, co
 	int32 CurrentMonsterKills = LogData.StageTotalMonsterKillCounts.FindRef(TargetStage);
 
 	LogData.StageFirstClearTimes.Add(TargetStage, CurrentPlayTime);
+	LogData.StageFirstClearExplorationTimes.Add(TargetStage, CurrentExplorationTime);
+	LogData.StageFirstClearBossTimes.Add(TargetStage, CurrentBossTime);
+	LogData.StageFirstClearEtcTimes.Add(TargetStage, CurrentEtcTime);
 	LogData.StageFirstClearDistances.Add(TargetStage, CurrentDistance);
 	LogData.StageFirstClearDamageTaken.Add(TargetStage, CurrentDamageTaken);
 	LogData.StageFirstClearFallRespawns.Add(TargetStage, CurrentFallRespawns);
@@ -820,6 +1008,44 @@ void UGameplayLogSubsystem::IncrementSuccessfulPotionCrafting(int32 Amount)
 	LogData.SuccessfulPotionCraftingCount += Amount;
 }
 
+void UGameplayLogSubsystem::RecordPotionCrafted(const FString& PotionItemID)
+{
+	if (!PotionItemID.IsEmpty())
+	{
+		int32& Count = LogData.CraftedPotionTypeCounts.FindOrAdd(PotionItemID);
+		Count++;
+	}
+}
+
+void UGameplayLogSubsystem::SetTargetCropTypeCount(int32 Count)
+{
+	if (Count > 0)
+	{
+		LogData.TotalTargetCropTypes = Count;
+	}
+}
+
+void UGameplayLogSubsystem::SetTargetPotionRecipeCount(int32 Count)
+{
+	if (Count > 0)
+	{
+		LogData.TotalTargetPotionRecipes = Count;
+	}
+}
+
+void UGameplayLogSubsystem::SetMaxTributeSteps(int32 Count)
+{
+	if (Count > 0)
+	{
+		LogData.MaxTargetTributeSteps = Count;
+	}
+}
+
+void UGameplayLogSubsystem::UpdateCurrentTributeLevel(int32 Level)
+{
+	LogData.CurrentTributeLevel = FMath::Max(LogData.CurrentTributeLevel, Level);
+}
+
 void UGameplayLogSubsystem::IncrementSleepCount(const FString& StageName)
 {
 	FString TargetStage = GetTargetStageName(StageName);
@@ -851,6 +1077,9 @@ FString UGameplayLogSubsystem::GenerateCSVString() const
 
 	// 1. 단일 수치 지표 (General, Tutorial, UI, Reward)
 	CSV += FString::Printf(TEXT("%s,General,TotalPlayTime,,%.2f\n"), *SessionID, LogData.TotalPlayTime);
+	CSV += FString::Printf(TEXT("%s,General,TotalExplorationTime,,%.2f\n"), *SessionID, LogData.TotalExplorationTime);
+	CSV += FString::Printf(TEXT("%s,General,TotalBossTime,,%.2f\n"), *SessionID, LogData.TotalBossTime);
+	CSV += FString::Printf(TEXT("%s,General,TotalEtcTime,,%.2f\n"), *SessionID, LogData.TotalEtcTime);
 	CSV += FString::Printf(TEXT("%s,General,TotalAcquiredCoins,,%d\n"), *SessionID, LogData.TotalAcquiredCoins);
 	CSV += FString::Printf(TEXT("%s,General,TotalConsumedCoins,,%d\n"), *SessionID, LogData.TotalConsumedCoins);
 	CSV += FString::Printf(TEXT("%s,General,FailedPotionCraftingCount,,%d\n"), *SessionID, LogData.FailedPotionCraftingCount);
@@ -879,6 +1108,18 @@ FString UGameplayLogSubsystem::GenerateCSVString() const
 	for (const auto& Pair : LogData.StagePlayTimes)
 	{
 		CSV += FString::Printf(TEXT("%s,StagePlayTime,PlayTime,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageExplorationTimes)
+	{
+		CSV += FString::Printf(TEXT("%s,StagePlayTimeCategorized,Exploration,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageBossTimes)
+	{
+		CSV += FString::Printf(TEXT("%s,StagePlayTimeCategorized,Boss,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageEtcTimes)
+	{
+		CSV += FString::Printf(TEXT("%s,StagePlayTimeCategorized,Etc,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.StageClearPortalTimes)
 	{
@@ -1376,6 +1617,18 @@ FString UGameplayLogSubsystem::GenerateCSVString() const
 	{
 		CSV += FString::Printf(TEXT("%s,FirstClear,ClearTime,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
+	for (const auto& Pair : LogData.StageFirstClearExplorationTimes)
+	{
+		CSV += FString::Printf(TEXT("%s,FirstClear,ExplorationTime,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageFirstClearBossTimes)
+	{
+		CSV += FString::Printf(TEXT("%s,FirstClear,BossTime,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageFirstClearEtcTimes)
+	{
+		CSV += FString::Printf(TEXT("%s,FirstClear,EtcTime,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
 	for (const auto& Pair : LogData.StageFirstClearDistances)
 	{
 		CSV += FString::Printf(TEXT("%s,FirstClear,MovementDistance,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
@@ -1511,6 +1764,381 @@ FString UGameplayLogSubsystem::GenerateCSVString() const
 	{
 		CSV += FString::Printf(TEXT("%s,FirstClear,GimmickRoomDistance,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
+
+	// 9. 📌 8+1대 행동 횟수 & 행동 시간 1:1 매칭 데이터 (숲/던전 6종 + 거점 2종 + 기타/대기 1종)
+	TSet<FString> AllRecordedStages;
+	for (const auto& Pair : LogData.StagePlayTimes) { AllRecordedStages.Add(Pair.Key); }
+	for (const auto& Pair : LogData.StageActionDurations)
+	{
+		int32 LastUnder = INDEX_NONE;
+		if (Pair.Key.FindLastChar(TEXT('_'), LastUnder))
+		{
+			AllRecordedStages.Add(Pair.Key.Left(LastUnder));
+		}
+	}
+
+	for (const FString& Stage : AllRecordedStages)
+	{
+		if (Stage.IsEmpty()) continue;
+
+		// 1. 달리기 (Sprint)
+		int32 Count_Sprint = LogData.StageDashCounts.FindRef(Stage);
+		float Duration_Sprint = LogData.StageActionDurations.FindRef(Stage + TEXT("_Sprint"));
+
+		// 2. 공중 체공 (Airborne)
+		int32 Count_Airborne = LogData.StageJumpCounts.FindRef(Stage);
+		float Duration_Airborne = LogData.StageActionDurations.FindRef(Stage + TEXT("_Airborne"));
+
+		// 3. 전투 행동 (Combat)
+		int32 Count_Combat = LogData.StageGuardCounts.FindRef(Stage);
+		for (const auto& ComboPair : LogData.StageUsedComboCounts)
+		{
+			if (ComboPair.Key.StartsWith(Stage))
+			{
+				Count_Combat += ComboPair.Value;
+			}
+		}
+		float Duration_Combat = LogData.StageActionDurations.FindRef(Stage + TEXT("_Combat"));
+
+		// 문 / 스위치 / 레버 / 기믹 조작 (오브젝트 조작은 순간 상호작용이므로 기타로 합산)
+		int32 Count_Object = LogData.StageGimmickClearCounts.FindRef(Stage);
+		int32 ChestOpenCount = 0;
+		if (const FInteractionCountMap* MapPtr = LogData.StageInteractionCounts.Find(Stage))
+		{
+			for (const auto& ActorCountPair : MapPtr->ActorCounts)
+			{
+				const FString& Name = ActorCountPair.Key;
+				if (Name.Contains(TEXT("Chest")))
+				{
+					ChestOpenCount += ActorCountPair.Value;
+				}
+				else if (Name.Contains(TEXT("Door")) || Name.Contains(TEXT("Switch")) ||
+					Name.Contains(TEXT("Gimmick")) || Name.Contains(TEXT("Lever")) || Name.Contains(TEXT("Object")))
+				{
+					Count_Object += ActorCountPair.Value;
+				}
+			}
+		}
+		float Duration_Object = LogData.StageActionDurations.FindRef(Stage + TEXT("_GimmickObject"));
+
+		// 4. 아이템 및 인벤토리 관리 (Item & Inventory: 아이템 줍기 + 상자 열기 + 인벤토리 열기)
+		int32 ItemPickupCount = LogData.StageItemsAcquired.FindRef(Stage);
+		int32 InventoryOpenCount = LogData.StageInventoryOpenCounts.FindRef(Stage);
+		int32 Count_ItemAndInventory = ItemPickupCount + ChestOpenCount + InventoryOpenCount;
+		float Duration_ItemAndInventory = LogData.StageActionDurations.FindRef(Stage + TEXT("_Inventory"));
+
+		// 5. 대화 상호작용 (Dialogue)
+		int32 Count_Dialogue = LogData.StageDialogueLineReadCounts.FindRef(Stage);
+		for (const auto& NpcPair : LogData.StageNPCDialogueCounts)
+		{
+			if (NpcPair.Key.StartsWith(Stage))
+			{
+				Count_Dialogue += NpcPair.Value;
+			}
+		}
+		float Duration_Dialogue = LogData.StageActionDurations.FindRef(Stage + TEXT("_Dialogue"));
+
+		// 6. 농경 활동 (Farming: 작물 심기 + 수확 + 잡초 제거)
+		int32 Count_Farming = LogData.StageCropPlantCounts.FindRef(Stage) +
+			LogData.StageCropHarvestActionCounts.FindRef(Stage) +
+			LogData.StageInteractionActionCounts.FindRef(Stage + TEXT("_Weed"));
+		float Duration_Farming = LogData.StageActionDurations.FindRef(Stage + TEXT("_Farming")) +
+			LogData.StageActionDurations.FindRef(Stage + TEXT("_Weeding"));
+
+		// 7. 제작 및 봉헌 (Crafting & Tribute: 포션 제조 + 봉헌 + 차원조각)
+		int32 Count_CraftingTribute = LogData.StageTributeAltarUsageCounts.FindRef(Stage) +
+			LogData.StageInteractionActionCounts.FindRef(Stage + TEXT("_PotionCrafting")) +
+			LogData.StageInteractionActionCounts.FindRef(Stage + TEXT("_ShardsAltar"));
+		float Duration_CraftingTribute = LogData.StageActionDurations.FindRef(Stage + TEXT("_PotionCrafting")) +
+			LogData.StageActionDurations.FindRef(Stage + TEXT("_TributeAltar")) +
+			LogData.StageActionDurations.FindRef(Stage + TEXT("_NPC_Service"));
+
+		// 8. 기타 및 관찰/대기 (Etc & Idle: 정지 관찰 + 걷기 + 오브젝트 조작 + 수면)
+		int32 Count_EtcIdle = LogData.StageSleepCounts.FindRef(Stage) + Count_Object;
+		float Duration_EtcIdle = LogData.StageActionDurations.FindRef(Stage + TEXT("_Idle")) +
+			LogData.StageActionDurations.FindRef(Stage + TEXT("_Walk")) +
+			Duration_Object +
+			LogData.StageActionDurations.FindRef(Stage + TEXT("_Sleep"));
+
+		// CSV 행 추가 (정확히 8대 범례 1:1 매칭 데이터)
+		CSV += FString::Printf(TEXT("%s,MatchedActionMetric,Count_1_Sprint,%s,%d\n"), *SessionID, *Stage, Count_Sprint);
+		CSV += FString::Printf(TEXT("%s,MatchedActionMetric,Duration_1_Sprint,%s,%.2f\n"), *SessionID, *Stage, Duration_Sprint);
+
+		CSV += FString::Printf(TEXT("%s,MatchedActionMetric,Count_2_Airborne,%s,%d\n"), *SessionID, *Stage, Count_Airborne);
+		CSV += FString::Printf(TEXT("%s,MatchedActionMetric,Duration_2_Airborne,%s,%.2f\n"), *SessionID, *Stage, Duration_Airborne);
+
+		CSV += FString::Printf(TEXT("%s,MatchedActionMetric,Count_3_Combat,%s,%d\n"), *SessionID, *Stage, Count_Combat);
+		CSV += FString::Printf(TEXT("%s,MatchedActionMetric,Duration_3_Combat,%s,%.2f\n"), *SessionID, *Stage, Duration_Combat);
+
+		CSV += FString::Printf(TEXT("%s,MatchedActionMetric,Count_4_ItemAndInventory,%s,%d\n"), *SessionID, *Stage, Count_ItemAndInventory);
+		CSV += FString::Printf(TEXT("%s,MatchedActionMetric,Duration_4_ItemAndInventory,%s,%.2f\n"), *SessionID, *Stage, Duration_ItemAndInventory);
+
+		CSV += FString::Printf(TEXT("%s,MatchedActionMetric,Count_5_Dialogue,%s,%d\n"), *SessionID, *Stage, Count_Dialogue);
+		CSV += FString::Printf(TEXT("%s,MatchedActionMetric,Duration_5_Dialogue,%s,%.2f\n"), *SessionID, *Stage, Duration_Dialogue);
+
+		CSV += FString::Printf(TEXT("%s,MatchedActionMetric,Count_6_Farming,%s,%d\n"), *SessionID, *Stage, Count_Farming);
+		CSV += FString::Printf(TEXT("%s,MatchedActionMetric,Duration_6_Farming,%s,%.2f\n"), *SessionID, *Stage, Duration_Farming);
+
+		CSV += FString::Printf(TEXT("%s,MatchedActionMetric,Count_7_CraftingTribute,%s,%d\n"), *SessionID, *Stage, Count_CraftingTribute);
+		CSV += FString::Printf(TEXT("%s,MatchedActionMetric,Duration_7_CraftingTribute,%s,%.2f\n"), *SessionID, *Stage, Duration_CraftingTribute);
+
+		CSV += FString::Printf(TEXT("%s,MatchedActionMetric,Count_8_EtcIdle,%s,%d\n"), *SessionID, *Stage, Count_EtcIdle);
+		CSV += FString::Printf(TEXT("%s,MatchedActionMetric,Duration_8_EtcIdle,%s,%.2f\n"), *SessionID, *Stage, Duration_EtcIdle);
+	}
+
+	// 10. 🏆 8대 도전과제(Milestone) 목표 달성률(%) & 도전 횟수 자동 산출 (교수님 보고 및 콤보 차트용)
+
+	// ─── [1. 튜토리얼 완주] ───
+	float Progress_1_Tutorial = 0.0f;
+	int32 TutorialRespawns = 0;
+	for (const auto& Pair : LogData.StageFallRespawnCounts)
+	{
+		if (Pair.Key.Contains(TEXT("Tutorial"))) { TutorialRespawns += Pair.Value; }
+	}
+	for (const auto& Pair : LogData.StageTotalDeathCounts)
+	{
+		if (Pair.Key.Contains(TEXT("Tutorial"))) { TutorialRespawns += Pair.Value; }
+	}
+	int32 Attempt_1_Tutorial = 1 + TutorialRespawns;
+
+	bool bTutorialCleared = false;
+	for (const auto& Pair : LogData.MapClearTimes)
+	{
+		if (Pair.Key.Contains(TEXT("Tutorial"))) { bTutorialCleared = true; break; }
+	}
+	if (!bTutorialCleared)
+	{
+		for (const auto& Pair : LogData.StagePlayTimes)
+		{
+			if (Pair.Key.Contains(TEXT("Farm")) || Pair.Key.Contains(TEXT("Forest")) || Pair.Key.Contains(TEXT("Dungeon")))
+			{
+				bTutorialCleared = true;
+				break;
+			}
+		}
+	}
+
+	if (bTutorialCleared)
+	{
+		Progress_1_Tutorial = 100.0f;
+	}
+	else
+	{
+		bool bEnteredSkyIsland = false;
+		for (const auto& Pair : LogData.StagePlayTimes)
+		{
+			if (Pair.Key.Contains(TEXT("Tutorial")) && Pair.Key.Contains(TEXT("Sky")))
+			{
+				bEnteredSkyIsland = true;
+				break;
+			}
+		}
+		Progress_1_Tutorial = bEnteredSkyIsland ? 50.0f : (LogData.StagePlayTimes.Num() > 0 ? 25.0f : 0.0f);
+	}
+
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,ProgressPercent,1_Tutorial_Escape,%.1f\n"), *SessionID, Progress_1_Tutorial);
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,AttemptCount,1_Tutorial_Escape,%d\n"), *SessionID, Attempt_1_Tutorial);
+
+	// ─── [2. 거점: 모든 작물 키워보기] ───
+	const int32 TotalTargetCropTypes = FMath::Max(1, LogData.TotalTargetCropTypes);
+	int32 HarvestedCropTypes = LogData.CropHarvestCounts.Num();
+	float Progress_2_AllCrops = FMath::Clamp(((float)HarvestedCropTypes / (float)TotalTargetCropTypes) * 100.0f, 0.0f, 100.0f);
+
+	int32 TotalPlantedCrops = LogData.TotalCropPlantCount;
+	int32 WeedDelayDays = (int32)LogData.TotalCropGrowthDelayDueToWeeds;
+	int32 WeedingActions = 0;
+	for (const auto& Pair : LogData.StageInteractionActionCounts)
+	{
+		if (Pair.Key.Contains(TEXT("Weed"))) { WeedingActions += Pair.Value; }
+	}
+	int32 Attempt_2_AllCrops = TotalPlantedCrops + WeedDelayDays + WeedingActions;
+	if (Attempt_2_AllCrops == 0 && HarvestedCropTypes > 0)
+	{
+		Attempt_2_AllCrops = HarvestedCropTypes;
+	}
+
+	float WeedAffectedRate = (TotalPlantedCrops > 0) ? FMath::Clamp(((float)WeedDelayDays / (float)TotalPlantedCrops) * 100.0f, 0.0f, 100.0f) : 0.0f;
+	float CropGrowthDelayRate = ((TotalPlantedCrops * 3 + WeedDelayDays) > 0) ? (((float)WeedDelayDays / (float)(TotalPlantedCrops * 3 + WeedDelayDays)) * 100.0f) : 0.0f;
+
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,ProgressPercent,2_Farm_AllCrops,%.1f\n"), *SessionID, Progress_2_AllCrops);
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,WeedAffectedCropRate,2_Farm_AllCrops,%.1f\n"), *SessionID, WeedAffectedRate);
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,CropDelayRate,2_Farm_AllCrops,%.1f\n"), *SessionID, CropGrowthDelayRate);
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,AttemptCount,2_Farm_AllCrops,%d\n"), *SessionID, Attempt_2_AllCrops);
+
+	// ─── [3. 거점: 모든 포션 제조하기] ───
+	const int32 TotalTargetPotionRecipes = FMath::Max(1, LogData.TotalTargetPotionRecipes);
+	int32 CraftedPotionTypes = FMath::Max(LogData.CraftedPotionTypeCounts.Num(), (LogData.SuccessfulPotionCraftingCount > 0 ? 1 : 0));
+	float Progress_3_AllPotions = FMath::Clamp(((float)CraftedPotionTypes / (float)TotalTargetPotionRecipes) * 100.0f, 0.0f, 100.0f);
+	int32 Attempt_3_AllPotions = LogData.SuccessfulPotionCraftingCount + LogData.FailedPotionCraftingCount;
+	if (Attempt_3_AllPotions == 0 && CraftedPotionTypes > 0)
+	{
+		Attempt_3_AllPotions = CraftedPotionTypes;
+	}
+
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,ProgressPercent,3_Farm_AllPotions,%.1f\n"), *SessionID, Progress_3_AllPotions);
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,AttemptCount,3_Farm_AllPotions,%d\n"), *SessionID, Attempt_3_AllPotions);
+
+	// ─── [4. 거점: 봉헌 끝까지 도달하기] ───
+	const int32 MaxTargetTributeSteps = FMath::Max(1, LogData.MaxTargetTributeSteps);
+	int32 TotalTributeActions = 0;
+	for (const auto& Pair : LogData.StageTributeAltarUsageCounts)
+	{
+		TotalTributeActions += Pair.Value;
+	}
+	for (const auto& Pair : LogData.StageInteractionActionCounts)
+	{
+		if (Pair.Key.Contains(TEXT("ShardsAltar")) || Pair.Key.Contains(TEXT("Tribute")))
+		{
+			TotalTributeActions += Pair.Value;
+		}
+	}
+	// 실제 달성한 TributeLevel 기준 (없을 경우 상호작용 횟수로 폴백)
+	int32 AchievedTributeLevel = (LogData.CurrentTributeLevel > 0) ? LogData.CurrentTributeLevel : (LogData.TributeAltarUsageCount > 0 ? LogData.TributeAltarUsageCount : 0);
+	float Progress_4_MaxTribute = FMath::Clamp(((float)AchievedTributeLevel / (float)MaxTargetTributeSteps) * 100.0f, 0.0f, 100.0f);
+	int32 Attempt_4_MaxTribute = TotalTributeActions;
+
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,ProgressPercent,4_Farm_MaxTribute,%.1f\n"), *SessionID, Progress_4_MaxTribute);
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,AttemptCount,4_Farm_MaxTribute,%d\n"), *SessionID, Attempt_4_MaxTribute);
+
+	// ─── [5. 숲: 끝까지 도달 (보스룸)] ───
+	const int32 TotalForestCheckpoints = 11;
+	int32 ForestReachedCP = 0;
+	for (const auto& Pair : LogData.MaxReachedCheckpointIndex)
+	{
+		if (Pair.Key.Contains(TEXT("Forest"))) { ForestReachedCP = FMath::Max(ForestReachedCP, Pair.Value + 1); }
+	}
+	bool bForestBossReached = false;
+	for (const auto& Pair : LogData.BossEnterCounts)
+	{
+		if (Pair.Key.Contains(TEXT("SkeletonMage")) || Pair.Key.Contains(TEXT("Forest"))) { bForestBossReached = true; break; }
+	}
+	for (const auto& Pair : LogData.BossBattleTimes)
+	{
+		if (Pair.Key.Contains(TEXT("SkeletonMage")) || Pair.Key.Contains(TEXT("Forest"))) { bForestBossReached = true; break; }
+	}
+	float Progress_5_ForestReach = bForestBossReached ? 100.0f : FMath::Clamp(((float)ForestReachedCP / (float)TotalForestCheckpoints) * 100.0f, 0.0f, 100.0f);
+
+	int32 ForestRespawns = 0;
+	for (const auto& Pair : LogData.StageFallRespawnCounts)
+	{
+		if (Pair.Key.Contains(TEXT("Forest"))) { ForestRespawns += Pair.Value; }
+	}
+	for (const auto& Pair : LogData.StageTotalDeathCounts)
+	{
+		if (Pair.Key.Contains(TEXT("Forest"))) { ForestRespawns += Pair.Value; }
+	}
+	int32 Attempt_5_ForestReach = 1 + ForestRespawns;
+
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,ProgressPercent,5_Forest_ReachBoss,%.1f\n"), *SessionID, Progress_5_ForestReach);
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,AttemptCount,5_Forest_ReachBoss,%d\n"), *SessionID, Attempt_5_ForestReach);
+
+	// ─── [6. 숲: 보스 격파] ───
+	int32 ForestBossEnter = 0;
+	for (const auto& Pair : LogData.BossEnterCounts)
+	{
+		if (Pair.Key.Contains(TEXT("SkeletonMage")) || Pair.Key.Contains(TEXT("Forest"))) { ForestBossEnter += Pair.Value; }
+	}
+	int32 ForestBossClear = 0;
+	for (const auto& Pair : LogData.BossClearCounts)
+	{
+		if (Pair.Key.Contains(TEXT("SkeletonMage")) || Pair.Key.Contains(TEXT("Forest"))) { ForestBossClear += Pair.Value; }
+	}
+	for (const auto& ClearedStage : ClearedBossStages)
+	{
+		if (ClearedStage.Contains(TEXT("Forest"))) { ForestBossClear = FMath::Max(ForestBossClear, 1); }
+	}
+
+	float ForestBossMinHP = 1.0f;
+	for (const auto& Pair : LogData.BossMinHealthRatios)
+	{
+		if (Pair.Key.Contains(TEXT("SkeletonMage")) || Pair.Key.Contains(TEXT("Forest")))
+		{
+			ForestBossMinHP = FMath::Min(ForestBossMinHP, Pair.Value);
+		}
+	}
+	if (ForestBossClear > 0)
+	{
+		ForestBossMinHP = 0.0f;
+	}
+	float Progress_6_ForestBoss = (ForestBossClear > 0) ? 100.0f : ((bForestBossReached || ForestBossEnter > 0) ? FMath::Clamp((1.0f - ForestBossMinHP) * 100.0f, 0.0f, 100.0f) : 0.0f);
+	int32 Attempt_6_ForestBoss = FMath::Max(ForestBossEnter, ForestBossClear);
+	if (Attempt_6_ForestBoss == 0 && bForestBossReached) { Attempt_6_ForestBoss = 1; }
+	float ClearRate_6_ForestBoss = (Attempt_6_ForestBoss > 0) ? (((float)ForestBossClear / (float)Attempt_6_ForestBoss) * 100.0f) : 0.0f;
+
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,ProgressPercent,6_Forest_DefeatBoss,%.1f\n"), *SessionID, Progress_6_ForestBoss);
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,ClearRate,6_Forest_DefeatBoss,%.1f\n"), *SessionID, ClearRate_6_ForestBoss);
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,AttemptCount,6_Forest_DefeatBoss,%d\n"), *SessionID, Attempt_6_ForestBoss);
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,ClearCount,6_Forest_DefeatBoss,%d\n"), *SessionID, ForestBossClear);
+
+	// ─── [7. 던전: 끝까지 도달 (보스룸)] ───
+	const int32 TotalDungeonGimmicks = 4;
+	int32 DungeonClearedGimmicks = 0;
+	for (const auto& Pair : LogData.ClearedGimmickRooms)
+	{
+		if (Pair.Key.Contains(TEXT("Dungeon")) && Pair.Value) { DungeonClearedGimmicks++; }
+	}
+	bool bDungeonBossReached = false;
+	for (const auto& Pair : LogData.BossEnterCounts)
+	{
+		if (Pair.Key.Contains(TEXT("Assassin")) || Pair.Key.Contains(TEXT("Dungeon"))) { bDungeonBossReached = true; break; }
+	}
+	for (const auto& Pair : LogData.BossBattleTimes)
+	{
+		if (Pair.Key.Contains(TEXT("Assassin")) || Pair.Key.Contains(TEXT("Dungeon"))) { bDungeonBossReached = true; break; }
+	}
+	float Progress_7_DungeonReach = bDungeonBossReached ? 100.0f : FMath::Clamp(((float)DungeonClearedGimmicks / (float)TotalDungeonGimmicks) * 100.0f, 0.0f, 100.0f);
+
+	int32 DungeonRespawns = 0;
+	for (const auto& Pair : LogData.StageFallRespawnCounts)
+	{
+		if (Pair.Key.Contains(TEXT("Dungeon"))) { DungeonRespawns += Pair.Value; }
+	}
+	for (const auto& Pair : LogData.StageTotalDeathCounts)
+	{
+		if (Pair.Key.Contains(TEXT("Dungeon"))) { DungeonRespawns += Pair.Value; }
+	}
+	int32 Attempt_7_DungeonReach = 1 + DungeonRespawns;
+
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,ProgressPercent,7_Dungeon_ReachBoss,%.1f\n"), *SessionID, Progress_7_DungeonReach);
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,AttemptCount,7_Dungeon_ReachBoss,%d\n"), *SessionID, Attempt_7_DungeonReach);
+
+	// ─── [8. 던전: 보스 격파] ───
+	int32 DungeonBossEnter = 0;
+	for (const auto& Pair : LogData.BossEnterCounts)
+	{
+		if (Pair.Key.Contains(TEXT("Assassin")) || Pair.Key.Contains(TEXT("Dungeon"))) { DungeonBossEnter += Pair.Value; }
+	}
+	int32 DungeonBossClear = 0;
+	for (const auto& Pair : LogData.BossClearCounts)
+	{
+		if (Pair.Key.Contains(TEXT("Assassin")) || Pair.Key.Contains(TEXT("Dungeon"))) { DungeonBossClear += Pair.Value; }
+	}
+	for (const auto& ClearedStage : ClearedBossStages)
+	{
+		if (ClearedStage.Contains(TEXT("Dungeon"))) { DungeonBossClear = FMath::Max(DungeonBossClear, 1); }
+	}
+
+	float DungeonBossMinHP = 1.0f;
+	for (const auto& Pair : LogData.BossMinHealthRatios)
+	{
+		if (Pair.Key.Contains(TEXT("Assassin")) || Pair.Key.Contains(TEXT("Dungeon")))
+		{
+			DungeonBossMinHP = FMath::Min(DungeonBossMinHP, Pair.Value);
+		}
+	}
+	if (DungeonBossClear > 0)
+	{
+		DungeonBossMinHP = 0.0f;
+	}
+	float Progress_8_DungeonBoss = (DungeonBossClear > 0) ? 100.0f : ((bDungeonBossReached || DungeonBossEnter > 0) ? FMath::Clamp((1.0f - DungeonBossMinHP) * 100.0f, 0.0f, 100.0f) : 0.0f);
+	int32 Attempt_8_DungeonBoss = FMath::Max(DungeonBossEnter, DungeonBossClear);
+	if (Attempt_8_DungeonBoss == 0 && bDungeonBossReached) { Attempt_8_DungeonBoss = 1; }
+	float ClearRate_8_DungeonBoss = (Attempt_8_DungeonBoss > 0) ? (((float)DungeonBossClear / (float)Attempt_8_DungeonBoss) * 100.0f) : 0.0f;
+
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,ProgressPercent,8_Dungeon_DefeatBoss,%.1f\n"), *SessionID, Progress_8_DungeonBoss);
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,ClearRate,8_Dungeon_DefeatBoss,%.1f\n"), *SessionID, ClearRate_8_DungeonBoss);
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,AttemptCount,8_Dungeon_DefeatBoss,%d\n"), *SessionID, Attempt_8_DungeonBoss);
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,ClearCount,8_Dungeon_DefeatBoss,%d\n"), *SessionID, DungeonBossClear);
 
 	return CSV;
 }
