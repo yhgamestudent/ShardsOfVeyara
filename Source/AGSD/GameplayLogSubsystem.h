@@ -189,9 +189,22 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Stage")
 	void RecordStageClearPortalTime(const FString& StageName, float TimeSeconds);
 
-	// 22. 맵별 플레이어 이동거리 누적
+	// 22. 맵별 플레이어 이동거리 누적 (내부에서 탐험/보스/기타 상태에 맞춰 자동 세분화 누적)
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Stage")
 	void AddStageMovementDistance(const FString& StageName, float DistanceMeters);
+
+	// 22-1. 세분화된 이동거리 직접 누적 (탐험 / 보스전 / 기타)
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Distance")
+	void AddCategorizedMovementDistance(const FString& StageName, float DistanceMeters);
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Distance")
+	void AddExplorationMovementDistance(const FString& StageName, float DistanceMeters);
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Distance")
+	void AddBossMovementDistance(const FString& StageName, float DistanceMeters);
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Distance")
+	void AddEtcMovementDistance(const FString& StageName, float DistanceMeters);
 
 	// 23. 맵별 + 오브젝트별 상호작용 키 입력 횟수 증가
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Stage")

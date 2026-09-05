@@ -103,6 +103,16 @@ struct FGameplayLogData
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Time")
 	float TotalEtcTime = 0.f;
 
+	// 게임 세부 총 이동거리 (탐험, 보스전, 기타/거점)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Distance")
+	float TotalExplorationDistance = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Distance")
+	float TotalBossDistance = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Distance")
+	float TotalEtcDistance = 0.f;
+
 	// 12. 일시정지 횟수
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog")
 	int32 PauseCount = 0;
@@ -181,6 +191,16 @@ struct FGameplayLogData
 	// 22. 맵별 플레이어 이동거리 (MapName -> Meters)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
 	TMap<FString, float> StageMovementDistances;
+
+	// 맵별 세부 플레이어 이동거리 (탐험, 보스전, 기타/거점)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
+	TMap<FString, float> StageExplorationDistances;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
+	TMap<FString, float> StageBossDistances;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
+	TMap<FString, float> StageEtcDistances;
 
 	// 23. 맵별 + 오브젝트별 상호작용 키 입력 횟수 (MapName -> FInteractionCountMap)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Stage")
@@ -484,6 +504,15 @@ struct FGameplayLogData
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
 	TMap<FString, float> StageFirstClearDistances;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
+	TMap<FString, float> StageFirstClearExplorationDistances;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
+	TMap<FString, float> StageFirstClearBossDistances;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
+	TMap<FString, float> StageFirstClearEtcDistances;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|FirstClear")
 	TMap<FString, float> StageFirstClearDamageTaken;

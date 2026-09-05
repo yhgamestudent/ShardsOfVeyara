@@ -440,8 +440,76 @@ void UGameplayLogSubsystem::RecordStageClearPortalTime(const FString& StageName,
 
 void UGameplayLogSubsystem::AddStageMovementDistance(const FString& StageName, float DistanceMeters)
 {
-	float& Dist = LogData.StageMovementDistances.FindOrAdd(StageName);
+	if (DistanceMeters <= 0.0f) return;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	float& Dist = LogData.StageMovementDistances.FindOrAdd(TargetStage);
 	Dist += DistanceMeters;
+
+	// 세분화된 카테고리(탐험, 보스전, 기타) 자동 분배 누적
+	AddCategorizedMovementDistance(TargetStage, DistanceMeters);
+}
+
+void UGameplayLogSubsystem::AddCategorizedMovementDistance(const FString& StageName, float DistanceMeters)
+{
+	if (DistanceMeters <= 0.0f) return;
+
+	FString TargetStage = GetTargetStageName(StageName);
+
+	// 1. 거점 / 튜토리얼 / 마을 / UI 등 기타 맵인 경우
+	if (IsEtcStage(TargetStage))
+	{
+		AddEtcMovementDistance(TargetStage, DistanceMeters);
+	}
+	// 2. 탐험 맵인 경우
+	else
+	{
+		// 2-1. 보스전 진행 중인 경우 (보스 몬스터와 전투 시작 후 ~ 격파/사망 전)
+		if (bIsBossBattleActive)
+		{
+			AddBossMovementDistance(TargetStage, DistanceMeters);
+		}
+		// 2-2. 해당 탐험 맵의 보스를 이미 처치 완료한 경우 (포탈 탑승 대기 및 아이템 정리 중 -> '기타' 이동거리로 기록)
+		else if (ClearedBossStages.Contains(TargetStage))
+		{
+			AddEtcMovementDistance(TargetStage, DistanceMeters);
+		}
+		// 2-3. 보스전 시작 전 일반 탐험/필드 진행 중인 경우 -> '탐험' 이동거리로 기록
+		else
+		{
+			AddExplorationMovementDistance(TargetStage, DistanceMeters);
+		}
+	}
+}
+
+void UGameplayLogSubsystem::AddExplorationMovementDistance(const FString& StageName, float DistanceMeters)
+{
+	if (DistanceMeters <= 0.0f) return;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	LogData.TotalExplorationDistance += DistanceMeters;
+	float& StageDist = LogData.StageExplorationDistances.FindOrAdd(TargetStage);
+	StageDist += DistanceMeters;
+}
+
+void UGameplayLogSubsystem::AddBossMovementDistance(const FString& StageName, float DistanceMeters)
+{
+	if (DistanceMeters <= 0.0f) return;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	LogData.TotalBossDistance += DistanceMeters;
+	float& StageDist = LogData.StageBossDistances.FindOrAdd(TargetStage);
+	StageDist += DistanceMeters;
+}
+
+void UGameplayLogSubsystem::AddEtcMovementDistance(const FString& StageName, float DistanceMeters)
+{
+	if (DistanceMeters <= 0.0f) return;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	LogData.TotalEtcDistance += DistanceMeters;
+	float& StageDist = LogData.StageEtcDistances.FindOrAdd(TargetStage);
+	StageDist += DistanceMeters;
 }
 
 void UGameplayLogSubsystem::IncrementStageInteraction(const FString& StageName, const FString& ActorName)
@@ -736,6 +804,9 @@ void UGameplayLogSubsystem::SnapshotStageFirstClear(const FString& StageName, co
 	float CurrentBossTime = LogData.StageBossTimes.FindRef(TargetStage);
 	float CurrentEtcTime = LogData.StageEtcTimes.FindRef(TargetStage);
 	float CurrentDistance = LogData.StageMovementDistances.FindRef(TargetStage);
+	float CurrentExplorationDistance = LogData.StageExplorationDistances.FindRef(TargetStage);
+	float CurrentBossDistance = LogData.StageBossDistances.FindRef(TargetStage);
+	float CurrentEtcDistance = LogData.StageEtcDistances.FindRef(TargetStage);
 	float CurrentDamageTaken = LogData.StageDamageTaken.FindRef(TargetStage);
 	int32 CurrentFallRespawns = LogData.StageFallRespawnCounts.FindRef(TargetStage);
 	int32 CurrentDeaths = LogData.StageTotalDeathCounts.FindRef(TargetStage);
@@ -746,6 +817,9 @@ void UGameplayLogSubsystem::SnapshotStageFirstClear(const FString& StageName, co
 	LogData.StageFirstClearBossTimes.Add(TargetStage, CurrentBossTime);
 	LogData.StageFirstClearEtcTimes.Add(TargetStage, CurrentEtcTime);
 	LogData.StageFirstClearDistances.Add(TargetStage, CurrentDistance);
+	LogData.StageFirstClearExplorationDistances.Add(TargetStage, CurrentExplorationDistance);
+	LogData.StageFirstClearBossDistances.Add(TargetStage, CurrentBossDistance);
+	LogData.StageFirstClearEtcDistances.Add(TargetStage, CurrentEtcDistance);
 	LogData.StageFirstClearDamageTaken.Add(TargetStage, CurrentDamageTaken);
 	LogData.StageFirstClearFallRespawns.Add(TargetStage, CurrentFallRespawns);
 	LogData.StageFirstClearDeaths.Add(TargetStage, CurrentDeaths);
@@ -1080,6 +1154,9 @@ FString UGameplayLogSubsystem::GenerateCSVString() const
 	CSV += FString::Printf(TEXT("%s,General,TotalExplorationTime,,%.2f\n"), *SessionID, LogData.TotalExplorationTime);
 	CSV += FString::Printf(TEXT("%s,General,TotalBossTime,,%.2f\n"), *SessionID, LogData.TotalBossTime);
 	CSV += FString::Printf(TEXT("%s,General,TotalEtcTime,,%.2f\n"), *SessionID, LogData.TotalEtcTime);
+	CSV += FString::Printf(TEXT("%s,General,TotalExplorationDistance,,%.2f\n"), *SessionID, LogData.TotalExplorationDistance);
+	CSV += FString::Printf(TEXT("%s,General,TotalBossDistance,,%.2f\n"), *SessionID, LogData.TotalBossDistance);
+	CSV += FString::Printf(TEXT("%s,General,TotalEtcDistance,,%.2f\n"), *SessionID, LogData.TotalEtcDistance);
 	CSV += FString::Printf(TEXT("%s,General,TotalAcquiredCoins,,%d\n"), *SessionID, LogData.TotalAcquiredCoins);
 	CSV += FString::Printf(TEXT("%s,General,TotalConsumedCoins,,%d\n"), *SessionID, LogData.TotalConsumedCoins);
 	CSV += FString::Printf(TEXT("%s,General,FailedPotionCraftingCount,,%d\n"), *SessionID, LogData.FailedPotionCraftingCount);
@@ -1128,6 +1205,18 @@ FString UGameplayLogSubsystem::GenerateCSVString() const
 	for (const auto& Pair : LogData.StageMovementDistances)
 	{
 		CSV += FString::Printf(TEXT("%s,StageMovementDistance,DistanceMeters,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageExplorationDistances)
+	{
+		CSV += FString::Printf(TEXT("%s,StageMovementDistanceCategorized,Exploration,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageBossDistances)
+	{
+		CSV += FString::Printf(TEXT("%s,StageMovementDistanceCategorized,Boss,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageEtcDistances)
+	{
+		CSV += FString::Printf(TEXT("%s,StageMovementDistanceCategorized,Etc,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& StagePair : LogData.StageInteractionCounts)
 	{
@@ -1632,6 +1721,18 @@ FString UGameplayLogSubsystem::GenerateCSVString() const
 	for (const auto& Pair : LogData.StageFirstClearDistances)
 	{
 		CSV += FString::Printf(TEXT("%s,FirstClear,MovementDistance,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageFirstClearExplorationDistances)
+	{
+		CSV += FString::Printf(TEXT("%s,FirstClear,ExplorationDistance,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageFirstClearBossDistances)
+	{
+		CSV += FString::Printf(TEXT("%s,FirstClear,BossDistance,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
+	for (const auto& Pair : LogData.StageFirstClearEtcDistances)
+	{
+		CSV += FString::Printf(TEXT("%s,FirstClear,EtcDistance,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
 	for (const auto& Pair : LogData.StageFirstClearDamageTaken)
 	{

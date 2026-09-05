@@ -1744,74 +1744,86 @@ void AAGSDCharacter::UpdateMotionWarpTarget()
 		return;
 	}
 
-	AActor* TargetActor = LockOnComponent ? LockOnComponent->GetLockedTarget() : nullptr;
+	bool bIsHardLocked = false;
+	AActor* TargetActor = LockOnComponent ? LockOnComponent->GetTargetForAttack(bIsHardLocked) : nullptr;
+
+	// 플레이어가 마우스로 바라보고 있는 실시간 컨트롤러(카메라) 수평 회전값
+	const FRotator ControlRot = GetControlRotation();
+	const FRotator CameraFacingRotation = FRotator(0.f, ControlRot.Yaw, 0.f);
+
 	if (!TargetActor)
 	{
-		// 락온 타겟이 없을 때 모션 워프 타겟 제거
+		// 타겟이 없을 때 모션 워프 타겟을 제거하고 캐릭터를 마우스(카메라) 방향으로 즉시 정렬
 		MotionWarpingComponent->RemoveWarpTarget(FName("WarpTarget"));
+		SetActorRotation(CameraFacingRotation);
 		return;
 	}
 
-		FVector PlayerLoc = GetActorLocation();
-		FVector TargetLoc = TargetActor->GetActorLocation();
+	FVector PlayerLoc = GetActorLocation();
+	FVector TargetLoc = TargetActor->GetActorLocation();
 
-		// 1. 플레이어 캐릭터 전방 120도 시야 범위(좌우 60도) 내에 타겟이 있는지 검사
-		FVector Forward = GetActorForwardVector();
-		FVector DirToTarget = (TargetLoc - PlayerLoc).GetSafeNormal2D();
-		float Dot = FVector::DotProduct(Forward, DirToTarget);
-		float AngleDiff = FMath::RadiansToDegrees(FMath::Acos(Dot));
+	// 적용할 허용 각도 및 최대 워프 거리 결정 (하드 락온 vs 소프트 락온)
+	float AllowedAngle = bIsHardLocked ? MaxAngleDiff : (LockOnComponent ? LockOnComponent->SoftLockMaxAngle : 30.0f);
+	float StepLimit = bIsHardLocked ? MaxWarpStep : SoftLockMaxWarpStep;
 
-		if (AngleDiff > MaxAngleDiff)
+	// 1. 시야 범위 내 타겟 각도 검사
+	// 하드 락온: 캐릭터 정면 시야각 검사
+	// 소프트 락온: 플레이어가 마우스로 보고 있는 실시간 카메라 정면(Yaw) 시야각 검사
+	FVector DirToTarget = (TargetLoc - PlayerLoc).GetSafeNormal2D();
+	FVector ReferenceForward = bIsHardLocked ? GetActorForwardVector() : FRotationMatrix(CameraFacingRotation).GetUnitAxis(EAxis::X);
+	float Dot = FVector::DotProduct(ReferenceForward, DirToTarget);
+	float AngleDiff = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(Dot, -1.0f, 1.0f)));
+
+	if (AngleDiff > AllowedAngle)
+	{
+		// 마우스를 돌려 허용 시야각을 벗어났다면, 모션 워프 타겟을 즉시 제거하고 마우스(카메라) 방향으로 회전 정렬
+		MotionWarpingComponent->RemoveWarpTarget(FName("WarpTarget"));
+		SetActorRotation(CameraFacingRotation);
+		return;
+	}
+
+	// 2. 플레이어 캐릭터가 타겟을 바라보는 회전값 계산
+	FRotator TargetRotation = UKismetMathLibrary::FindLookAtRotation(PlayerLoc, TargetLoc);
+	TargetRotation.Pitch = 0.f;
+	TargetRotation.Roll = 0.f;
+
+	// 수평(2D) 방향 및 거리 계산
+	float ActualDistance = FVector::Dist2D(PlayerLoc, TargetLoc);
+
+	FVector WarpLocation = PlayerLoc;
+
+	if (ActualDistance > AttackStopDistance)
+	{
+		// 몬스터 전방 AttackStopDistance가 되는 목표 지점 계산
+		FVector DesiredWarpLoc = TargetLoc - (DirToTarget * AttackStopDistance);
+		
+		// 해당 목표 지점까지의 워프 필요 거리
+		float WarpDist = FVector::Dist2D(PlayerLoc, DesiredWarpLoc);
+		if (WarpDist > StepLimit)
 		{
-			// 정면 시야각 120도를 벗어났다면(예: 뒤를 돌아서 공격 시 등), 모션 워프 타겟을 제거하여 급회전 현상 방지
-			MotionWarpingComponent->RemoveWarpTarget(FName("WarpTarget"));
-			return;
-		}
-
-		// 2. 플레이어 캐릭터가 락온 타겟을 바라보는 회전값 계산
-		FRotator TargetRotation = UKismetMathLibrary::FindLookAtRotation(PlayerLoc, TargetLoc);
-		TargetRotation.Pitch = 0.f;
-		TargetRotation.Roll = 0.f;
-
-		// 수평(2D) 방향 및 거리 계산
-		float ActualDistance = FVector::Dist2D(PlayerLoc, TargetLoc);
-
-		FVector WarpLocation = PlayerLoc;
-		const float AttackStopDistance = 150.0f; // 몬스터 전방 150.0f 남겨두기
-		const float MaxWarpStep = 350.0f;        // 공격 시 순간이동 방지를 위한 최대 워프 전진 제한 거리
-
-		if (ActualDistance > AttackStopDistance)
-		{
-			// 몬스터 전방 150.0f가 되는 목표 지점 계산
-			FVector DesiredWarpLoc = TargetLoc - (DirToTarget * AttackStopDistance);
-			
-			// 해당 목표 지점까지의 워프 필요 거리
-			float WarpDist = FVector::Dist2D(PlayerLoc, DesiredWarpLoc);
-			if (WarpDist > MaxWarpStep)
-			{
-				// 최대 허용치만큼만 앞으로 전진 워프
-				WarpLocation = PlayerLoc + (DirToTarget * MaxWarpStep);
-			}
-			else
-			{
-				WarpLocation = DesiredWarpLoc;
-			}
+			// 최대 허용치만큼만 앞으로 전진 워프
+			WarpLocation = PlayerLoc + (DirToTarget * StepLimit);
 		}
 		else
 		{
-			// 이미 공격 사거리 이내(150.0f 이하)에 있다면 현재 위치 유지하며 회전만 보정
-			WarpLocation = PlayerLoc;
+			WarpLocation = DesiredWarpLoc;
 		}
+	}
+	else
+	{
+		// 이미 공격 사거리 이내(AttackStopDistance 이하)에 있다면 현재 위치 유지하며 회전만 보정
+		WarpLocation = PlayerLoc;
+	}
 
-		// Z축 좌표는 플레이어의 현재 높이를 유지하여 땅밑 침하 또는 공중 부양 방지
-		WarpLocation.Z = PlayerLoc.Z;
+	// Z축 좌표는 플레이어의 현재 높이를 유지하여 땅밑 침하 또는 공중 부양 방지
+	WarpLocation.Z = PlayerLoc.Z;
 
-		// WarpTarget 업데이트
-		MotionWarpingComponent->AddOrUpdateWarpTargetFromLocationAndRotation(
-			FName("WarpTarget"),
-			WarpLocation,
-			TargetRotation
-		);
+	// WarpTarget 업데이트
+	MotionWarpingComponent->AddOrUpdateWarpTargetFromLocationAndRotation(
+		FName("WarpTarget"),
+		WarpLocation,
+		TargetRotation
+	);
 }
 
 void AAGSDCharacter::DoMove(float Right, float Forward)

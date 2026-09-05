@@ -9,6 +9,7 @@
 #include "Kismet/KismetSystemLibrary.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "MotionWarpingComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "Interaction.h"
 
 UAGSDLockOnComponent::UAGSDLockOnComponent()
@@ -351,3 +352,126 @@ void UAGSDLockOnComponent::SetLockOnMarkerState(AActor* TargetActor, bool bActiv
 		}
 	}
 }
+
+AActor* UAGSDLockOnComponent::GetTargetForAttack(bool& bOutIsHardLocked)
+{
+	if (LockedTarget && IsValid(LockedTarget))
+	{
+		bOutIsHardLocked = true;
+		return LockedTarget;
+	}
+
+	bOutIsHardLocked = false;
+
+	if (bEnableSoftLockOn)
+	{
+		return FindSoftLockTarget();
+	}
+
+	return nullptr;
+}
+
+AActor* UAGSDLockOnComponent::FindSoftLockTarget()
+{
+	if (!OwnerCharacter) return nullptr;
+
+	UCameraComponent* FollowCamera = OwnerCharacter->GetFollowCamera();
+	if (!FollowCamera) return nullptr;
+
+	const FVector PlayerLoc = OwnerCharacter->GetActorLocation();
+	const FVector CameraLocation = FollowCamera->GetComponentLocation();
+	const FVector CameraForward = FollowCamera->GetForwardVector();
+
+	TArray<AActor*> OverlappingActors;
+	TArray<AActor*> ActorsToIgnore;
+	ActorsToIgnore.Add(OwnerCharacter);
+
+	UKismetSystemLibrary::SphereOverlapActors(
+		OwnerCharacter,
+		PlayerLoc,
+		SoftLockRadius,
+		{ UEngineTypes::ConvertToObjectType(ECollisionChannel::ECC_Pawn) },
+		AActor::StaticClass(),
+		ActorsToIgnore,
+		OverlappingActors
+	);
+
+	AActor* BestTarget = nullptr;
+	float BestScore = FLT_MAX;
+
+	for (AActor* Actor : OverlappingActors)
+	{
+		if (!Actor || !Actor->ActorHasTag(FName("Enemy"))) continue;
+
+		// 적 액터가 유효하고 콜리전이 활성화되어 있는지 확인 (사망한 적 제외)
+		ACharacter* EnemyChar = Cast<ACharacter>(Actor);
+		if (EnemyChar && EnemyChar->GetCapsuleComponent())
+		{
+			if (EnemyChar->GetCapsuleComponent()->GetCollisionEnabled() == ECollisionEnabled::NoCollision)
+			{
+				continue;
+			}
+		}
+
+		// 플레이어와의 수평 거리 검사
+		float Distance = FVector::Dist2D(PlayerLoc, Actor->GetActorLocation());
+		if (Distance > SoftLockRadius) continue;
+
+		// 카메라 정면 기준 수평(2D) 각도 검사 (플레이어가 마우스로 회전한 방향과 정확히 일치하도록 계산)
+		APlayerController* PC = Cast<APlayerController>(OwnerCharacter->GetController());
+		FRotator ViewRot = PC ? PC->GetControlRotation() : FollowCamera->GetComponentRotation();
+		FVector CameraForward2D = FRotationMatrix(FRotator(0.f, ViewRot.Yaw, 0.f)).GetUnitAxis(EAxis::X);
+		FVector DirToTarget2D = (Actor->GetActorLocation() - PlayerLoc).GetSafeNormal2D();
+		float Dot = FVector::DotProduct(CameraForward2D, DirToTarget2D);
+		float AngleOffset = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(Dot, -1.0f, 1.0f)));
+
+		if (AngleOffset > SoftLockMaxAngle) continue;
+
+		// 시야 차폐 검사 (장애물 뒤에 가려진 적 제외)
+		FVector TraceStart = CameraLocation;
+		FVector TargetCenter = Actor->GetActorLocation();
+		if (EnemyChar)
+		{
+			float HalfHeight = EnemyChar->GetSimpleCollisionHalfHeight();
+			TargetCenter.Z += (HalfHeight > 0.0f) ? HalfHeight * 0.5f : 40.0f;
+		}
+
+		FCollisionQueryParams TraceParams;
+		TraceParams.AddIgnoredActor(OwnerCharacter);
+		TraceParams.AddIgnoredActor(Actor);
+
+		FHitResult HitResult;
+		bool bHit = GetWorld()->LineTraceSingleByChannel(HitResult, TraceStart, TargetCenter, ECC_Visibility, TraceParams);
+		if (bHit && HitResult.GetActor())
+		{
+			AActor* HitActor = HitResult.GetActor();
+			// 상호작용 가능한 아이템 등은 시야 차단에서 예외 처리
+			if (HitActor->GetClass()->ImplementsInterface(UInteraction::StaticClass()) ||
+				HitActor->ActorHasTag(FName("Item")) ||
+				HitActor->ActorHasTag(FName("Interactable")))
+			{
+				bHit = false;
+			}
+		}
+
+		if (bHit)
+		{
+			// 벽/장애물에 가려진 경우 타겟에서 제외
+			continue;
+		}
+
+		// 스코어링 (각도 정규화 점수 + 거리 정규화 점수)
+		float NormDistance = Distance / SoftLockRadius;
+		float NormAngle = AngleOffset / SoftLockMaxAngle;
+		float Score = (NormDistance * 1.0f) + (NormAngle * 1.0f);
+
+		if (Score < BestScore)
+		{
+			BestScore = Score;
+			BestTarget = Actor;
+		}
+	}
+
+	return BestTarget;
+}
+

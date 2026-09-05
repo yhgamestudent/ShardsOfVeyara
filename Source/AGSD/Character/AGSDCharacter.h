@@ -174,6 +174,18 @@ protected:
 	// 후퇴 공격 시 뒤로 멀어질 모션 워핑 거리
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Warping")
 	float BackwardWarpDistance = 350.0f;
+
+	// 락온 시 공격 전진 최대 워프 거리
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Warping")
+	float MaxWarpStep = 350.0f;
+
+	// 비락온(소프트 락온) 시 공격 전진 최대 워프 거리
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Warping")
+	float SoftLockMaxWarpStep = 200.0f;
+
+	// 공격 시 적 전방에 남겨둘 정지 거리
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Warping")
+	float AttackStopDistance = 150.0f;
 	
 	AAGSDPlayerController* PC;
 	
