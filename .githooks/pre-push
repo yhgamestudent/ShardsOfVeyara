@@ -11,9 +11,9 @@ dvc push
 status=$?
 
 if [ $status -ne 0 ]; then
-    echo "==> [DVC Hook ERROR] DVC 에셋 푸시에 실패하여 git push를 중단합니다."
-    echo "    (Google Drive 인증이나 네트워크 상태를 확인해 주세요. 수동 실행: dvc push)"
-    exit 1
+    echo "==> [DVC Hook Warning] DVC 에셋 푸시에 실패했으나, Git 소스 코드 푸시는 계속 진행합니다."
+    echo "    (Google Drive 인증이나 대용량 에셋 동기화가 필요한 경우 수동으로 'dvc push'를 실행해 주세요.)"
+    exit 0
 fi
 
 echo "==> [DVC Hook] DVC 에셋 푸시 완료."
