@@ -1747,24 +1747,24 @@ void AAGSDCharacter::UpdateMotionWarpTarget()
 	bool bIsHardLocked = false;
 	AActor* TargetActor = LockOnComponent ? LockOnComponent->GetTargetForAttack(bIsHardLocked) : nullptr;
 
-	// 플레이어가 마우스로 바라보고 있는 실시간 컨트롤러(카메라) 수평 회전값
+	// 플레이어가 마우스로 바라보고 있는 실시간 컨트롤러(카메라) 수평 회전값 및 플레이어 위치
 	const FRotator ControlRot = GetControlRotation();
 	const FRotator CameraFacingRotation = FRotator(0.f, ControlRot.Yaw, 0.f);
+	const FVector PlayerLoc = GetActorLocation();
 
 	if (!TargetActor)
 	{
-		// 타겟이 없을 때 모션 워프 타겟을 제거하고 캐릭터를 마우스(카메라) 방향으로 즉시 정렬
+		// 타겟이 없을 때는 모션 워프 타겟을 제거하여 몽타주의 루트 모션이 온전히 동작하도록 처리
 		MotionWarpingComponent->RemoveWarpTarget(FName("WarpTarget"));
-		SetActorRotation(CameraFacingRotation);
 		return;
 	}
 
-	FVector PlayerLoc = GetActorLocation();
 	FVector TargetLoc = TargetActor->GetActorLocation();
 
 	// 적용할 허용 각도 및 최대 워프 거리 결정 (하드 락온 vs 소프트 락온)
 	float AllowedAngle = bIsHardLocked ? MaxAngleDiff : (LockOnComponent ? LockOnComponent->SoftLockMaxAngle : 30.0f);
-	float StepLimit = bIsHardLocked ? MaxWarpStep : SoftLockMaxWarpStep;
+	// 소프트 락온 상태에서도 모션 워핑 시 하드 락온과 동일한 거리(MaxWarpStep)로 이동되도록 적용
+	float StepLimit = MaxWarpStep;
 
 	// 1. 시야 범위 내 타겟 각도 검사
 	// 하드 락온: 캐릭터 정면 시야각 검사
@@ -1776,9 +1776,8 @@ void AAGSDCharacter::UpdateMotionWarpTarget()
 
 	if (AngleDiff > AllowedAngle)
 	{
-		// 마우스를 돌려 허용 시야각을 벗어났다면, 모션 워프 타겟을 즉시 제거하고 마우스(카메라) 방향으로 회전 정렬
+		// 마우스를 돌려 허용 시야각을 벗어났다면, 모션 워프 타겟을 제거하여 기본 루트 모션 유지
 		MotionWarpingComponent->RemoveWarpTarget(FName("WarpTarget"));
-		SetActorRotation(CameraFacingRotation);
 		return;
 	}
 

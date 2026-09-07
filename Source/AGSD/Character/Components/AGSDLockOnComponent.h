@@ -27,12 +27,17 @@ public:
 	// 외부 조회 함수
 	FORCEINLINE AActor* GetLockedTarget() const { return LockedTarget; }
 	FORCEINLINE bool IsTargetLocked() const { return LockedTarget != nullptr; }
+	FORCEINLINE AActor* GetCurrentSoftLockTarget() const { return CurrentSoftLockTarget; }
+	FORCEINLINE bool HasSoftLockTarget() const { return CurrentSoftLockTarget != nullptr; }
 
 	// 공격 시 사용할 타겟 반환 (하드 락온이 있으면 우선 반환, 없으면 소프트 타겟 탐색 후 반환)
 	AActor* GetTargetForAttack(bool& bOutIsHardLocked);
 
 	// 비락온 시 카메라 정면 범위 내의 적을 1회성으로 탐색
 	AActor* FindSoftLockTarget();
+
+	// 비락온 시 소프트 락온 감지 및 디버그 시각화 업데이트
+	void UpdateSoftLockState(float DeltaSeconds);
 
 	// 락온 세팅
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LockOn")
@@ -54,10 +59,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LockOn|SoftLock")
 	float SoftLockMaxAngle = 30.0f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LockOn|SoftLock")
+	bool bShowSoftLockDebug = true;
+
 private:
 	// 현재 락온 대상
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "LockOn", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<AActor> LockedTarget = nullptr;
+
+	// 현재 시야각 내 감지된 소프트 락온 대상
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "LockOn|SoftLock", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<AActor> CurrentSoftLockTarget = nullptr;
 
 	// 시야 차단 여부
 	bool bIsLineOfSightBlocked = false;

@@ -179,9 +179,9 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Warping")
 	float MaxWarpStep = 350.0f;
 
-	// 비락온(소프트 락온) 시 공격 전진 최대 워프 거리
+	// 비락온(소프트 락온) 시 공격 전진 최대 워프 거리 (하드 락온과 동일하게 350.0f 적용)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Warping")
-	float SoftLockMaxWarpStep = 200.0f;
+	float SoftLockMaxWarpStep = 350.0f;
 
 	// 공격 시 적 전방에 남겨둘 정지 거리
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Warping")
