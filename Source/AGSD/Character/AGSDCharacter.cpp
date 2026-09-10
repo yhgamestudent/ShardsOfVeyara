@@ -269,66 +269,49 @@ void AAGSDCharacter::Tick(float DeltaSeconds)
 	}
 
 	UpdateCharacterRotationSettings();
-	TryStartTurn();
 
-	// 턴이 활성화된 상태일 때 설정한 지속 시간 동안 마우스 회전을 향해 쿼터니언 Slerp 보간 회전
-	if (bIsTurning)
-	{
-		// 회전 중 이동을 시작하면 턴을 즉시 종료하고 일반 이동 회전으로 전환
-		if (GetCharacterMovement() && GetCharacterMovement()->Velocity.SizeSquared2D() > 100.0f)
-		{
-			bIsTurning = false;
-			TurnTimer = 0.0f;
-		}
-		else
-		{
-			TurnTimer -= DeltaSeconds;
-			if (TurnTimer <= 0.0f)
-			{
-				bIsTurning = false;
-				TurnTimer = 0.0f;
-			}
-			else if (GetController() && TurnDuration > 0.0f)
-			{
-				// 경과 시간에 따른 보간 비율 Alpha 계산 (0.0 ~ 1.0)
-				float Alpha = FMath::Clamp((TurnDuration - TurnTimer) / TurnDuration, 0.0f, 1.0f);
+	// [애님 블루프린트 이전] 턴 판정 및 회전은 AnimBP에서 담당하므로 C++ 강제 쿼터니언 Slerp 회전 비활성화
+	// TryStartTurn();
+	// if (bIsTurning) ... (C++ 회전 보간 비활성화)
 
-				FRotator TargetRot = GetControlRotation();
-				TargetRot.Pitch = 0.0f;
-				TargetRot.Roll = 0.0f;
-
-				// 쿼터니언을 이용해 최단 경로로 구면 선형 보간 (Slerp)
-				FQuat StartQuat = FQuat(StartRotation);
-				FQuat TargetQuat = FQuat(TargetRot);
-				FQuat NewQuat = FQuat::Slerp(StartQuat, TargetQuat, Alpha);
-
-				SetActorRotation(NewQuat);
-			}
-		}
-	}
+	bIsLockedOn = LockOnComponent && LockOnComponent->IsTargetLocked();
 
 	if (GetController())
 	{
 		float TargetYaw = 0.0f;
-		AActor* TargetActor = LockOnComponent ? LockOnComponent->GetLockedTarget() : nullptr;
+		float TargetPitch = 0.0f;
+		AActor* TargetActor = bIsLockedOn ? LockOnComponent->GetLockedTarget() : nullptr;
 		if (TargetActor)
 		{
 			FVector TargetLocation = TargetActor->GetActorLocation();
 			FVector CharacterLocation = GetActorLocation();
 			FRotator LookAtRotation = (TargetLocation - CharacterLocation).Rotation();
 			TargetYaw = LookAtRotation.Yaw;
+			TargetPitch = LookAtRotation.Pitch;
 		}
 		else
 		{
-			TargetYaw = GetController()->GetControlRotation().Yaw;
+			FRotator ControlRot = GetController()->GetControlRotation();
+			TargetYaw = ControlRot.Yaw;
+			TargetPitch = ControlRot.Pitch;
 		}
 		float ActorYaw = GetActorRotation().Yaw;
 		TurnYawDelta = FRotator::NormalizeAxis(TargetYaw - ActorYaw);
+
+		// AimOffset용 각도 (-90 ~ 90 범위로 클램핑)
+		AimYaw = FMath::Clamp(TurnYawDelta, -90.0f, 90.0f);
+		AimPitch = FMath::Clamp(FRotator::NormalizeAxis(TargetPitch), -90.0f, 90.0f);
 	}
 	else
 	{
 		TurnYawDelta = 0.0f;
+		AimYaw = 0.0f;
+		AimPitch = 0.0f;
 	}
+
+	// FaceCamera 조준, 가드(Block), 락온(LockOn) 상태일 때만 AimOffset 활성화 (부드럽게 0.0 ~ 1.0 보간)
+	bool bShouldAim = bIsLockedOn || bIsFaceCameraPressed || (CharacterState == ECharacterState::Block);
+	AimOffsetAlpha = FMath::FInterpTo(AimOffsetAlpha, bShouldAim ? 1.0f : 0.0f, DeltaSeconds, 10.0f);
 
 	// 선입력 유효 시간 초과 체크 및 해제
 	if (bHasBufferedInput)
@@ -1162,9 +1145,8 @@ void AAGSDCharacter::ConfirmAndExecuteCombo(ESpearAttackInput DeterminedInput)
 		GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Cyan, FString::Printf(TEXT("[Combo Decision] %s"), *InputStr));
 	}
 
-	// 2. 캐릭터 회전 및 콤보 연계 실행
+	// 2. 콤보 연계 실행
 	float CurrentTime = GetWorld()->GetTimeSeconds();
-	ActivateAttackRotate();
 
 	// 공격 중이거나 복귀 중인 경우
 	if (bIsAttacking || bIsRecovering) 
@@ -1532,6 +1514,9 @@ void AAGSDCharacter::PlayStage(int32 Index)
 			float Duration = PlayAnimMontage(Stage.AttackMontage);
 			if (Duration > 0.f)
 			{
+				// 실제 공격 몽타주 재생이 시작된 순간에만 카메라 방향으로 정렬 회전
+				ActivateAttackRotate();
+
 				bIsAttacking = true;
 				bIsRecovering = false; // 새로운 공격 시작 시 복귀 상태 해제
 				bCanCombo = false;
@@ -2614,12 +2599,16 @@ void AAGSDCharacter::UpdateCharacterRotationSettings()
 {
 	if (!GetCharacterMovement()) return;
 
-	bool bIsLockedOn = LockOnComponent && LockOnComponent->IsTargetLocked();
+	bIsLockedOn = LockOnComponent && LockOnComponent->IsTargetLocked();
 
 	if (bIsLockedOn || bIsFaceCameraPressed || CharacterState == ECharacterState::Block)
 	{
 		GetCharacterMovement()->bOrientRotationToMovement = false;
-		GetCharacterMovement()->bUseControllerDesiredRotation = bIsLockedOn;
+
+		// 이동 입력(WASD)이 있거나 실제로 걷는 중일 때는 적/카메라를 정면으로 바라보며 걷도록 회전 활성화
+		// 가만히 서 있을 때는 회전을 꺼서 AimOffset(0~90도)과 제자리 턴(90도 이상)이 작동하도록 지원
+		bool bIsMovingOrInput = (GetCharacterMovement()->Velocity.SizeSquared2D() > 100.0f) || !LastRawInputVector.IsNearlyZero();
+		GetCharacterMovement()->bUseControllerDesiredRotation = bIsMovingOrInput && (bIsLockedOn || bIsFaceCameraPressed);
 	}
 	else
 	{
@@ -2630,7 +2619,7 @@ void AAGSDCharacter::UpdateCharacterRotationSettings()
 
 void AAGSDCharacter::TryStartTurn()
 {
-	bool bIsLockedOn = LockOnComponent && LockOnComponent->IsTargetLocked();
+	bIsLockedOn = LockOnComponent && LockOnComponent->IsTargetLocked();
 
 	// 락온 중이거나, 이미 턴 중이거나, 공격/스킬 모션 중일 때는 패스
 	if (bIsLockedOn || bIsTurning || bIsAttacking || SkillMotion)

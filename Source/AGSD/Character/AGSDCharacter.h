@@ -490,8 +490,20 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerState|Movement|Animation")
 	float TurnYawDelta = 0.0f;
 
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerState|Movement|Animation")
+	float AimYaw = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerState|Movement|Animation")
+	float AimPitch = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerState|Movement|Animation")
+	float AimOffsetAlpha = 0.0f;
+
 	UPROPERTY(BlueprintReadOnly, Category = "PlayerState|Movement|Camera")
 	bool bIsFaceCameraPressed = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "PlayerState|Movement|LockOn")
+	bool bIsLockedOn = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerState|Movement|Animation")
 	class UAnimMontage* TurnLeft90Montage = nullptr;
