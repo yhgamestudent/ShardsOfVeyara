@@ -1697,6 +1697,16 @@ void AAGSDCharacter::ResetAttackState()
 		ComboGuideComponent->UpdateComboGuideUI();
 	}
 
+	// 노티파이 등으로 변경되었던 충돌 무시 및 무적 상태가 있다면 공격 종료/리셋 시 안전하게 원상 복구
+	if (bIsCollisionIgnoredByNotify)
+	{
+		SetIgnorePawnCollision(false);
+	}
+	if (bIsInvulnerableByNotify)
+	{
+		SetCanBeDamaged(true);
+	}
+
 	// 공격 종료 시점에 선입력된 입력이 있다면 즉시 새로운 공격 실행
 	if (bShouldTriggerBufferedAttack)
 	{
@@ -3179,3 +3189,40 @@ void AAGSDCharacter::UpdateActionDurationLogging(float DeltaSeconds)
 	}
 }
 
+void AAGSDCharacter::SetIgnorePawnCollision(bool bIgnore)
+{
+	bIsCollisionIgnoredByNotify = bIgnore;
+	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+	{
+		Capsule->SetCollisionResponseToChannel(ECC_Pawn, bIgnore ? ECR_Ignore : ECR_Block);
+		Capsule->SetCollisionResponseToChannel(ECC_PhysicsBody, bIgnore ? ECR_Ignore : ECR_Block);
+
+		if (bIgnore)
+		{
+			bool bIsHardLocked = false;
+			AActor* TargetActor = LockOnComponent ? LockOnComponent->GetTargetForAttack(bIsHardLocked) : nullptr;
+			if (IsValid(TargetActor))
+			{
+				IgnoredTargetActorOnNotify = TargetActor;
+				Capsule->IgnoreActorWhenMoving(TargetActor, true);
+				MoveIgnoreActorAdd(TargetActor);
+			}
+		}
+		else
+		{
+			if (IgnoredTargetActorOnNotify.IsValid())
+			{
+				AActor* CachedTarget = IgnoredTargetActorOnNotify.Get();
+				Capsule->IgnoreActorWhenMoving(CachedTarget, false);
+				MoveIgnoreActorRemove(CachedTarget);
+				IgnoredTargetActorOnNotify.Reset();
+			}
+		}
+	}
+}
+
+void AAGSDCharacter::SetCanBeDamaged(bool bInCanBeDamage)
+{
+	bIsInvulnerableByNotify = !bInCanBeDamage;
+	bCanBeDamage = bInCanBeDamage;
+}

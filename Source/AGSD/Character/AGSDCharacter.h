@@ -788,7 +788,24 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Action")
 	void SetActionNPCService(bool bActive);
 
+	// ─── [피즈 재간둥이형 모션 등 충돌 및 무적 제어 헬퍼] ───
+	UFUNCTION(BlueprintCallable, Category = "Combat|Collision")
+	void SetIgnorePawnCollision(bool bIgnore);
+
+	UFUNCTION(BlueprintCallable, Category = "Combat")
+	void SetCanBeDamaged(bool bInCanBeDamage);
+
+	UFUNCTION(BlueprintPure, Category = "Combat")
+	FORCEINLINE bool GetCanBeDamaged() const { return bCanBeDamage; }
+
 protected:
 	void UpdateActionDurationLogging(float DeltaSeconds);
+
+	// 노티파이 등에 의해 충돌 무시 및 무적이 적용 중인지 추적하는 플래그
+	bool bIsCollisionIgnoredByNotify = false;
+	bool bIsInvulnerableByNotify = false;
+
+	// 노티파이 도중 충돌을 무시한 타겟 액터 캐싱
+	TWeakObjectPtr<AActor> IgnoredTargetActorOnNotify = nullptr;
 	
 };
