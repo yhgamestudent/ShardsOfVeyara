@@ -263,6 +263,10 @@ void AAGSDCharacter::Tick(float DeltaSeconds)
 	SetTotalDistance();
 	UpdateActionDurationLogging(DeltaSeconds);
 
+	// 플레이어의 의도된 속도 (DesiredSpeed) 계산: 이동 입력 세기 * 목표 속도
+	float InputStrength = GetLastMovementInputVector().Size2D();
+	DesiredSpeed = InputStrength * (bIsSprinting ? SprintSpeed : WalkSpeed);
+
 	if (ComboGuideComponent)
 	{
 		ComboGuideComponent->UpdateComboGuideUI();
@@ -787,6 +791,32 @@ void AAGSDCharacter::Move(const FInputActionValue& Value)
 	// input is a Vector2D
 	FVector2D MovementVector = Value.Get<FVector2D>();
 
+	// 선입력 판정 및 카메라 기준 월드 입력 벡터 계산
+	if (GetController())
+	{
+		const FRotator Rotation = GetController()->GetControlRotation();
+		const FRotator YawRotation(0, Rotation.Yaw, 0);
+		LastRawInputVector = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X) * MovementVector.Y + 
+							 FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y) * MovementVector.X;
+	}
+
+	// 카메라 기준 입력 방향과 캐릭터 몸체 각도 사이의 상대 각도 계산 (-180 ~ +180도)
+	if (MovementVector.SizeSquared() > 0.04f && !LastRawInputVector.IsNearlyZero())
+	{
+		const FVector ForwardDir = GetActorForwardVector();
+		const FVector RightDir = GetActorRightVector();
+		const FVector InputNorm = LastRawInputVector.GetSafeNormal2D();
+
+		const float ForwardDot = FVector::DotProduct(ForwardDir, InputNorm);
+		const float RightDot = FVector::DotProduct(RightDir, InputNorm);
+
+		InputRollDirection = FMath::RadiansToDegrees(FMath::Atan2(RightDot, ForwardDot));
+	}
+	else
+	{
+		InputRollDirection = 0.0f;
+	}
+
 	if (Running)
 	{
 		// 입력이 있고(움직임), 마이닝 중이 아닐 때
@@ -811,15 +841,6 @@ void AAGSDCharacter::Move(const FInputActionValue& Value)
 	// 전진 키를 누르고 있을 때 콤보 입력
 	if (MovementVector.Y > 0.0f) HandleAttackInput(FName("Forward"));
 
-	// 선입력 판정을 위한 원시 입력 벡터 저장 (Mining 중에도 업데이트하여 애니메이션 중 방향 감지 가능)
-	if (GetController())
-	{
-		const FRotator Rotation = GetController()->GetControlRotation();
-		const FRotator YawRotation(0, Rotation.Yaw, 0);
-		LastRawInputVector = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X) * MovementVector.Y + 
-							 FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y) * MovementVector.X;
-	}
-
 	// 움직이면 안될 때
 	if (Mining)	return;
 	
@@ -832,6 +853,7 @@ void AAGSDCharacter::Move(const FInputActionValue& Value)
 void AAGSDCharacter::StopMove()
 {
 	LastRawInputVector = FVector::ZeroVector;
+	InputRollDirection = 0.0f;
 	UpdateSprintSpeed();
 
 	if (Running && Running->IsPlaying())
@@ -842,6 +864,13 @@ void AAGSDCharacter::StopMove()
 
 void AAGSDCharacter::Jump()
 {
+	// 창을 들고 있는 상태라면 물리 점프를 하지 않고 구르기(Roll) 실행
+	if (HoldingWeapon == EHoldingWeapon::Spear)
+	{
+		StartRoll();
+		return;
+	}
+
 	if (Mining) return;
 	if (CharacterState == ECharacterState::Block) return;
  	if (Jumping && !GetCharacterMovement()->IsFalling())
@@ -870,6 +899,51 @@ void AAGSDCharacter::StopJumping()
 {
 	if (Mining) return;
 	Super::StopJumping();
+}
+
+void AAGSDCharacter::StartRoll()
+{
+	if (bIsRolling || GetCharacterMovement()->IsFalling()) return;
+	if (CharacterState == ECharacterState::Block || Mining) return;
+
+	// 공격 또는 후딜레이 중이면 공격 몽타주를 중단하고 콤보 초기화 (회피 캔슬)
+	if (bIsAttacking || bIsRecovering)
+	{
+		StopAnimMontage();
+		ResetCombo();
+	}
+
+	bIsRolling = true;
+	UTextLog::WriteTextLogByKeyword(TEXT("구르기"));
+
+	if (UWorld* World = GetWorld())
+	{
+		FString MapName = World->GetMapName();
+		MapName.RemoveFromStart(World->StreamingLevelsPrefix);
+
+		if (UGameInstance* GameInst = GetGameInstance())
+		{
+			if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+			{
+				LogSubsystem->IncrementRollUsageCount(MapName);
+			}
+		}
+	}
+
+	GetWorldTimerManager().SetTimer(RollTimerHandle, this, &AAGSDCharacter::StopRoll, RollCooldown, false);
+}
+
+void AAGSDCharacter::StopRoll()
+{
+	bIsRolling = false;
+
+	// 구르기 종료 시 이동키(WASD)를 누르고 있다면 루트 모션 종료로 속도가 0으로 죽지 않도록 바톤 터치
+	FVector InputDir = GetLastMovementInputVector();
+	if (!InputDir.IsNearlyZero())
+	{
+		float TargetSpeed = bIsSprinting ? SprintSpeed : WalkSpeed;
+		GetCharacterMovement()->Velocity = InputDir.GetSafeNormal() * TargetSpeed;
+	}
 }
 
 void AAGSDCharacter::SprintStart()
@@ -3124,7 +3198,8 @@ void AAGSDCharacter::UpdateActionDurationLogging(float DeltaSeconds)
 		UAnimMontage* CurrentMontage = AnimInst ? AnimInst->GetCurrentActiveMontage() : nullptr;
 		FString MontageName = CurrentMontage ? CurrentMontage->GetName() : TEXT("");
 
-		if (CharacterState == ECharacterState::Block || 
+		if (bIsRolling ||
+			CharacterState == ECharacterState::Block || 
 			MontageName.Contains(TEXT("Attack")) ||  
 			MontageName.Contains(TEXT("Combo")) || 
 			MontageName.Contains(TEXT("Skill")) ||

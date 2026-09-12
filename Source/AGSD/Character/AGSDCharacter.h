@@ -484,6 +484,20 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PlayerState|Movement")
 	bool bIsSprinting = false;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PlayerState|Movement")
+	float DesiredSpeed = 0.0f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PlayerState|Movement|Roll")
+	bool bIsRolling = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerState|Movement|Roll")
+	float RollCooldown = 0.9f;
+
+	FTimerHandle RollTimerHandle;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PlayerState|Movement|Roll")
+	float InputRollDirection = 0.0f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerState|Movement|Camera")
 	float DefaultCameraLagSpeed = 12.0f;
 
@@ -559,6 +573,12 @@ protected:
 	void SprintStart();
 	void SprintEnd();
 	void UpdateSprintSpeed();
+
+	UFUNCTION(BlueprintCallable, Category = "Action|Roll")
+	void StartRoll();
+
+	UFUNCTION(BlueprintCallable, Category = "Action|Roll")
+	void StopRoll();
 	void FaceCameraInput(const FInputActionValue& Value);
 	/** Called for looking input */
 	void Look(const FInputActionValue& Value);
