@@ -77,3 +77,10 @@ DerivedDataCache/*
 
 # Packaged Builds
 Windows/
+
+# Local Notes / TODO
+TODO_LOCAL.md
+TODO*.md
+*LOCAL.md
+*_LOCAL.md
+

@@ -226,6 +226,12 @@ protected:
 	bool bCanCombo = false;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="PlayerState")
+	bool bCanRollCancel = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="PlayerState")
+	bool bCanMoveCancel = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="PlayerState")
 	bool bHasBufferedInput = false;
 
 	// 선입력된 공격의 발생 시점 (유효 시간 체크용)
@@ -459,6 +465,10 @@ public:
 	FORCEINLINE float getPlayerMaxhealth() const { return MaxHealth;}
 
 	void SetCanCombo(bool b);
+	void SetCanRollCancel(bool b);
+	FORCEINLINE bool CanRollCancel() const { return bCanRollCancel; }
+	void EnableMovementFromAttack();
+	FORCEINLINE bool CanMoveCancel() const { return bCanMoveCancel; }
 	
 	FORCEINLINE bool HasBufferedInput() {return bHasBufferedInput;}
 	
