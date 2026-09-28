@@ -141,6 +141,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "SaveGame")
 	bool AddGameInstanceItemByID(const FString& ItemID, int32 Amount, class UDataTable* ItemDataTable);
 
+	// 튜토리얼 마을 진입시 엔딩 플래그 트루면 엔딩 컷씬 재생
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ending")
+	bool bIsEnding = false;
+	
 protected:
 	// 게임 인스턴스가 초기화될 때 호출되는 함수 오버라이드
 	virtual void Init() override;
