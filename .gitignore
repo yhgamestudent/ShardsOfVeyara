@@ -84,3 +84,7 @@ TODO*.md
 *LOCAL.md
 *_LOCAL.md
 
+# Rider user files
+*.DotSettings.user
+*.DotSettings
+

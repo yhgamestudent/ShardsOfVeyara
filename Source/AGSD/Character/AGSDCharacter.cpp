@@ -34,6 +34,7 @@
 #include "Components/ProgressBar.h"
 #include "Kismet/GameplayStatics.h"
 #include "BaseFlyingPet.h"
+#include "TutorialSubsystem.h"
 #include "NiagaraFunctionLibrary.h"
 #include "SpearComboData.h"
 #include "TextLog.h"
@@ -926,6 +927,7 @@ void AAGSDCharacter::StartRoll()
 			bHasBufferedInput = false;
 			StopAnimMontage();
 			ResetAttackState();
+			ReportTutorialAction(ETutorialActionType::RollCancel);
 		}
 		else
 		{
@@ -942,6 +944,7 @@ void AAGSDCharacter::StartRoll()
 			StopAnimMontage();
 			Mining = false;
 			bCanRollCancel = false;
+			ReportTutorialAction(ETutorialActionType::RollCancel);
 		}
 		else
 		{
@@ -955,10 +958,12 @@ void AAGSDCharacter::StartRoll()
 		bHasBufferedInput = false;
 		StopAnimMontage();
 		ResetAttackState();
+		ReportTutorialAction(ETutorialActionType::RollCancel);
 	}
 
 	bHasBufferedInput = false;
 	bIsRolling = true;
+	ReportTutorialAction(ETutorialActionType::Roll);
 	UTextLog::WriteTextLogByKeyword(TEXT("구르기"));
 
 	if (UWorld* World = GetWorld())
@@ -1571,6 +1576,12 @@ void AAGSDCharacter::ExecuteNextStageWithInput(ESpearAttackInput Input)
 			{
 				CurrentStageIndex = NextIndex;
 				PlayStage(NextIndex);
+
+				// 3연타 이상 콤보 도달 시 튜토리얼 콤보 달성 리포트
+				if (NextIndex >= 2)
+				{
+					ReportTutorialAction(ETutorialActionType::AttackCombo);
+				}
 			}
 			else
 			{
@@ -2954,6 +2965,8 @@ void AAGSDCharacter::UpdateCharacterStateFromEquip()
 {
 	if (HoldingWeapon == EHoldingWeapon::Spear)
 	{
+		ReportTutorialAction(ETutorialActionType::EquipWeapon);
+
 		if (CharacterState != ECharacterState::Block)
 		{
 			SetCharacterState(ECharacterState::Combat);
@@ -3360,4 +3373,15 @@ void AAGSDCharacter::SetCanBeDamaged(bool bInCanBeDamage)
 {
 	bIsInvulnerableByNotify = !bInCanBeDamage;
 	bCanBeDamage = bInCanBeDamage;
+}
+
+void AAGSDCharacter::ReportTutorialAction(ETutorialActionType ActionType, int32 Count)
+{
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UTutorialSubsystem* TutSub = GameInst->GetSubsystem<UTutorialSubsystem>())
+		{
+			TutSub->ReportTutorialAction(ActionType, Count);
+		}
+	}
 }

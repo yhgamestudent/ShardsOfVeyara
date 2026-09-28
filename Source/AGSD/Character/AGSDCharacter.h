@@ -20,6 +20,7 @@
 #include "InteractionOwnerInterface.h"
 #include "SpearComboData.h"
 #include "ECharacterState.h"
+#include "TutorialTypes.h"
 #include "AGSDCharacter.generated.h"
 
 class UAGSDComboGuideComponent;
@@ -471,6 +472,10 @@ public:
 	FORCEINLINE bool CanMoveCancel() const { return bCanMoveCancel; }
 	
 	FORCEINLINE bool HasBufferedInput() {return bHasBufferedInput;}
+
+	/** 튜토리얼 서브시스템에 플레이어 행동을 보고하는 헬퍼 함수 */
+	UFUNCTION(BlueprintCallable, Category = "Tutorial")
+	void ReportTutorialAction(ETutorialActionType ActionType, int32 Count = 1);
 	
 protected:
 	/** Initialize input action bindings */
@@ -653,6 +658,8 @@ public:
 	
 	UPROPERTY( BlueprintReadOnly)
 	class ABaseFlyingPet* Pet;
+
+	FORCEINLINE class ABaseFlyingPet* GetPet() const { return Pet; }
 
 	// 에디터의 Details 패널에서 어떤 펫 블루프린트를 쓸지 선택하는 변수
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pet")

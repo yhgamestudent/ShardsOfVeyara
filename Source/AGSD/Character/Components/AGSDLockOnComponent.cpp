@@ -230,6 +230,7 @@ void UAGSDLockOnComponent::ToggleLockOn()
 		if (LockedTarget)
 		{
 			SetLockOnMarkerState(LockedTarget, true);
+			OwnerCharacter->ReportTutorialAction(ETutorialActionType::LockOn);
 		}
 	}
 

@@ -1,0 +1,7 @@
+---,StepID,QuestGuideText,ControlHintText,ActionType,RequiredActionCount,TargetWaypointTag,DialogueID,bHidePetMesh,bTeleportPet,GateActorTag,RewardItemID,RewardItemCount,CustomActionTag
+VIL_01,VIL_01,"주변을 둘러보고 이동하세요","[WASD] 키로 이동하고 마우스로 시점을 회전하세요",Move,1,Waypoint_VIL_01,None,True,False,None,None,0,None
+VIL_02,VIL_02,"장애물을 구르기로 넘으세요","[Space] 키를 눌러 구르기 회피를 사용하세요",Roll,1,Waypoint_VIL_02,None,True,False,Gate_VIL_02,None,0,None
+VIL_03,VIL_03,"황폐해진 밭으로 이동하세요","이정표 마커를 따라 밭으로 이동하세요",ReachArea,1,Waypoint_VIL_03,None,True,False,None,None,0,None
+VIL_04,VIL_04,"밭을 뒤덮은 잡초를 뽑으세요","잡초 가까이 다가가 [E] 키로 상호작용하세요",WeedHarvest,2,Waypoint_VIL_04,None,True,False,None,None,0,None
+VIL_05,VIL_05,"밭에 씨앗을 심으세요","핫바에서 씨앗을 선택하고 밭에 [E] 키로 파종하세요",PlantSeed,1,Waypoint_VIL_05,None,True,False,None,None,0,None
+VIL_06,VIL_06,"하늘섬으로 향하는 포탈로 가세요","포탈 앞에서 [E] 키를 눌러 상호작용하세요",EnterPortal,1,Waypoint_VIL_06,None,True,False,None,None,0,None
