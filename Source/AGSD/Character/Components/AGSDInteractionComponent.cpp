@@ -4,6 +4,7 @@
 #include "Interaction.h"
 #include "Components/PrimitiveComponent.h"
 #include "GameplayLogSubsystem.h"
+#include "Tutorial/TutorialSubsystem.h"
 
 UAGSDInteractionComponent::UAGSDInteractionComponent()
 {
@@ -66,6 +67,12 @@ void UAGSDInteractionComponent::TryInteract()
 			if (UGameplayLogSubsystem* LogSubsystem = GI->GetSubsystem<UGameplayLogSubsystem>())
 			{
 				LogSubsystem->RecordInteractionAction(ActionType);
+			}
+
+			// 튜토리얼 상호작용 검증 보고
+			if (UTutorialSubsystem* TutSub = GI->GetSubsystem<UTutorialSubsystem>())
+			{
+				TutSub->ReportInteractionAction(CurrentInteractableActor, ActionType);
 			}
 		}
 

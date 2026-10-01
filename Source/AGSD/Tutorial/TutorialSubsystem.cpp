@@ -20,6 +20,10 @@ void UTutorialSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void UTutorialSubsystem::Deinitialize()
 {
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(ReachAreaTimerHandle);
+	}
 	Super::Deinitialize();
 }
 
@@ -101,6 +105,79 @@ void UTutorialSubsystem::ReportTutorialAction(ETutorialActionType ActionType, in
 	}
 }
 
+void UTutorialSubsystem::ReportInteractionAction(AActor* InteractedActor, const FString& InteractionType)
+{
+	if (!bIsActive || !CurrentSteps.IsValidIndex(CurrentStepIndex))
+	{
+		return;
+	}
+
+	const FTutorialStepData& CurrentStep = CurrentSteps[CurrentStepIndex];
+
+	// 상호작용 관련 액션 타입인지 판별
+	bool bIsInteractionStep = false;
+	if (CurrentStep.ActionType == ETutorialActionType::Interact)
+	{
+		bIsInteractionStep = true;
+	}
+	else if (CurrentStep.ActionType == ETutorialActionType::WeedHarvest ||
+			 CurrentStep.ActionType == ETutorialActionType::EnterPortal ||
+			 CurrentStep.ActionType == ETutorialActionType::DungeonGate ||
+			 CurrentStep.ActionType == ETutorialActionType::TributeAltar ||
+			 CurrentStep.ActionType == ETutorialActionType::AlchemyTable ||
+			 CurrentStep.ActionType == ETutorialActionType::OrbAltar ||
+			 CurrentStep.ActionType == ETutorialActionType::PortalExit)
+	{
+		bIsInteractionStep = true;
+	}
+
+	if (!bIsInteractionStep)
+	{
+		return;
+	}
+
+	// 1. 목표 웨이포인트 태그가 지정되어 있는 경우: 목표 액터이거나 태그를 가진 액터인지 검증
+	if (!CurrentStep.TargetWaypointTag.IsNone())
+	{
+		bool bActorMatches = false;
+		if (CachedWaypointActor.IsValid() && CachedWaypointActor.Get() == InteractedActor)
+		{
+			bActorMatches = true;
+		}
+		else if (IsValid(InteractedActor) && InteractedActor->ActorHasTag(CurrentStep.TargetWaypointTag))
+		{
+			bActorMatches = true;
+		}
+
+		if (!bActorMatches)
+		{
+			return;
+		}
+	}
+
+	// 2. 커스텀 액션 태그가 지정되어 있는 경우: 액터의 태그 또는 상호작용 타입 문자열 일치 검증
+	if (!CurrentStep.CustomActionTag.IsNone())
+	{
+		bool bTagMatches = false;
+		if (IsValid(InteractedActor) && InteractedActor->ActorHasTag(CurrentStep.CustomActionTag))
+		{
+			bTagMatches = true;
+		}
+		else if (!InteractionType.IsEmpty() && InteractionType.Equals(CurrentStep.CustomActionTag.ToString(), ESearchCase::IgnoreCase))
+		{
+			bTagMatches = true;
+		}
+
+		if (!bTagMatches)
+		{
+			return;
+		}
+	}
+
+	// 검증 통과 시 해당 스텝의 행동 달성 처리
+	ReportTutorialAction(CurrentStep.ActionType, 1);
+}
+
 void UTutorialSubsystem::AdvanceToNextStep()
 {
 	CurrentStepIndex++;
@@ -115,6 +192,11 @@ void UTutorialSubsystem::AdvanceToNextStep()
 	{
 		// 모든 스텝 완료
 		bIsActive = false;
+
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().ClearTimer(ReachAreaTimerHandle);
+		}
 
 		if (CurrentSequenceName == FName("Farm_Sky_Island") || CurrentSequenceName.ToString().Contains(TEXT("Hub")))
 		{
@@ -143,6 +225,11 @@ void UTutorialSubsystem::SkipCurrentSequence()
 	UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Skipping sequence: %s"), *CurrentSequenceName.ToString());
 
 	bIsActive = false;
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(ReachAreaTimerHandle);
+	}
 
 	// 남아있는 모든 단계의 장벽/문 해제
 	for (int32 i = CurrentStepIndex; i < CurrentSteps.Num(); ++i)
@@ -246,7 +333,7 @@ void UTutorialSubsystem::SetupCurrentStepVisuals()
 		// 메쉬 가시성 제어 (마을 맵 투명 이정표 연출 등)
 		Guide->SetPetMeshHidden(Step.bHidePetMesh);
 
-		if (CachedWaypointActor.IsValid())
+		if (CachedWaypointActor.IsValid() && Step.bSendPetToWaypoint)
 		{
 			if (Step.bTeleportPet)
 			{
@@ -257,12 +344,91 @@ void UTutorialSubsystem::SetupCurrentStepVisuals()
 				Guide->MoveToActor(CachedWaypointActor.Get());
 			}
 		}
+		else
+		{
+			// 펫이 웨이포인트 액터로 이동하지 않는 스텝이면 플레이어 추적으로 복귀/유지
+			Guide->ReturnToFollow();
+		}
 
 		// 대화 시작
 		if (!Step.DialogueID.IsNone())
 		{
 			Pet->StartBigConversation(Step.DialogueID);
 		}
+	}
+
+	// ReachArea 자동 거리 감지 타이머 설정
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(ReachAreaTimerHandle);
+		if (Step.ActionType == ETutorialActionType::ReachArea)
+		{
+			World->GetTimerManager().SetTimer(ReachAreaTimerHandle, this, &UTutorialSubsystem::CheckPlayerReachArea, 0.2f, true);
+		}
+	}
+}
+
+void UTutorialSubsystem::CheckPlayerReachArea()
+{
+	if (!bIsActive || !CurrentSteps.IsValidIndex(CurrentStepIndex))
+	{
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().ClearTimer(ReachAreaTimerHandle);
+		}
+		return;
+	}
+
+	const FTutorialStepData& Step = CurrentSteps[CurrentStepIndex];
+	if (Step.ActionType != ETutorialActionType::ReachArea)
+	{
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().ClearTimer(ReachAreaTimerHandle);
+		}
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	APlayerController* PC = World->GetFirstPlayerController();
+	APawn* PlayerPawn = PC ? PC->GetPawn() : nullptr;
+	if (!PlayerPawn)
+	{
+		return;
+	}
+
+	FVector TargetLocation = FVector::ZeroVector;
+	if (CachedWaypointActor.IsValid())
+	{
+		TargetLocation = CachedWaypointActor->GetActorLocation();
+	}
+	else
+	{
+		TargetLocation = GetCurrentTargetLocation();
+	}
+
+	if (TargetLocation.IsNearlyZero())
+	{
+		return;
+	}
+
+	FVector PlayerLoc = PlayerPawn->GetActorLocation();
+	float Dist2D = FVector::Dist2D(PlayerLoc, TargetLocation);
+	float DiffZ = FMath::Abs(PlayerLoc.Z - TargetLocation.Z);
+
+	// 스텝 데이터에 개별 지정된 반경이 있으면 우선 적용하고, 0 이하면 서브시스템 기본값 사용
+	const float EffectiveRadius = (Step.ReachAreaRadius > 0.0f) ? Step.ReachAreaRadius : ReachAreaDistanceThreshold;
+
+	// 수평 반경 및 수직 높이 오차 범위 이내 진입 시 지점 도달 완료 판정
+	if (Dist2D <= EffectiveRadius && DiffZ <= ReachAreaZThreshold)
+	{
+		World->GetTimerManager().ClearTimer(ReachAreaTimerHandle);
+		ReportTutorialAction(ETutorialActionType::ReachArea, 1);
 	}
 }
 

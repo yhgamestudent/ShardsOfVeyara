@@ -95,11 +95,43 @@ void UTutorialScreenMarkerWidget::SetTargetLocation(const FVector& InTargetLocat
 	TargetActor = nullptr;
 }
 
+FVector UTutorialScreenMarkerWidget::CalculateActorTargetLocation(const AActor* InActor) const
+{
+	if (!IsValid(InActor))
+	{
+		return FVector::ZeroVector;
+	}
+
+	if (bAutoAdjustToActorBounds)
+	{
+		FVector Origin = FVector::ZeroVector;
+		FVector BoxExtent = FVector::ZeroVector;
+
+		// 1차 시도: 콜리전 컴포넌트 기준 바운즈 측정
+		InActor->GetActorBounds(true, Origin, BoxExtent);
+
+		// 콜리전이 없거나 측정되지 않는 경우 비주얼(렌더링) 컴포넌트 포함 전체 측정
+		if (BoxExtent.IsNearlyZero())
+		{
+			InActor->GetActorBounds(false, Origin, BoxExtent);
+		}
+
+		if (!BoxExtent.IsNearlyZero())
+		{
+			// 액터의 실제 꼭대기 상단 높이(Origin.Z + BoxExtent.Z) + 여백(TargetTopPadding)
+			return FVector(Origin.X, Origin.Y, Origin.Z + BoxExtent.Z + TargetTopPadding);
+		}
+	}
+
+	// 바운딩 박스를 구할 수 없거나 자동 조정 옵션이 꺼진 경우 기본 피벗 + WorldZOffset으로 폴백
+	return InActor->GetActorLocation() + FVector(0.f, 0.f, WorldZOffset);
+}
+
 bool UTutorialScreenMarkerWidget::ResolveTargetWorldLocation(FVector& OutWorldLocation) const
 {
 	if (TargetActor.IsValid())
 	{
-		OutWorldLocation = TargetActor->GetActorLocation() + FVector(0.f, 0.f, WorldZOffset);
+		OutWorldLocation = CalculateActorTargetLocation(TargetActor.Get());
 		return true;
 	}
 
@@ -117,6 +149,14 @@ bool UTutorialScreenMarkerWidget::ResolveTargetWorldLocation(FVector& OutWorldLo
 			{
 				if (TutSub->IsTutorialActive())
 				{
+					// 서브시스템에서 현재 웨이포인트 액터가 유효하면 액터의 바운딩 박스 상단 자동 계산
+					if (AActor* WaypointActor = TutSub->GetCurrentWaypointActor())
+					{
+						OutWorldLocation = CalculateActorTargetLocation(WaypointActor);
+						return true;
+					}
+
+					// 액터 참조 없이 명시적 월드 좌표만 설정된 경우
 					FVector Target = TutSub->GetCurrentTargetLocation();
 					if (!Target.IsNearlyZero())
 					{
@@ -193,7 +233,7 @@ void UTutorialScreenMarkerWidget::UpdateMarkerPosition()
 	bool bBehindCamera = (ForwardDot <= 0.0f);
 
 	// 1. 카메라 전방일 경우에만 화면 2D 투영 시도
-	FVector2D ProjectedPos;
+	FVector2D ProjectedPos = FVector2D::ZeroVector;
 	bool bProjectSuccess = false;
 	if (!bBehindCamera)
 	{

@@ -44,6 +44,15 @@ public:
 	void ReportTutorialAction(ETutorialActionType ActionType, int32 Count = 1, FName CustomTag = NAME_None);
 
 	/**
+	 * 플레이어가 E키로 상호작용을 수행했을 때 호출하여 튜토리얼 스텝 조건을 검증합니다.
+	 * 범용 상호작용(Interact)뿐만 아니라 목표 웨이포인트 액터나 특정 태그 일치 여부를 판정합니다.
+	 * @param InteractedActor 상호작용한 대상 액터
+	 * @param InteractionType 상호작용 액션 타입 문자열 (선택)
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Tutorial")
+	void ReportInteractionAction(AActor* InteractedActor, const FString& InteractionType = TEXT(""));
+
+	/**
 	 * 현재 진행 중인 튜토리얼 시퀀스를 즉시 건너뜁니다.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Tutorial")
@@ -94,12 +103,24 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Tutorial|Events")
 	FOnTutorialSequenceCompleted OnTutorialSequenceCompleted;
 
+	/** 지점 도달(ReachArea) 판정 수평 반경 (cm 단위, 기본 150cm = 1.5m) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial|ReachArea")
+	float ReachAreaDistanceThreshold = 150.0f;
+
+	/** 지점 도달(ReachArea) 판정 수직 높이 허용치 (cm 단위, 기본 200cm = 2.0m) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial|ReachArea")
+	float ReachAreaZThreshold = 200.0f;
+
 protected:
 	/** 다음 단계로 이동 */
 	void AdvanceToNextStep();
 
 	/** 현재 단계에 맞게 펫 및 웨이포인트 시각 연출 세팅 */
 	void SetupCurrentStepVisuals();
+
+	/** ReachArea 액션 스텝 진행 시 주기적으로 플레이어 위치를 확인하는 함수 */
+	UFUNCTION()
+	void CheckPlayerReachArea();
 
 	/** 장벽/문 액터 열기 */
 	void OpenGateActor(FName GateTag);
@@ -123,4 +144,6 @@ private:
 	bool bCompletedHubTutorial = false;
 
 	TWeakObjectPtr<AActor> CachedWaypointActor = nullptr;
+
+	FTimerHandle ReachAreaTimerHandle;
 };

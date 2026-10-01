@@ -1,8 +1,8 @@
----,StepID,QuestGuideText,ControlHintText,ActionType,RequiredActionCount,TargetWaypointTag,DialogueID,bHidePetMesh,bTeleportPet,GateActorTag,RewardItemID,RewardItemCount,CustomActionTag
-SKY_01,SKY_01,"창을 장착하세요","인벤토리에서 무기를 단축키 슬롯에 등록하고 장착하세요",EquipWeapon,1,Waypoint_SKY_01,SKY_Talk_01,False,False,None,None,0,None
-SKY_02,SKY_02,"훈련용 허수아비에게 3연타를 적중시키세요","[마우스 좌클릭]을 리듬에 맞춰 3번 연속 입력하세요",AttackCombo,1,Waypoint_SKY_02,SKY_Talk_02,False,False,None,None,0,None
-SKY_03,SKY_03,"적을 락온(Lock-On)하여 주시하세요","[마우스 휠 클릭]으로 목표 몬스터를 조준 고정하세요",LockOn,1,Waypoint_SKY_03,SKY_Talk_03,False,False,None,None,0,None
-SKY_04,SKY_04,"적의 공격을 방어(Guard)하세요","적의 공격 모션이 보일 때 [우클릭]을 길게 누르세요",Guard,1,Waypoint_SKY_04,SKY_Talk_04,False,False,Gate_SKY_04,None,0,None
-SKY_05,SKY_05,"공격 후딜레이 중 구르기(RollCancel)로 탈출하세요","공격 모션 직후 [Space] 키를 눌러 공격을 캔슬하고 회피하세요",RollCancel,1,Waypoint_SKY_05,SKY_Talk_05,False,False,Gate_SKY_05,None,0,None
-SKY_06,SKY_06,"점프 발판을 건너 유적지로 이동하세요","[Space] 키 점프로 공중 발판을 건너세요",JumpPlatform,1,Waypoint_SKY_06,None,False,True,None,None,0,None
-SKY_07,SKY_07,"던전 게이트를 활성화하세요","게이트 앞에서 [E] 키를 눌러 상호작용하세요",DungeonGate,1,Waypoint_SKY_07,SKY_Talk_07,False,False,None,None,0,None
+---,StepID,QuestGuideText,ControlHintText,ActionType,RequiredActionCount,ReachAreaRadius,TargetWaypointTag,DialogueID,bHidePetMesh,bSendPetToWaypoint,bTeleportPet,GateActorTag,RewardItemID,RewardItemCount,CustomActionTag
+SKY_01,SKY_01,"창을 장착하세요","인벤토리에서 무기를 단축키 슬롯에 등록하고 장착하세요",EquipWeapon,1,0,Waypoint_SKY_01,SKY_Talk_01,False,True,False,None,None,0,None
+SKY_02,SKY_02,"훈련용 허수아비에게 3연타를 적중시키세요","[마우스 좌클릭]을 리듬에 맞춰 3번 연속 입력하세요",AttackCombo,1,0,Waypoint_SKY_02,SKY_Talk_02,False,True,False,None,None,0,None
+SKY_03,SKY_03,"적을 락온(Lock-On)하여 주시하세요","[마우스 휠 클릭]으로 목표 몬스터를 조준 고정하세요",LockOn,1,0,Waypoint_SKY_03,SKY_Talk_03,False,True,False,None,None,0,None
+SKY_04,SKY_04,"적의 공격을 방어(Guard)하세요","적의 공격 모션이 보일 때 [우클릭]을 길게 누르세요",Guard,1,0,Waypoint_SKY_04,SKY_Talk_04,False,True,False,Gate_SKY_04,None,0,None
+SKY_05,SKY_05,"공격 후딜레이 중 구르기(RollCancel)로 탈출하세요","공격 모션 직후 [Space] 키를 눌러 공격을 캔슬하고 회피하세요",RollCancel,1,0,Waypoint_SKY_05,SKY_Talk_05,False,True,False,Gate_SKY_05,None,0,None
+SKY_06,SKY_06,"점프 발판을 건너 유적지로 이동하세요","[Space] 키 점프로 공중 발판을 건너세요",JumpPlatform,1,0,Waypoint_SKY_06,None,False,True,True,None,None,0,None
+SKY_07,SKY_07,"던전 게이트를 활성화하세요","게이트 앞에서 [E] 키를 눌러 상호작용하세요",DungeonGate,1,0,Waypoint_SKY_07,SKY_Talk_07,False,True,False,None,None,0,None

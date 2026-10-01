@@ -16,6 +16,7 @@ enum class ETutorialActionType : uint8
 	Move UMETA(DisplayName = "Move (WASD)"),
 	Roll UMETA(DisplayName = "Roll (Space)"),
 	ReachArea UMETA(DisplayName = "Reach Area"),
+	Interact UMETA(DisplayName = "Interact (E)"),
 	WeedHarvest UMETA(DisplayName = "Harvest Weed (E)"),
 	PlantSeed UMETA(DisplayName = "Plant Seed"),
 	EnterPortal UMETA(DisplayName = "Enter Portal"),
@@ -68,6 +69,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")
 	int32 RequiredActionCount = 1;
 
+	/** 지점 도달(ReachArea) 판정 수평 반경 (cm 단위, 0 이하면 서브시스템 기본값 150cm 사용) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")
+	float ReachAreaRadius = 0.0f;
+
 	/** 펫이 날아가서 대기하고 마커가 가리킬 월드 내 액터의 Tag */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")
 	FName TargetWaypointTag;
@@ -79,6 +84,10 @@ public:
 	/** 마을 맵 연출처럼 펫 메쉬를 숨기고 머리 위 마커만 띄울지 여부 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")
 	bool bHidePetMesh = false;
+
+	/** 펫이 목표 지점(웨이포인트 액터)으로 직접 날아갈지 여부 (false면 플레이어 곁을 유지) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")
+	bool bSendPetToWaypoint = true;
 
 	/** 목표 지점으로 펫을 순간이동시킬지 여부 (점프맵 등 장거리 이동 시) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")

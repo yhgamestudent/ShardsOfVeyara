@@ -1,5 +1,5 @@
----,StepID,QuestGuideText,ControlHintText,ActionType,RequiredActionCount,TargetWaypointTag,DialogueID,bHidePetMesh,bTeleportPet,GateActorTag,RewardItemID,RewardItemCount,CustomActionTag
-HUB_01,HUB_01,"거점의 중심, 봉헌 제단으로 가세요","봉헌 제단 앞에서 [E] 키로 상호작용하세요",TributeAltar,1,Waypoint_HUB_01,HUB_Talk_01,False,False,None,None,0,None
-HUB_02,HUB_02,"연금술 작업대를 확인하세요","연금술 테이블 앞에서 [E] 키로 조합 레시피를 확인하세요",AlchemyTable,1,Waypoint_HUB_02,HUB_Talk_02,False,False,None,None,0,None
-HUB_03,HUB_03,"구슬 제단에서 신비한 힘을 살펴보세요","구슬 제단 앞에서 [E] 키로 상호작용하세요",OrbAltar,1,Waypoint_HUB_03,HUB_Talk_03,False,False,None,None,0,None
-HUB_04,HUB_04,"출격 포탈을 통해 던전 탐험을 시작하세요","차원 포탈 앞에서 [E] 키를 눌러 출격 준비를 완료하세요",PortalExit,1,Waypoint_HUB_04,HUB_Talk_04,False,False,None,None,0,None
+---,StepID,QuestGuideText,ControlHintText,ActionType,RequiredActionCount,ReachAreaRadius,TargetWaypointTag,DialogueID,bHidePetMesh,bSendPetToWaypoint,bTeleportPet,GateActorTag,RewardItemID,RewardItemCount,CustomActionTag
+HUB_01,HUB_01,"거점의 중심, 봉헌 제단으로 가세요","봉헌 제단 앞에서 [E] 키로 상호작용하세요",TributeAltar,1,0,Waypoint_HUB_01,HUB_Talk_01,False,True,False,None,None,0,None
+HUB_02,HUB_02,"연금술 작업대를 확인하세요","연금술 테이블 앞에서 [E] 키로 조합 레시피를 확인하세요",AlchemyTable,1,0,Waypoint_HUB_02,HUB_Talk_02,False,True,False,None,None,0,None
+HUB_03,HUB_03,"구슬 제단에서 신비한 힘을 살펴보세요","구슬 제단 앞에서 [E] 키로 상호작용하세요",OrbAltar,1,0,Waypoint_HUB_03,HUB_Talk_03,False,True,False,None,None,0,None
+HUB_04,HUB_04,"출격 포탈을 통해 던전 탐험을 시작하세요","차원 포탈 앞에서 [E] 키를 눌러 출격 준비를 완료하세요",PortalExit,1,0,Waypoint_HUB_04,HUB_Talk_04,False,True,False,None,None,0,None

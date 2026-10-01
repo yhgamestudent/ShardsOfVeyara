@@ -78,9 +78,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial|ScreenMarker")
 	float EdgePadding = 60.0f;
 
-	/** 타겟 액터의 원점 대비 높이 오프셋 (cm 단위, 머리 위 높이) */
+	/** 타겟 액터의 원점 대비 높이 오프셋 (cm 단위, 바운딩 박스 미사용 또는 폴백 시 머리 위 높이) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial|ScreenMarker")
 	float WorldZOffset = 120.0f;
+
+	/** 타겟 액터의 바운딩 박스를 계산하여 실제 물체 상단(꼭대기) 높이를 자동으로 맞출지 여부 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial|ScreenMarker")
+	bool bAutoAdjustToActorBounds = true;
+
+	/** 바운딩 박스 상단 위에 띄울 여유 여백 (cm 단위, 기본 30cm) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial|ScreenMarker", meta = (EditCondition = "bAutoAdjustToActorBounds"))
+	float TargetTopPadding = 30.0f;
 
 	/** UTutorialSubsystem의 목표 위치를 자동으로 가져와 추적할지 여부 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial|ScreenMarker")
@@ -123,6 +131,9 @@ public:
 protected:
 	/** 매 프레임 위치 및 회전 계산 */
 	virtual void UpdateMarkerPosition();
+
+	/** 액터로부터 목표 3D 월드 좌표 계산 (바운딩 박스 상단 계산 포함) */
+	FVector CalculateActorTargetLocation(const AActor* InActor) const;
 
 	/** 목표 3D 월드 좌표 계산 */
 	bool ResolveTargetWorldLocation(FVector& OutWorldLocation) const;
