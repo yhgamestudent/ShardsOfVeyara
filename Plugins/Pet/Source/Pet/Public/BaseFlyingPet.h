@@ -194,6 +194,10 @@ public:
 	// 길안내 컴포넌트 반환 함수
 	UFUNCTION(BlueprintPure, Category = "Pet|Guide")
 	FORCEINLINE class UPetGuideComponent* GetPetGuideComponent() const { return PetGuideComp; }
+
+	// 대화 컴포넌트 반환 함수
+	UFUNCTION(BlueprintPure, Category = "Pet|Talk")
+	FORCEINLINE class UPetTalkComponent* GetPetTalkComponent() const { return PetTalkComp; }
 	
 #if WITH_EDITOR
 	// 에디터에서 프로퍼티가 변경될 때 호출됩니다.

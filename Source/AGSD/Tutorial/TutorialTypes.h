@@ -41,6 +41,41 @@ enum class ETutorialActionType : uint8
 };
 
 /**
+ * 튜토리얼 스텝 내에서 달성해야 하는 개별 세부 목표입니다.
+ * 한 스텝 내에 여러 목표를 배치하여 병렬(동시) 진행을 지원합니다.
+ */
+USTRUCT(BlueprintType)
+struct FTutorialObjective
+{
+	GENERATED_BODY()
+
+public:
+	/** 세부 목표 설명 텍스트 (예: "작물 심기", "작물 수확". 진행도 UI에 따로 표시될 때 사용) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")
+	FText ObjectiveDescription;
+
+	/** 검증할 플레이어 행동 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")
+	ETutorialActionType ActionType = ETutorialActionType::None;
+
+	/** 필요 행동 횟수 (기본 1회) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")
+	int32 RequiredActionCount = 1;
+
+	/** 커스텀 액션 식별용 태그 (ActionType == Custom일 때 사용) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")
+	FName CustomActionTag = NAME_None;
+
+	/** 이 세부 목표 지점을 안내할 웨이포인트 태그 (선택 사항, 없으면 스텝의 TargetWaypointTag 사용) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")
+	FName TargetWaypointTag = NAME_None;
+
+	/** 맵 전환(EnterPortal/레벨 이동) 시 목표가 되는 레벨/맵 이름 (선택 사항, 비워두면 임의의 맵 이동 시 완료) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")
+	FName TargetLevelName = NAME_None;
+};
+
+/**
  * 튜토리얼의 각 단계(스텝) 정보를 담는 데이터 테이블 행 구조체입니다.
  */
 USTRUCT(BlueprintType)
@@ -61,7 +96,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")
 	FText ControlHintText;
 
-	/** 이 스텝을 통과하기 위해 검증해야 하는 플레이어 행동 */
+	/** 이 스텝을 통과하기 위해 검증해야 하는 플레이어 행동 (단일 목표 시 사용) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")
 	ETutorialActionType ActionType = ETutorialActionType::None;
 
@@ -76,6 +111,10 @@ public:
 	/** 펫이 날아가서 대기하고 마커가 가리킬 월드 내 액터의 Tag */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")
 	FName TargetWaypointTag;
+
+	/** 맵 전환(EnterPortal/레벨 이동) 시 목표가 되는 레벨/맵 이름 (선택 사항, 비워두면 임의의 맵 이동 시 완료) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")
+	FName TargetLevelName = NAME_None;
 
 	/** 스텝 시작 시 펫 또는 캐릭터가 출력할 대화 ID (None이면 대화 생략) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")
@@ -108,4 +147,12 @@ public:
 	/** 커스텀 액션 식별용 태그 (ActionType == Custom일 때 사용) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")
 	FName CustomActionTag;
+
+	/**
+	 * 병렬로 동시에 진행할 세부 목표 목록입니다.
+	 * 비어 있으면 기존의 단일 ActionType / RequiredActionCount 방식을 사용합니다.
+	 * 채워져 있으면 이 목록의 모든 목표가 완료되어야 해당 스텝이 클리어됩니다.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")
+	TArray<FTutorialObjective> SubObjectives;
 };

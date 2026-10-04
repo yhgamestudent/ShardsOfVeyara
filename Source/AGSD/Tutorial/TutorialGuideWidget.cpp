@@ -1,6 +1,8 @@
 #include "TutorialGuideWidget.h"
 #include "TutorialSubsystem.h"
+#include "TutorialObjectiveEntryWidget.h"
 #include "Components/TextBlock.h"
+#include "Components/PanelWidget.h"
 #include "Animation/WidgetAnimation.h"
 
 UTutorialGuideWidget::UTutorialGuideWidget(const FObjectInitializer& ObjectInitializer)
@@ -32,7 +34,8 @@ void UTutorialGuideWidget::NativeConstruct()
 			TutSub->OnTutorialSequenceCompleted.AddUniqueDynamic(this, &UTutorialGuideWidget::HandleTutorialSequenceCompleted);
 
 			// 이미 튜토리얼이 진행 중일 때 위젯이 생성된 경우 현재 스텝 데이터로 즉시 동기화
-			if (TutSub->IsTutorialActive())
+			// (단, 대화가 진행 중인 경우에는 대화 종료 후 OnTutorialStepStarted를 수신하여 표시하도록 보류)
+			if (TutSub->IsTutorialActive() && !TutSub->IsWaitingForDialogue())
 			{
 				FTutorialStepData StepData;
 				if (TutSub->GetCurrentStepData(StepData))
@@ -78,6 +81,16 @@ void UTutorialGuideWidget::HandleTutorialStepStarted(const FTutorialStepData& St
 
 	CurrentStepData = StepData;
 
+	// 이전 애니메이션이 재생 중이면 확실하게 정지하여 위치 어긋남/반만 노출 방지
+	if (SlideOutAnim && IsAnimationPlaying(SlideOutAnim))
+	{
+		StopAnimation(SlideOutAnim);
+	}
+	if (SlideInAnim && IsAnimationPlaying(SlideInAnim))
+	{
+		StopAnimation(SlideInAnim);
+	}
+
 	// QuestGuideText에 실제 값이 있는지 검사
 	const bool bHasQuestGuide = !StepData.QuestGuideText.IsEmptyOrWhitespace() &&
 		!StepData.QuestGuideText.ToString().Equals(TEXT("None"), ESearchCase::IgnoreCase);
@@ -99,10 +112,10 @@ void UTutorialGuideWidget::HandleTutorialStepStarted(const FTutorialStepData& St
 		CompletedCheckmarkWidget->SetVisibility(ESlateVisibility::Collapsed);
 	}
 
-	// 슬라이드 인 애니메이션 재생
+	// 슬라이드 인 애니메이션 처음(0.0초)부터 정방향 재생
 	if (SlideInAnim)
 	{
-		PlayAnimation(SlideInAnim);
+		PlayAnimation(SlideInAnim, 0.0f, 1, EUMGSequencePlayMode::Forward, 1.0f, false);
 	}
 
 	OnStepStartedVisual(StepData);
@@ -110,12 +123,58 @@ void UTutorialGuideWidget::HandleTutorialStepStarted(const FTutorialStepData& St
 
 void UTutorialGuideWidget::HandleTutorialStepProgress(int32 CurrentCount, int32 RequiredCount)
 {
+	// 1. 동적 목표 위젯 목록이 있는 경우 개별 항목 갱신
+	if (ActiveObjectiveEntries.Num() > 0)
+	{
+		// 1-A. 다중 세부 목표인 경우 -> 각 세부 목표별 진행도 갱신
+		if (CurrentStepData.SubObjectives.Num() > 0)
+		{
+			if (UGameInstance* GI = GetGameInstance())
+			{
+				if (UTutorialSubsystem* TutorialSubsystem = GI->GetSubsystem<UTutorialSubsystem>())
+				{
+					TArray<int32> Counts = TutorialSubsystem->GetCurrentObjectiveCounts();
+					for (int32 i = 0; i < ActiveObjectiveEntries.Num(); ++i)
+					{
+						if (ActiveObjectiveEntries[i] && CurrentStepData.SubObjectives.IsValidIndex(i))
+						{
+							const FTutorialObjective& Obj = CurrentStepData.SubObjectives[i];
+							int32 Cur = Counts.IsValidIndex(i) ? Counts[i] : 0;
+							FText Desc = !Obj.ObjectiveDescription.IsEmpty() ? Obj.ObjectiveDescription : CurrentStepData.ControlHintText;
+							ActiveObjectiveEntries[i]->UpdateObjective(Desc, Cur, Obj.RequiredActionCount);
+						}
+					}
+				}
+			}
+		}
+		// 1-B. 단일 목표인 경우 (SubObjectives가 비어있고 1개의 항목 위젯만 있는 경우)
+		else if (ActiveObjectiveEntries.IsValidIndex(0) && ActiveObjectiveEntries[0])
+		{
+			FText Desc = !CurrentStepData.ControlHintText.IsEmpty() ? CurrentStepData.ControlHintText : FText::FromString(TEXT("진행하기"));
+			ActiveObjectiveEntries[0]->UpdateObjective(Desc, CurrentCount, RequiredCount);
+		}
+	}
+
+	// 2. 기존 단일 ProgressTextBlock도 보조로 갱신 (폴백/하위 호환)
 	if (ProgressTextBlock)
 	{
-		if (RequiredCount > 1)
+		FText ProgText;
+		if (UGameInstance* GI = GetGameInstance())
+		{
+			if (UTutorialSubsystem* TutorialSubsystem = GI->GetSubsystem<UTutorialSubsystem>())
+			{
+				ProgText = TutorialSubsystem->GetDetailedProgressText();
+			}
+		}
+
+		if (ProgText.IsEmptyOrWhitespace() && RequiredCount > 1)
+		{
+			ProgText = FText::Format(NSLOCTEXT("Tutorial", "ProgressFormat", "[ {0} / {1} ]"), FText::AsNumber(CurrentCount), FText::AsNumber(RequiredCount));
+		}
+
+		if (!ProgText.IsEmptyOrWhitespace())
 		{
 			ProgressTextBlock->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-			FText ProgText = FText::Format(NSLOCTEXT("Tutorial", "ProgressFormat", "[ {0} / {1} ]"), FText::AsNumber(CurrentCount), FText::AsNumber(RequiredCount));
 			ProgressTextBlock->SetText(ProgText);
 		}
 		else
@@ -140,6 +199,12 @@ void UTutorialGuideWidget::HandleTutorialStepCompleted(const FTutorialStepData& 
 
 	bIsTransitioning = true;
 
+	// 슬라이드 인 애니메이션이 아직 진행 중이었다면 즉시 정지
+	if (SlideInAnim && IsAnimationPlaying(SlideInAnim))
+	{
+		StopAnimation(SlideInAnim);
+	}
+
 	// 1. 녹색 체크 표시 노출
 	if (CompletedCheckmarkWidget)
 	{
@@ -158,12 +223,18 @@ void UTutorialGuideWidget::HandleTutorialStepCompleted(const FTutorialStepData& 
 
 void UTutorialGuideWidget::StartSlideOut()
 {
+	// 슬라이드 인 애니메이션 정지
+	if (SlideInAnim && IsAnimationPlaying(SlideInAnim))
+	{
+		StopAnimation(SlideInAnim);
+	}
+
 	float AnimDuration = 0.4f;
 
 	// 슬라이드 아웃 애니메이션 재생
 	if (SlideOutAnim)
 	{
-		PlayAnimation(SlideOutAnim);
+		PlayAnimation(SlideOutAnim, 0.0f, 1, EUMGSequencePlayMode::Forward, 1.0f, false);
 		AnimDuration = FMath::Max(0.1f, SlideOutAnim->GetEndTime());
 	}
 
@@ -231,10 +302,104 @@ void UTutorialGuideWidget::UpdateGuideVisuals(const FTutorialStepData& StepData)
 		QuestGuideContainer->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 	}
 
-	// 2. 조작 힌트 텍스트 및 컨테이너 갱신
+	// 2. 조작 힌트 및 세부 목표 컨테이너 갱신
 	const bool bHasHint = !StepData.ControlHintText.IsEmptyOrWhitespace() &&
 		!StepData.ControlHintText.ToString().Equals(TEXT("None"), ESearchCase::IgnoreCase);
 
+	// ObjectiveEntryClass 자동 폴백 탐색 (에디터 디테일 패널에서 지정을 깜빡했더라도 자동 연동)
+	TSubclassOf<UTutorialObjectiveEntryWidget> EffectiveEntryClass = ObjectiveEntryClass;
+	if (!EffectiveEntryClass)
+	{
+		static const FSoftClassPath DefaultEntryClassPath(TEXT("/Game/HYH/Blueprints/Widgets/TutorialWidget/WBP_TutorialObjectiveEntry.WBP_TutorialObjectiveEntry_C"));
+		EffectiveEntryClass = DefaultEntryClassPath.TryLoadClass<UTutorialObjectiveEntryWidget>();
+		if (EffectiveEntryClass)
+		{
+			ObjectiveEntryClass = EffectiveEntryClass;
+		}
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[TutorialGuide] UpdateGuideVisuals: StepID=%s, SubObjs=%d, bHasHint=%d, HasListBox=%d, HasEntryClass=%d"),
+		*StepData.StepID.ToString(),
+		StepData.SubObjectives.Num(),
+		bHasHint ? 1 : 0,
+		ObjectiveListBox != nullptr ? 1 : 0,
+		EffectiveEntryClass != nullptr ? 1 : 0);
+
+	// 세로 박스(ObjectiveListBox) 및 동적 목표 항목(ObjectiveEntryClass)이 설정된 경우
+	if (ObjectiveListBox && EffectiveEntryClass)
+	{
+		ObjectiveListBox->ClearChildren();
+		ActiveObjectiveEntries.Empty();
+
+		// 2-A. 다중 세부 목표가 있는 경우 -> 세로 박스 아래로 항목들을 1줄씩 생성
+		if (StepData.SubObjectives.Num() > 0)
+		{
+			for (int32 i = 0; i < StepData.SubObjectives.Num(); ++i)
+			{
+				const FTutorialObjective& Obj = StepData.SubObjectives[i];
+				if (UTutorialObjectiveEntryWidget* Entry = CreateWidget<UTutorialObjectiveEntryWidget>(this, EffectiveEntryClass))
+				{
+					ObjectiveListBox->AddChild(Entry);
+					Entry->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+					ActiveObjectiveEntries.Add(Entry);
+
+					FText Desc = !Obj.ObjectiveDescription.IsEmpty() ? Obj.ObjectiveDescription : StepData.ControlHintText;
+					if (Desc.IsEmptyOrWhitespace())
+					{
+						Desc = FText::FromString(TEXT("목표 진행"));
+					}
+					Entry->UpdateObjective(Desc, 0, Obj.RequiredActionCount);
+				}
+			}
+
+			ObjectiveListBox->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+			if (ControlHintContainer)
+			{
+				ControlHintContainer->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+			}
+
+			// 동적 엔트리를 사용할 때는 기존 고정형 텍스트 블록은 숨김 처리하여 중복 방지
+			if (ControlHintTextBlock)
+			{
+				ControlHintTextBlock->SetVisibility(ESlateVisibility::Collapsed);
+			}
+			if (ProgressTextBlock)
+			{
+				ProgressTextBlock->SetVisibility(ESlateVisibility::Collapsed);
+			}
+			return; // 동적 리스트 생성 완료
+		}
+		// 2-B. 단일 목표이지만 세부 목표처럼 1줄로 표시할 경우 (힌트 또는 행동 카운트가 있을 때)
+		else if (bHasHint || StepData.RequiredActionCount > 1 || StepData.ActionType != ETutorialActionType::None)
+		{
+			if (UTutorialObjectiveEntryWidget* Entry = CreateWidget<UTutorialObjectiveEntryWidget>(this, EffectiveEntryClass))
+			{
+				ObjectiveListBox->AddChild(Entry);
+				Entry->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+				ActiveObjectiveEntries.Add(Entry);
+
+				FText Desc = bHasHint ? StepData.ControlHintText : FText::FromString(TEXT("진행하기"));
+				Entry->UpdateObjective(Desc, 0, StepData.RequiredActionCount);
+			}
+
+			ObjectiveListBox->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+			if (ControlHintContainer)
+			{
+				ControlHintContainer->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+			}
+			if (ControlHintTextBlock)
+			{
+				ControlHintTextBlock->SetVisibility(ESlateVisibility::Collapsed);
+			}
+			if (ProgressTextBlock)
+			{
+				ProgressTextBlock->SetVisibility(ESlateVisibility::Collapsed);
+			}
+			return;
+		}
+	}
+
+	// 3. 기존 단일 조작 힌트 텍스트 및 컨테이너 갱신 (폴백 / 하위 호환)
 	if (ControlHintTextBlock)
 	{
 		if (bHasHint)
@@ -257,13 +422,29 @@ void UTutorialGuideWidget::UpdateGuideVisuals(const FTutorialStepData& StepData)
 		ControlHintTextBlock->SetVisibility(bHasHint ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 	}
 
-	// 3. 진행도 초기 표시 (다회 요구 행동일 때)
+	// 4. 기존 단일 진행도 초기 표시
 	if (ProgressTextBlock)
 	{
-		if (StepData.RequiredActionCount > 1)
+		FText ProgText;
+		if (UGameInstance* GI = GetGameInstance())
+		{
+			if (UTutorialSubsystem* TutorialSubsystem = GI->GetSubsystem<UTutorialSubsystem>())
+			{
+				ProgText = TutorialSubsystem->GetDetailedProgressText();
+			}
+		}
+
+		if (ProgText.IsEmptyOrWhitespace())
+		{
+			if (StepData.RequiredActionCount > 1)
+			{
+				ProgText = FText::Format(NSLOCTEXT("Tutorial", "ProgressInitFormat", "[ 0 / {0} ]"), FText::AsNumber(StepData.RequiredActionCount));
+			}
+		}
+
+		if (!ProgText.IsEmptyOrWhitespace())
 		{
 			ProgressTextBlock->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-			FText ProgText = FText::Format(NSLOCTEXT("Tutorial", "ProgressInitFormat", "[ 0 / {0} ]"), FText::AsNumber(StepData.RequiredActionCount));
 			ProgressTextBlock->SetText(ProgText);
 		}
 		else

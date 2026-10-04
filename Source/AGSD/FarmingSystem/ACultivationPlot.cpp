@@ -489,4 +489,70 @@ void AACultivationPlot::SetSeedInfo(FName InSeedName, UDataTable* InSeedDataTabl
 	SeedName = InSeedName;
 }
 
+bool AACultivationPlot::PlantSeedDirectly(FName InSeedName, UDataTable* InSeedDataTable, bool bStartFullyGrown)
+{
+	if (PlantedCrop != nullptr)
+	{
+		return false;
+	}
+
+	if (InSeedName == NAME_None)
+	{
+		return false;
+	}
+
+	SetSeedInfo(InSeedName, InSeedDataTable);
+
+	GetSeedInfo(SeedName);
+	if (!CropData)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[CultivationPlot] PlantSeedDirectly - Failed to get CropData for seed '%s'"), *InSeedName.ToString());
+		return false;
+	}
+
+	FinishGrowStageIndex = FMath::Max(0, CropData->GrowthStages.Num() - 1);
+	DelayedDays = 0;
+
+	if (bStartFullyGrown)
+	{
+		CurrentGrowStageIndex = FinishGrowStageIndex;
+		GrowthTimeCounter = 0;
+		FullyGrown = true;
+		ScheduledDay = 0;
+	}
+	else
+	{
+		CurrentGrowStageIndex = 0;
+		GrowthTimeCounter = (CropData->GrowthStages.IsValidIndex(0)) ? CropData->GrowthStages[0].TimeToGrow : 1;
+		FullyGrown = false;
+
+		if (!GS)
+		{
+			GS = Cast<AAGSDGameStateBase>(UGameplayStatics::GetGameState(GetWorld()));
+		}
+		if (!GI)
+		{
+			GI = Cast<USOVGameInstance>(GetGameInstance());
+		}
+
+		int32 CurrentDay = GS ? GS->GetCurrentDay() : (GI ? GI->CurrentDay : 1);
+		ScheduledDay = CurrentDay + GrowthTimeCounter;
+	}
+
+	PlantCrop();
+
+	if (PlantedCrop)
+	{
+		PlantedCrop->MeshUpdate(CurrentGrowStageIndex);
+		if (FullyGrown)
+		{
+			PlantedCrop->SetCollisionEnable();
+		}
+		return true;
+	}
+
+	return false;
+}
+
+
 

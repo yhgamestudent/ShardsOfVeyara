@@ -25,7 +25,7 @@ void AFarmingField::BeginPlay()
 
 	if (bAutoPlantOnBeginPlay && DefaultSeedName != NAME_None)
 	{
-		PlantAllPlots(DefaultSeedName, DefaultSeedDataTable);
+		PlantAllPlots(DefaultSeedName, DefaultSeedDataTable, bAutoPlantFullyGrown);
 	}
 }
 
@@ -112,21 +112,39 @@ TArray<AACultivationPlot*> AFarmingField::GetCultivationPlots() const
 		{
 			if (AACultivationPlot* Plot = Cast<AACultivationPlot>(Comp->GetChildActor()))
 			{
-				Result.Add(Plot);
+				Result.AddUnique(Plot);
 			}
 		}
 	}
+
+	// Fallback: PlotComponents가 비어있을 경우 현재 액터에 등록된 모든 ChildActorComponent 검색
+	if (Result.Num() == 0)
+	{
+		TArray<UChildActorComponent*> AllComps;
+		GetComponents<UChildActorComponent>(AllComps);
+		for (UChildActorComponent* Comp : AllComps)
+		{
+			if (Comp)
+			{
+				if (AACultivationPlot* Plot = Cast<AACultivationPlot>(Comp->GetChildActor()))
+				{
+					Result.AddUnique(Plot);
+				}
+			}
+		}
+	}
+
 	return Result;
 }
 
-void AFarmingField::PlantAllPlots(FName SeedName, UDataTable* SeedTable)
+void AFarmingField::PlantAllPlots(FName SeedName, UDataTable* SeedTable, bool bFullyGrown)
 {
 	TArray<AACultivationPlot*> Plots = GetCultivationPlots();
 	for (AACultivationPlot* Plot : Plots)
 	{
 		if (Plot)
 		{
-			Plot->SetSeedInfo(SeedName, SeedTable);
+			Plot->PlantSeedDirectly(SeedName, SeedTable, bFullyGrown);
 		}
 	}
 }

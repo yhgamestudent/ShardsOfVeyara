@@ -53,6 +53,20 @@ public:
 	void ReportInteractionAction(AActor* InteractedActor, const FString& InteractionType = TEXT(""));
 
 	/**
+	 * 특정 레벨/맵으로 전환되었음을 알립니다. (맵 전환 시점 외부/수동 호출용)
+	 * 현재 스텝의 목표 레벨과 일치하거나 EnterPortal 조건이면 스텝을 완료합니다.
+	 * @param NewLevelName 전환된 맵/레벨 이름
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Tutorial")
+	void ReportLevelChanged(FName NewLevelName);
+
+	/**
+	 * 현재 진행 중인 스텝을 강제로 즉시 완료 처리합니다. (블루프린트 수동 제어용)
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Tutorial")
+	void ForceCompleteCurrentStep();
+
+	/**
 	 * 현재 진행 중인 튜토리얼 시퀀스를 즉시 건너뜁니다.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Tutorial")
@@ -111,9 +125,27 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial|ReachArea")
 	float ReachAreaZThreshold = 200.0f;
 
+	/** 현재 스텝의 세부 목표별 진행도 텍스트를 생성하여 반환 (예: "작물 심기 [ 1 / 3 ]  |  작물 수확 [ 2 / 3 ]") */
+	UFUNCTION(BlueprintPure, Category = "Tutorial")
+	FText GetDetailedProgressText() const;
+
+	/** 세부 목표별 현재 카운트 배열 반환 */
+	UFUNCTION(BlueprintPure, Category = "Tutorial")
+	TArray<int32> GetCurrentObjectiveCounts() const { return CurrentObjectiveCounts; }
+
+	/** 현재 스텝의 대화(다이얼로그)가 끝나기를 대기 중인지 여부 */
+	UFUNCTION(BlueprintPure, Category = "Tutorial")
+	bool IsWaitingForDialogue() const { return bWaitingForDialogue; }
+
 protected:
 	/** 다음 단계로 이동 */
 	void AdvanceToNextStep();
+
+	/** 현재 스텝 클리어 및 보상 지급, 장벽 해제 처리 */
+	void CompleteCurrentStep();
+
+	/** 미완료 목표 중 플레이어와 가장 가까운 웨이포인트를 찾아 펫/마커 안내 갱신 */
+	void UpdateNearestWaypoint();
 
 	/** 현재 단계에 맞게 펫 및 웨이포인트 시각 연출 세팅 */
 	void SetupCurrentStepVisuals();
@@ -121,6 +153,17 @@ protected:
 	/** ReachArea 액션 스텝 진행 시 주기적으로 플레이어 위치를 확인하는 함수 */
 	UFUNCTION()
 	void CheckPlayerReachArea();
+
+	/** 동반자 펫의 대화(다이얼로그)가 끝났을 때 호출되는 콜백 */
+	UFUNCTION()
+	void HandleDialogueFinished();
+
+	/** 엔진 레벨 전환(PostLoadMapWithWorld) 완료 시 호출되는 콜백 */
+	void OnPostLoadMapWithWorld(UWorld* LoadedWorld);
+
+	/** 맵 전환 후 새 월드의 액터들이 안정적으로 스폰된 뒤 퀘스트 조건을 판정하는 함수 */
+	UFUNCTION()
+	void HandlePostMapTransitionCheck();
 
 	/** 장벽/문 액터 열기 */
 	void OpenGateActor(FName GateTag);
@@ -137,8 +180,16 @@ private:
 
 	int32 CurrentStepIndex = 0;
 	int32 CurrentActionCount = 0;
+
+	/** 현재 스텝의 세부 목표별 달성 카운트 목록 */
+	UPROPERTY()
+	TArray<int32> CurrentObjectiveCounts;
+
 	FName CurrentSequenceName = NAME_None;
 	bool bIsActive = false;
+
+	/** 현재 스텝의 대화가 진행 중이어서 퀘스트 부여를 대기하고 있는지 여부 */
+	bool bWaitingForDialogue = false;
 
 	UPROPERTY()
 	bool bCompletedHubTutorial = false;
@@ -146,4 +197,10 @@ private:
 	TWeakObjectPtr<AActor> CachedWaypointActor = nullptr;
 
 	FTimerHandle ReachAreaTimerHandle;
+
+	/** 맵 전환 감지 시 로드된 새 맵 이름 */
+	FName PendingLoadedMapName = NAME_None;
+
+	/** 맵 전환 후 안정화 대기 타이머 */
+	FTimerHandle LevelTransitionTimerHandle;
 };

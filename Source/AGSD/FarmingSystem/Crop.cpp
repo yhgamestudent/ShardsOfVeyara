@@ -2,6 +2,7 @@
 
 
 #include "Crop.h"
+#include "ACultivationPlot.h"
 #include "Components/sphereComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "AGSDInteractionComponent.h"
@@ -72,37 +73,70 @@ void ACrop::OnEndOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor
 void ACrop::BeginPlay()
 {
 	Super::BeginPlay();
-	// 현재 메쉬의 월드 좌표 (X, Y는 유지하고 Z만 바꿀 것임)
+	SnapCropToGround();
+}
+
+void ACrop::SnapCropToGround()
+{
+	if (!CropMesh) return;
+
+	// 1. 현재 메쉬의 월드 좌표 (X, Y는 유지하고 Z만 바꿈)
 	FVector MeshLoc = CropMesh->GetComponentLocation();
 
-	// 3. 레이저 쏘기 설정 (내 머리 위 500 ~ 내 발 밑 500)
-	FVector TraceStart = FVector(MeshLoc.X, MeshLoc.Y, MeshLoc.Z + 500.0f);
-	FVector TraceEnd   = FVector(MeshLoc.X, MeshLoc.Y, MeshLoc.Z - 500.0f);
+	// 2. 레이저 쏘기 설정 (Weeds의 SnapWeedsToGround 방식: 위 TraceDistance ~ 아래 TraceDistance)
+	FVector TraceStart = FVector(MeshLoc.X, MeshLoc.Y, MeshLoc.Z + TraceDistance);
+	FVector TraceEnd   = FVector(MeshLoc.X, MeshLoc.Y, MeshLoc.Z - TraceDistance);
 
 	FHitResult HitResult;
-	FCollisionQueryParams Params;
-		
-	Params.AddIgnoredActor(this); // 내 자신(잡초 뭉치)은 무시
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(CropSnapToGround), true); // bTraceComplex = true (FieldMesh 폴리곤 정밀 검사)
+	
+	Params.AddIgnoredActor(this); // 작물 자신은 무시
 
-	// 4. 레이저 발사!
+	// 소유자인 경작지(AACultivationPlot) 액터 무시
+	if (AActor* MyOwner = GetOwner())
+	{
+		Params.AddIgnoredActor(MyOwner);
+	}
+
+	// 플레이어 캐릭터 캡슐에 레이저가 맞아 캐릭터 위에 심기는 버그 방지
+	if (APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(this, 0))
+	{
+		Params.AddIgnoredActor(PlayerPawn);
+	}
+
+	// 3. 레이저 발사! (지형 / FieldMesh 체크)
 	bool bHit = GetWorld()->LineTraceSingleByChannel(
 		HitResult,
 		TraceStart,
 		TraceEnd,
-		PlacementTraceChannel, // 지형(WorldStatic)만 체크
+		PlacementTraceChannel,
 		Params
 	);
 
+	// 만약 PlacementTraceChannel로 맞지 않았을 경우 WorldStatic으로 2차 폴백 검사
+	if (!bHit && PlacementTraceChannel != ECC_WorldStatic)
+	{
+		bHit = GetWorld()->LineTraceSingleByChannel(
+			HitResult,
+			TraceStart,
+			TraceEnd,
+			ECC_WorldStatic,
+			Params
+		);
+	}
+
 	if (bHit)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Hit Actor: %s, Component: %s"), 
-		*HitResult.GetActor()->GetName(), 
-		*HitResult.GetComponent()->GetName());		
-			
-		// 5. 땅에 닿았다면 위치 이동 (World Location 설정)
-		CropMesh->SetWorldLocation(HitResult.Location);
-            
-		// 간단하게는 위 코드 대신 아래처럼 Normal에 UpVector를 맞추는 방식을 많이 씁니다.
+		UE_LOG(LogTemp, Warning, TEXT("[Crop] Hit Actor: %s, Component: %s, Normal: %s"), 
+			*HitResult.GetActor()->GetName(), 
+			*HitResult.GetComponent()->GetName(),
+			*HitResult.ImpactNormal.ToString());		
+		
+		// 4. 땅에 닿았다면 위치 이동 (World Location 설정, 옵션 오프셋 포함)
+		FVector FinalLocation = HitResult.Location + (HitResult.ImpactNormal * GroundZOffset);
+		CropMesh->SetWorldLocation(FinalLocation);
+
+		// 5. ImpactNormal(표면 법선)에 맞춰 UpVector를 회전 정렬
 		FRotator AlignRot = FRotationMatrix::MakeFromZ(HitResult.ImpactNormal).Rotator();
 		CropMesh->SetWorldRotation(AlignRot);
 	}

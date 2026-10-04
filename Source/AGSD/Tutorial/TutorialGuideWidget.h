@@ -76,6 +76,18 @@ public:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "Tutorial|Guide")
 	TObjectPtr<UWidget> CompletedCheckmarkWidget;
 
+	/** 목표 항목들을 세로로 나열할 패널 위젯 (스크린샷의 ControlHintContainer 아래 세로 박스 / VerticalBox) */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "Tutorial|Guide")
+	TObjectPtr<class UPanelWidget> ObjectiveListBox;
+
+	/** 동적으로 생성할 세부 목표 항목 위젯 클래스 (UTutorialObjectiveEntryWidget을 상속받은 위젯 블루프린트) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial|Guide")
+	TSubclassOf<class UTutorialObjectiveEntryWidget> ObjectiveEntryClass;
+
+	/** 현재 생성되어 있는 목표 항목 위젯 목록 */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Tutorial|Guide")
+	TArray<TObjectPtr<class UTutorialObjectiveEntryWidget>> ActiveObjectiveEntries;
+
 	// --- UMG 바인딩 애니메이션 (선택 사항: UMG 애니메이션 탭에 같은 이름의 애니메이션이 있으면 자동 연동) ---
 
 	/** 오른쪽에서 화면 안으로 슬라이드 인 되는 애니메이션 */
