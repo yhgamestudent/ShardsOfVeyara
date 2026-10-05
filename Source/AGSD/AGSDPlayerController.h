@@ -33,6 +33,10 @@ public:
 	
 	void ShowClockWidget();
 	void HideInteractionWidget();
+	UFUNCTION(BlueprintCallable)
+	void CutsceneHideClockWidget();
+	UFUNCTION(BlueprintCallable)
+	void CutsceneShowClockWidget();
 private:
 	UPROPERTY()
 	class UInteractionWidget* InteractionWidget;

@@ -34,6 +34,7 @@
 #include "Components/ProgressBar.h"
 #include "Kismet/GameplayStatics.h"
 #include "BaseFlyingPet.h"
+#include "TutorialSubsystem.h"
 #include "NiagaraFunctionLibrary.h"
 #include "SpearComboData.h"
 #include "TextLog.h"
@@ -262,6 +263,10 @@ void AAGSDCharacter::Tick(float DeltaSeconds)
 
 	SetTotalDistance();
 	UpdateActionDurationLogging(DeltaSeconds);
+
+	// 플레이어의 의도된 속도 (DesiredSpeed) 계산: 이동 입력 세기 * 목표 속도
+	float InputStrength = GetLastMovementInputVector().Size2D();
+	DesiredSpeed = InputStrength * (bIsSprinting ? SprintSpeed : WalkSpeed);
 
 	if (ComboGuideComponent)
 	{
@@ -787,6 +792,32 @@ void AAGSDCharacter::Move(const FInputActionValue& Value)
 	// input is a Vector2D
 	FVector2D MovementVector = Value.Get<FVector2D>();
 
+	// 선입력 판정 및 카메라 기준 월드 입력 벡터 계산
+	if (GetController())
+	{
+		const FRotator Rotation = GetController()->GetControlRotation();
+		const FRotator YawRotation(0, Rotation.Yaw, 0);
+		LastRawInputVector = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X) * MovementVector.Y + 
+							 FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y) * MovementVector.X;
+	}
+
+	// 카메라 기준 입력 방향과 캐릭터 몸체 각도 사이의 상대 각도 계산 (-180 ~ +180도)
+	if (MovementVector.SizeSquared() > 0.04f && !LastRawInputVector.IsNearlyZero())
+	{
+		const FVector ForwardDir = GetActorForwardVector();
+		const FVector RightDir = GetActorRightVector();
+		const FVector InputNorm = LastRawInputVector.GetSafeNormal2D();
+
+		const float ForwardDot = FVector::DotProduct(ForwardDir, InputNorm);
+		const float RightDot = FVector::DotProduct(RightDir, InputNorm);
+
+		InputRollDirection = FMath::RadiansToDegrees(FMath::Atan2(RightDot, ForwardDot));
+	}
+	else
+	{
+		InputRollDirection = 0.0f;
+	}
+
 	if (Running)
 	{
 		// 입력이 있고(움직임), 마이닝 중이 아닐 때
@@ -811,13 +842,15 @@ void AAGSDCharacter::Move(const FInputActionValue& Value)
 	// 전진 키를 누르고 있을 때 콤보 입력
 	if (MovementVector.Y > 0.0f) HandleAttackInput(FName("Forward"));
 
-	// 선입력 판정을 위한 원시 입력 벡터 저장 (Mining 중에도 업데이트하여 애니메이션 중 방향 감지 가능)
-	if (GetController())
+	// 공격 후딜레이 이동 캔슬 허용 상태에서 이동 입력이 들어오면 공격 몽타주를 캔슬하고 이동 시작
+	if (bIsAttacking && bCanMoveCancel)
 	{
-		const FRotator Rotation = GetController()->GetControlRotation();
-		const FRotator YawRotation(0, Rotation.Yaw, 0);
-		LastRawInputVector = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X) * MovementVector.Y + 
-							 FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y) * MovementVector.X;
+		if (MovementVector.SizeSquared() > 0.01f)
+		{
+			bHasBufferedInput = false;
+			StopAnimMontage();
+			ResetAttackState();
+		}
 	}
 
 	// 움직이면 안될 때
@@ -832,6 +865,7 @@ void AAGSDCharacter::Move(const FInputActionValue& Value)
 void AAGSDCharacter::StopMove()
 {
 	LastRawInputVector = FVector::ZeroVector;
+	InputRollDirection = 0.0f;
 	UpdateSprintSpeed();
 
 	if (Running && Running->IsPlaying())
@@ -842,6 +876,13 @@ void AAGSDCharacter::StopMove()
 
 void AAGSDCharacter::Jump()
 {
+	// 창을 들고 있는 상태라면 물리 점프를 하지 않고 구르기(Roll) 실행
+	if (HoldingWeapon == EHoldingWeapon::Spear)
+	{
+		StartRoll();
+		return;
+	}
+
 	if (Mining) return;
 	if (CharacterState == ECharacterState::Block) return;
  	if (Jumping && !GetCharacterMovement()->IsFalling())
@@ -870,6 +911,89 @@ void AAGSDCharacter::StopJumping()
 {
 	if (Mining) return;
 	Super::StopJumping();
+}
+
+void AAGSDCharacter::StartRoll()
+{
+	if (bIsRolling || GetCharacterMovement()->IsFalling()) return;
+	if (CharacterState == ECharacterState::Block) return;
+
+	// 공격 중인 경우: 오직 RollCancel(bCanRollCancel) 노티파이 구간일 때만 공격을 캔슬하고 구르기 실행
+	if (bIsAttacking)
+	{
+		if (bCanRollCancel)
+		{
+			// 선입력 공격 버퍼 해제 후 공격 몽타주 중단 및 공격 상태 리셋
+			bHasBufferedInput = false;
+			StopAnimMontage();
+			ResetAttackState();
+			ReportTutorialAction(ETutorialActionType::RollCancel);
+		}
+		else
+		{
+			// RollCancel 구간이 아니라면 공격 캔슬 구르기 불허
+			return;
+		}
+	}
+	else if (Mining)
+	{
+		// 다른 액션/채광 중에도 RollCancel 노티파이가 있다면 캔슬 허용, 없다면 차단
+		if (bCanRollCancel)
+		{
+			bHasBufferedInput = false;
+			StopAnimMontage();
+			Mining = false;
+			bCanRollCancel = false;
+			ReportTutorialAction(ETutorialActionType::RollCancel);
+		}
+		else
+		{
+			return;
+		}
+	}
+
+	// 후딜레이(bIsRecovering) 중이면 공격 몽타주를 중단하고 회피 캔슬
+	if (bIsRecovering)
+	{
+		bHasBufferedInput = false;
+		StopAnimMontage();
+		ResetAttackState();
+		ReportTutorialAction(ETutorialActionType::RollCancel);
+	}
+
+	bHasBufferedInput = false;
+	bIsRolling = true;
+	ReportTutorialAction(ETutorialActionType::Roll);
+	UTextLog::WriteTextLogByKeyword(TEXT("구르기"));
+
+	if (UWorld* World = GetWorld())
+	{
+		FString MapName = World->GetMapName();
+		MapName.RemoveFromStart(World->StreamingLevelsPrefix);
+
+		if (UGameInstance* GameInst = GetGameInstance())
+		{
+			if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+			{
+				LogSubsystem->IncrementRollUsageCount(MapName);
+			}
+		}
+	}
+
+	GetWorldTimerManager().SetTimer(RollTimerHandle, this, &AAGSDCharacter::StopRoll, RollCooldown, false);
+}
+
+void AAGSDCharacter::StopRoll()
+{
+	bIsRolling = false;
+
+	// 구르기 종료 시 이동키(WASD)를 누르고 있다면 루트 모션 종료로 속도가 0으로 죽지 않도록 바톤 터치
+	FVector InputDir = GetLastMovementInputVector();
+	if (!InputDir.IsNearlyZero())
+	{
+		float TargetSpeed = bIsSprinting ? SprintSpeed : WalkSpeed;
+		GetCharacterMovement()->Velocity = InputDir.GetSafeNormal() * TargetSpeed;
+	}
 }
 
 void AAGSDCharacter::SprintStart()
@@ -1059,6 +1183,20 @@ void AAGSDCharacter::SetCanCombo(bool b)
 	}
 }
 
+void AAGSDCharacter::SetCanRollCancel(bool b)
+{
+	bCanRollCancel = b;
+}
+
+void AAGSDCharacter::EnableMovementFromAttack()
+{
+	if (bIsAttacking)
+	{
+		bCanMoveCancel = true;
+		Mining = false; // 이동 잠금 조기 해제!
+	}
+}
+
 void AAGSDCharacter::ResetComboWindowBuffer()
 {
 	bHasBufferedInput = false;
@@ -1079,8 +1217,8 @@ void AAGSDCharacter::OnComboWindowEnd()
 
 void AAGSDCharacter::ProcessAttackInputWithButton(ESpearAttackInput PressedInput)
 {
-	// 공중 상태 체크
-	if (GetCharacterMovement() && GetCharacterMovement()->IsFalling()) return;
+	// 구르기 중이거나 공중 상태인 경우 공격 불가
+	if (bIsRolling || (GetCharacterMovement() && GetCharacterMovement()->IsFalling())) return;
 
 	// 이미 콤보 결정 대기 중인 경우
 	if (bIsWaitingForComboDecision)
@@ -1183,6 +1321,9 @@ void AAGSDCharacter::ProcessAttackInput()
 
 void AAGSDCharacter::UseEquippedItem()
 {
+	// 구르기 중에는 공격 및 아이템 사용 차단
+	if (bIsRolling) return;
+
 	// 가드(Block) 상태 중인 경우
 	if (CharacterState == ECharacterState::Block)
 	{
@@ -1250,6 +1391,9 @@ void AAGSDCharacter::UseEquippedItem()
 
 void AAGSDCharacter::Input_SecondaryAttack()
 {
+	// 구르기 중에는 우클릭 공격 차단
+	if (bIsRolling) return;
+
 	// 가드(Block) 상태 중에는 우클릭 일반 공격 차단
 	if (CharacterState == ECharacterState::Block)
 	{
@@ -1353,7 +1497,7 @@ void AAGSDCharacter::StartParryCombo()
 
 void AAGSDCharacter::StartNewComboWithInput(ESpearAttackInput Input)
 {
-	if (Mining) return;
+	if (Mining || bIsRolling) return;
 	ESpearAttackDirection CurrentDir = GetAttackDirection();
 	Mining = true;
 	
@@ -1432,6 +1576,12 @@ void AAGSDCharacter::ExecuteNextStageWithInput(ESpearAttackInput Input)
 			{
 				CurrentStageIndex = NextIndex;
 				PlayStage(NextIndex);
+
+				// 3연타 이상 콤보 도달 시 튜토리얼 콤보 달성 리포트
+				if (NextIndex >= 2)
+				{
+					ReportTutorialAction(ETutorialActionType::AttackCombo);
+				}
 			}
 			else
 			{
@@ -1596,6 +1746,8 @@ void AAGSDCharacter::ResetCombo()
 	bIsAttacking = false;
 	bIsRecovering = false;
 	bCanCombo = false;
+	bCanRollCancel = false;
+	bCanMoveCancel = false;
 	bHasBufferedInput = false;
 	Mining = false;
     
@@ -1672,6 +1824,8 @@ void AAGSDCharacter::ResetAttackState()
 	bIsAttacking = false;
 	bIsRecovering = false;
 	bCanCombo = false;
+	bCanRollCancel = false;
+	bCanMoveCancel = false;
 	bHasBufferedInput = false;
 	CurrentStageIndex = -1;
 	CurrentComboData = nullptr;
@@ -1755,25 +1909,27 @@ void AAGSDCharacter::UpdateMotionWarpTarget()
 	}
 
 	FVector TargetLoc = TargetActor->GetActorLocation();
+	FVector DirToTarget = (TargetLoc - PlayerLoc).GetSafeNormal2D();
 
-	// 적용할 허용 각도 및 최대 워프 거리 결정 (하드 락온 vs 소프트 락온)
-	float AllowedAngle = bIsHardLocked ? MaxAngleDiff : (LockOnComponent ? LockOnComponent->SoftLockMaxAngle : 30.0f);
 	// 소프트 락온 상태에서도 모션 워핑 시 하드 락온과 동일한 거리(MaxWarpStep)로 이동되도록 적용
 	float StepLimit = MaxWarpStep;
 
 	// 1. 시야 범위 내 타겟 각도 검사
-	// 하드 락온: 캐릭터 정면 시야각 검사
-	// 소프트 락온: 플레이어가 마우스로 보고 있는 실시간 카메라 정면(Yaw) 시야각 검사
-	FVector DirToTarget = (TargetLoc - PlayerLoc).GetSafeNormal2D();
-	FVector ReferenceForward = bIsHardLocked ? GetActorForwardVector() : FRotationMatrix(CameraFacingRotation).GetUnitAxis(EAxis::X);
-	float Dot = FVector::DotProduct(ReferenceForward, DirToTarget);
-	float AngleDiff = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(Dot, -1.0f, 1.0f)));
-
-	if (AngleDiff > AllowedAngle)
+	// 하드 락온: 타겟이 고정되어 있으므로 등 뒤를 포함한 전방향(360도) 모션 워핑 허용
+	// 소프트 락온: 플레이어가 마우스로 보고 있는 실시간 카메라 정면(Yaw) 시야각 범위 내에 있을 때만 모션 워핑 적용
+	if (!bIsHardLocked)
 	{
-		// 마우스를 돌려 허용 시야각을 벗어났다면, 모션 워프 타겟을 제거하여 기본 루트 모션 유지
-		MotionWarpingComponent->RemoveWarpTarget(FName("WarpTarget"));
-		return;
+		float AllowedAngle = LockOnComponent ? LockOnComponent->SoftLockMaxAngle : 30.0f;
+		FVector ReferenceForward = FRotationMatrix(CameraFacingRotation).GetUnitAxis(EAxis::X);
+		float Dot = FVector::DotProduct(ReferenceForward, DirToTarget);
+		float AngleDiff = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(Dot, -1.0f, 1.0f)));
+
+		if (AngleDiff > AllowedAngle)
+		{
+			// 마우스를 돌려 허용 시야각을 벗어났다면, 모션 워프 타겟을 제거하여 기본 루트 모션 유지
+			MotionWarpingComponent->RemoveWarpTarget(FName("WarpTarget"));
+			return;
+		}
 	}
 
 	// 2. 플레이어 캐릭터가 타겟을 바라보는 회전값 계산
@@ -2809,6 +2965,8 @@ void AAGSDCharacter::UpdateCharacterStateFromEquip()
 {
 	if (HoldingWeapon == EHoldingWeapon::Spear)
 	{
+		ReportTutorialAction(ETutorialActionType::EquipWeapon);
+
 		if (CharacterState != ECharacterState::Block)
 		{
 			SetCharacterState(ECharacterState::Combat);
@@ -3124,7 +3282,8 @@ void AAGSDCharacter::UpdateActionDurationLogging(float DeltaSeconds)
 		UAnimMontage* CurrentMontage = AnimInst ? AnimInst->GetCurrentActiveMontage() : nullptr;
 		FString MontageName = CurrentMontage ? CurrentMontage->GetName() : TEXT("");
 
-		if (CharacterState == ECharacterState::Block || 
+		if (bIsRolling ||
+			CharacterState == ECharacterState::Block || 
 			MontageName.Contains(TEXT("Attack")) ||  
 			MontageName.Contains(TEXT("Combo")) || 
 			MontageName.Contains(TEXT("Skill")) ||
@@ -3214,4 +3373,15 @@ void AAGSDCharacter::SetCanBeDamaged(bool bInCanBeDamage)
 {
 	bIsInvulnerableByNotify = !bInCanBeDamage;
 	bCanBeDamage = bInCanBeDamage;
+}
+
+void AAGSDCharacter::ReportTutorialAction(ETutorialActionType ActionType, int32 Count)
+{
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UTutorialSubsystem* TutSub = GameInst->GetSubsystem<UTutorialSubsystem>())
+		{
+			TutSub->ReportTutorialAction(ActionType, Count);
+		}
+	}
 }

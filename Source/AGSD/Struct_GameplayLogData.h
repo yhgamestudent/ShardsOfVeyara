@@ -159,6 +159,10 @@ struct FGameplayLogData
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog")
 	int32 GuardUsageCount = 0;
 
+	// 구르기(회피) 사용 횟수
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Combat")
+	int32 RollUsageCount = 0;
+
 	// 체력 물약 사용 횟수 (Total 및 맵별)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Combat")
 	int32 TotalHealthPotionUsageCount = 0;
@@ -313,6 +317,10 @@ struct FGameplayLogData
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Combat")
 	TMap<FString, float> StageDamageMitigatedByGuard;
+
+	// 맵별 구르기(회피) 사용 횟수
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Combat")
+	TMap<FString, int32> StageRollCounts;
 
 	// 맵별 획득 / 소모 코인
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Economy")

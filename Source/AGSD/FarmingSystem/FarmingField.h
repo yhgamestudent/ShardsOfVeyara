@@ -57,6 +57,10 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Farming|Seed")
 	bool bAutoPlantOnBeginPlay = false;
 
+	// 게임 시작 시 자동 심을 때 다 자란 상태(수확 가능)로 심을지 여부
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Farming|Seed")
+	bool bAutoPlantFullyGrown = true;
+
 	// 밭 전체에 심어질 기본 씨앗 데이터 테이블
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Farming|Seed")
 	TObjectPtr<UDataTable> DefaultSeedDataTable;
@@ -74,9 +78,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Farming")
 	TArray<AACultivationPlot*> GetCultivationPlots() const;
 
-	// 밭 안의 모든 CultivationPlot에 지정 씨앗 정보를 세팅
+	// 밭 안의 모든 CultivationPlot에 지정 씨앗을 심음 (bFullyGrown이 true면 다 자란 수확 가능 상태)
 	UFUNCTION(BlueprintCallable, Category = "Farming")
-	void PlantAllPlots(FName SeedName, UDataTable* SeedTable);
+	void PlantAllPlots(FName SeedName, UDataTable* SeedTable, bool bFullyGrown = false);
 
 	// 에디터 Detail 패널에서 버튼으로 그리드 자동 재정렬 실행
 	UFUNCTION(CallInEditor, Category = "Farming|Grid")

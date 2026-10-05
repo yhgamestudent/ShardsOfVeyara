@@ -67,6 +67,22 @@ void AAGSDPlayerController::HideInteractionWidget()
 	}
 }
 
+void AAGSDPlayerController::CutsceneHideClockWidget()
+{
+	if (ClockWidget)
+	{
+		ClockWidget->SetVisibility(ESlateVisibility::Hidden);
+	}
+}
+
+void AAGSDPlayerController::CutsceneShowClockWidget()
+{
+	if (ClockWidget)
+	{
+		ClockWidget->SetVisibility(ESlateVisibility::Visible);
+	}
+}
+
 void AAGSDPlayerController::BeginPlay()
 {
 	Super::BeginPlay();

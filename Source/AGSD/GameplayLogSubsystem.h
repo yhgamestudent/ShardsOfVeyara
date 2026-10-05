@@ -136,6 +136,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Combat")
 	void IncrementGuardUsageCount(const FString& StageName = TEXT(""));
 
+	// 구르기(회피) 사용 횟수 증가
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Combat")
+	void IncrementRollUsageCount(const FString& StageName = TEXT(""));
+
 	// 체력 물약 사용 횟수 기록
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Combat")
 	void RecordHealthPotionUsage(const FString& PotionName = TEXT("HealthPotion"), const FString& StageName = TEXT(""));

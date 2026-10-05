@@ -173,6 +173,8 @@ bool UAGSDGuardComponent::ProcessDamageMitigation(float IncomingDamage, float& O
 				true
 			);
 		}
+
+		OwnerCharacter->ReportTutorialAction(ETutorialActionType::Guard);
 		return true;
 	}
 

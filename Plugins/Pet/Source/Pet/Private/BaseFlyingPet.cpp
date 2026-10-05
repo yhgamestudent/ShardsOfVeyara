@@ -3,6 +3,7 @@
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
 #include "Component/PetTalkComponent.h"
+#include "Component/PetGuideComponent.h"
 #include "Components/SphereComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/FloatingPawnMovement.h"
@@ -32,7 +33,10 @@ ABaseFlyingPet::ABaseFlyingPet()
 	EnemyDetectSphere->ShapeColor = FColor::Green;
 	EnemyDetectSphere->SetSphereRadius(EnemyDetectRange);
 	EnemyDetectSphere->SetVisibility(false);
-	EnemyDetectSphere->SetHiddenInGame(false); 
+	EnemyDetectSphere->SetHiddenInGame(false);
+	// 퀘스트/월드 트리거 볼륨과의 불필요한 오버랩을 방지하고 적 캐릭터(Pawn)만 감지하도록 설정
+	EnemyDetectSphere->SetCollisionResponseToAllChannels(ECR_Ignore);
+	EnemyDetectSphere->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 
 	// 아이템 감지 범위 구체 컴포넌트 생성 및 설정
 	ItemDetectSphere = CreateDefaultSubobject<USphereComponent>(TEXT("ItemDetectSphere"));
@@ -41,6 +45,9 @@ ABaseFlyingPet::ABaseFlyingPet()
 	ItemDetectSphere->SetSphereRadius(ItemDetectRange);
 	ItemDetectSphere->SetVisibility(false);
 	ItemDetectSphere->SetHiddenInGame(false);
+	// 월드 트리거 오버랩 방지 및 아이템(WorldDynamic)만 감지하도록 설정
+	ItemDetectSphere->SetCollisionResponseToAllChannels(ECR_Ignore);
+	ItemDetectSphere->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Overlap);
 
 	// 아이템 감지 핑 생성 위치 컴포넌트
 	ItemDetectPingSpawnPoint = CreateDefaultSubobject<USceneComponent>(TEXT("ItemDetectPingSpawnPoint"));
@@ -49,6 +56,13 @@ ABaseFlyingPet::ABaseFlyingPet()
 	// 펫 대화 컴포넌트 생성
 	PetTalkComp = CreateDefaultSubobject<UPetTalkComponent>(TEXT("PetTalkComp"));
 	
+	// 펫 길안내/이정표 컴포넌트 생성
+	PetGuideComp = CreateDefaultSubobject<UPetGuideComponent>(TEXT("PetGuideComp"));
+
+	// 퀘스트 길안내 설정 기본값 초기화
+	QuestGuideInterpSpeed = 0.5f;
+	QuestGuideGroundHeight = 100.0f;
+
 	// 펫 태그 추가
 	Tags.Add("Pet");
 }
@@ -99,7 +113,7 @@ void ABaseFlyingPet::Tick(float DeltaTime)
 
 	PollInit(DeltaTime);
 
-	if ( TargetActor && bIsFolloingTarget == true )
+	if (TargetActor && bIsFolloingTarget)
 	{
 		FollowingTarget(DeltaTime);
 	}
@@ -109,15 +123,16 @@ void ABaseFlyingPet::PollInit(float DeltaTime)
 {
 	if (bTargetInitalize == false)
 	{
-		TargetActor = UGameplayStatics::GetPlayerCharacter(GetWorld(), 0);
+		MasterCharacter = UGameplayStatics::GetPlayerCharacter(GetWorld(), 0);
+		TargetActor = MasterCharacter;
        
-		if (TargetActor) 
+		if (MasterCharacter) 
 		{
 			// ✅ 인터페이스를 통해 함수 호출
-			if (TargetActor->GetClass()->ImplementsInterface(UPetConversationInterface::StaticClass()))
+			if (MasterCharacter->GetClass()->ImplementsInterface(UPetConversationInterface::StaticClass()))
 			{
 				// Execute_ 함수명을 사용하여 안전하게 호출합니다.
-				IPetConversationInterface::Execute_SetMyPet(TargetActor, this);
+				IPetConversationInterface::Execute_SetMyPet(MasterCharacter, this);
             
 				bTargetInitalize = true;
 				bIsFolloingTarget = true;
@@ -129,6 +144,101 @@ void ABaseFlyingPet::PollInit(float DeltaTime)
 void ABaseFlyingPet::SetFreeRoaming(bool bNewState)
 {
 	bIsFolloingTarget = bNewState;
+}
+
+void ABaseFlyingPet::SetTargetActor(AActor* NewTarget)
+{
+	if (NewTarget)
+	{
+		TargetActor = NewTarget;
+		bIsFolloingTarget = true;
+	}
+}
+
+void ABaseFlyingPet::ReturnToPlayer()
+{
+	if (MasterCharacter)
+	{
+		TargetActor = MasterCharacter;
+	}
+	else
+	{
+		MasterCharacter = UGameplayStatics::GetPlayerCharacter(GetWorld(), 0);
+		TargetActor = MasterCharacter;
+	}
+	bIsFolloingTarget = true;
+}
+
+void ABaseFlyingPet::TeleportToTargetActor(AActor* GoalActor)
+{
+	if (!GoalActor)
+	{
+		return;
+	}
+
+	FVector StartLoc = GetActorLocation();
+
+	// 1. 출발 위치에 순간이동 이펙트 스폰
+	if (TeleportEffect)
+	{
+		UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), TeleportEffect, StartLoc, FRotator::ZeroRotator);
+	}
+
+	// 2. 목표 액터 기준 위치 계산 (뒤/오른쪽 오프셋 및 지면 1m 높이 보정)
+	FVector GoalLoc = GoalActor->GetActorLocation();
+	FVector GoalForward = GoalActor->GetActorForwardVector();
+	FVector GoalRight = GoalActor->GetActorRightVector();
+
+	FVector FinalLocation = GoalLoc
+		- (GoalForward * FollowSettings.Distance)
+		+ (GoalRight * FollowSettings.SideOffset)
+		+ FVector(0.f, 0.f, FollowSettings.UpOffset);
+
+	// 지면 레이캐스트로 땅 위 정확히 1m(QuestGuideGroundHeight) 높이 보정
+	FHitResult FloorHit;
+	FVector TraceStart = FVector(FinalLocation.X, FinalLocation.Y, GoalLoc.Z + 300.0f);
+	FVector TraceEnd = FVector(FinalLocation.X, FinalLocation.Y, GoalLoc.Z - 600.0f);
+
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(this);
+	QueryParams.AddIgnoredActor(GoalActor);
+	if (MasterCharacter)
+	{
+		QueryParams.AddIgnoredActor(MasterCharacter);
+	}
+
+	if (GetWorld()->LineTraceSingleByChannel(FloorHit, TraceStart, TraceEnd, ECC_WorldStatic, QueryParams) ||
+		GetWorld()->LineTraceSingleByChannel(FloorHit, TraceStart, TraceEnd, ECC_Visibility, QueryParams))
+	{
+		FinalLocation.Z = FloorHit.ImpactPoint.Z + QuestGuideGroundHeight;
+	}
+	else
+	{
+		FinalLocation.Z = GoalLoc.Z + QuestGuideGroundHeight;
+	}
+
+	// 3. 다가오는 플레이어를 마주보는 회전 계산
+	FRotator TargetRot = GoalActor->GetActorRotation();
+	if (MasterCharacter)
+	{
+		TargetRot = UKismetMathLibrary::FindLookAtRotation(FinalLocation, MasterCharacter->GetActorLocation());
+		TargetRot.Pitch = FMath::Clamp(TargetRot.Pitch, -20.0f, 20.0f);
+		TargetRot.Roll = 0.0f;
+	}
+
+	// 4. 물리 텔레포트 적용
+	SetActorLocationAndRotation(FinalLocation, TargetRot, false, nullptr, ETeleportType::TeleportPhysics);
+
+	// 5. 도착 위치에 순간이동 이펙트 스폰
+	if (TeleportEffect)
+	{
+		UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), TeleportEffect, FinalLocation, FRotator::ZeroRotator);
+	}
+
+	// 6. 타겟 액터 전환 (도착 후에도 위치 유지)
+	SetTargetActor(GoalActor);
+
+	UE_LOG(LogTemp, Log, TEXT("[BaseFlyingPet] Teleported to Target Actor: %s"), *GoalActor->GetName());
 }
 
 void ABaseFlyingPet::FollowingTarget(float DeltaTime)
@@ -162,11 +272,50 @@ void ABaseFlyingPet::FollowingTarget(float DeltaTime)
 		- (TargetForward * CurrentSettings.Distance)    // 거리
 		+ (TargetRight * CurrentSettings.SideOffset)    // 좌우
 		+ FVector(0.0f, 0.0f, CurrentSettings.UpOffset); // 높이
+
+	// [지면 높이 보정] 퀘스트 액터로 이동했을 때: 실제 땅(지면)으로부터 정확히 1m(QuestGuideGroundHeight) 띄우도록 레이캐스트 보정
+	if (MasterCharacter && TargetActor != MasterCharacter)
+	{
+		FHitResult FloorHit;
+		FVector TraceStart = FVector(DesiredLocation.X, DesiredLocation.Y, TargetLocation.Z + 300.0f);
+		FVector TraceEnd = FVector(DesiredLocation.X, DesiredLocation.Y, TargetLocation.Z - 600.0f);
+
+		FCollisionQueryParams QueryParams;
+		QueryParams.AddIgnoredActor(this);
+		QueryParams.AddIgnoredActor(TargetActor);
+		if (MasterCharacter)
+		{
+			QueryParams.AddIgnoredActor(MasterCharacter);
+		}
+
+		if (GetWorld()->LineTraceSingleByChannel(FloorHit, TraceStart, TraceEnd, ECC_WorldStatic, QueryParams) ||
+			GetWorld()->LineTraceSingleByChannel(FloorHit, TraceStart, TraceEnd, ECC_Visibility, QueryParams))
+		{
+			DesiredLocation.Z = FloorHit.ImpactPoint.Z + QuestGuideGroundHeight;
+		}
+		else
+		{
+			DesiredLocation.Z = TargetLocation.Z + QuestGuideGroundHeight;
+		}
+	}
 	
-	// 이동 속도 계산 (기존 로직 유지)
+	// 이동 속도 계산
 	float DistanceToTarget = FVector::Dist(CurrentLocation, DesiredLocation);
-	float MoveSpeedMultiplier = 1.0f + (DistanceToTarget * 0.040f);
-	float FinalInterpSpeed = MoveInterpSpeed * MoveSpeedMultiplier;
+	float FinalInterpSpeed = MoveInterpSpeed;
+
+	if (MasterCharacter && TargetActor != MasterCharacter)
+	{
+		// [퀘스트 액터 안내 비행]: 순간이동을 체크하지 않았을 때 플레이어가 보고 따라올 수 있도록 부드럽고 여유로운 속도로 비행
+		// 급격한 순간 가속을 방지하기 위해 가속 계수를 대폭 완화하고 최대 배율을 3.0배로 제한
+		float GuideSpeedMultiplier = FMath::Clamp(1.0f + (DistanceToTarget * 0.003f), 1.0f, 3.0f);
+		FinalInterpSpeed = QuestGuideInterpSpeed * GuideSpeedMultiplier;
+	}
+	else
+	{
+		// [평소 플레이어 추적]: 플레이어의 빠른 이동/달리기를 놓치지 않도록 기존 가속 유지
+		float MoveSpeedMultiplier = 1.0f + (DistanceToTarget * 0.040f);
+		FinalInterpSpeed = MoveInterpSpeed * MoveSpeedMultiplier;
+	}
     
 	// 보간된 새로운 위치 계산
 	FVector NewLocation = FMath::VInterpTo(CurrentLocation, DesiredLocation, DeltaTime, FinalInterpSpeed);
@@ -198,6 +347,22 @@ void ABaseFlyingPet::FollowingTarget(float DeltaTime)
 		// [대화 상태] 펫이 캐릭터를 바라보도록 회전 계산 (LookAt)
 		TargetRotation = UKismetMathLibrary::FindLookAtRotation(CurrentLocation, TargetLocation);
 	}
+	else if (MasterCharacter && TargetActor != MasterCharacter)
+	{
+		// [퀘스트 액터 추적 상태] 비행 이동 중에는 이동 방향을 바라보고, 도착 후에는 다가오는 플레이어를 마주봄
+		if (DistanceToTarget > 60.0f)
+		{
+			FVector MoveDir = (DesiredLocation - CurrentLocation).GetSafeNormal();
+			TargetRotation = MoveDir.IsNearlyZero() ? TargetActor->GetActorRotation() : MoveDir.Rotation();
+		}
+		else
+		{
+			// 퀘스트 지점 도착 후 다가오는 플레이어(주인)를 향해 마주보는 회전 (LookAt)
+			TargetRotation = UKismetMathLibrary::FindLookAtRotation(CurrentLocation, MasterCharacter->GetActorLocation());
+			TargetRotation.Pitch = FMath::Clamp(TargetRotation.Pitch, -20.0f, 20.0f);
+			TargetRotation.Roll = 0.0f;
+		}
+	}
 	else
 	{
 		TargetRotation = TargetActor->GetActorRotation();
@@ -218,6 +383,13 @@ void ABaseFlyingPet::FollowingTarget(float DeltaTime)
 void ABaseFlyingPet::CheckLineOfSightToTarget()
 {
 	if (!TargetActor) return;
+
+	// 퀘스트 액터를 안내 중이거나 퀘스트 액터에 붙어있을 때는 장애물 시야 검사(순간이동)를 건너뜀
+	if ((PetGuideComp && PetGuideComp->IsGuiding()) || (MasterCharacter && TargetActor != MasterCharacter))
+	{
+		LineOfSightBlockedCount = 0;
+		return;
+	}
 
 	FHitResult Hit;
 	FVector Start = GetActorLocation();
@@ -357,10 +529,11 @@ void ABaseFlyingPet::CheckSurroundingEnemy()
 
 void ABaseFlyingPet::HealCharacter()
 {
-	if (TargetActor)
+	AActor* HealTarget = MasterCharacter ? Cast<AActor>(MasterCharacter) : TargetActor;
+	if (HealTarget)
 	{
-		// TargetActor 한테 - 대미지 주기 
-		UGameplayStatics::ApplyDamage(TargetActor, -HealAmount, 
+		// 플레이어한테 - 대미지 주기 
+		UGameplayStatics::ApplyDamage(HealTarget, -HealAmount, 
 			nullptr, this, nullptr);
 		
 		// 2. 나이아가라 이펙트를 그 자리(Location)에 생성
@@ -370,7 +543,7 @@ void ABaseFlyingPet::HealCharacter()
 			UNiagaraFunctionLibrary::SpawnSystemAtLocation(
 				GetWorld(),
 				HealEffect,
-				TargetActor->GetActorLocation(), // 플레이어의 현재 위치(고정값)
+				HealTarget->GetActorLocation(), // 플레이어의 현재 위치(고정값)
 				FRotator::ZeroRotator,
 				FVector(2.f),                    // 스케일
 				true                         // 자동 파괴
@@ -381,10 +554,11 @@ void ABaseFlyingPet::HealCharacter()
 
 bool ABaseFlyingPet::TraceCharacterToTarget(AActor* Target)
 {
-	if (!TargetActor || !Target) return false;
+	AActor* BaseActor = MasterCharacter ? Cast<AActor>(MasterCharacter) : TargetActor;
+	if (!BaseActor || !Target) return false;
 
 	FHitResult Hit;
-	FVector Start = TargetActor->GetActorLocation() + (FVector::UpVector * 50.f);
+	FVector Start = BaseActor->GetActorLocation() + (FVector::UpVector * 50.f);
 	FVector End = Target->GetActorLocation() + (FVector::UpVector * 50.f); 
 	
 	// 캐릭터의 눈높이 정도를 고려한다면 높이 오프셋을 추가할 수 있습니다.
@@ -393,7 +567,7 @@ bool ABaseFlyingPet::TraceCharacterToTarget(AActor* Target)
 
 	FCollisionQueryParams Params;
 	Params.AddIgnoredActor(this);          // 펫 무시
-	Params.AddIgnoredActor(TargetActor);   // 플레이어 무시
+	Params.AddIgnoredActor(BaseActor);     // 플레이어 무시
 	Params.AddIgnoredActor(Target);        // 타겟 무시 (장애물만 체크하기 위함)
 
 	// ECC_Visibility 채널을 사용하여 가시성을 가로막는 물체(벽 등)가 있는지 검사

@@ -342,6 +342,15 @@ void UGameplayLogSubsystem::IncrementGuardUsageCount(const FString& StageName)
 	StageCount++;
 }
 
+void UGameplayLogSubsystem::IncrementRollUsageCount(const FString& StageName)
+{
+	LogData.RollUsageCount++;
+
+	FString TargetStage = GetTargetStageName(StageName);
+	int32& StageCount = LogData.StageRollCounts.FindOrAdd(TargetStage);
+	StageCount++;
+}
+
 void UGameplayLogSubsystem::RecordHealthPotionUsage(const FString& PotionName, const FString& StageName)
 {
 	LogData.TotalHealthPotionUsageCount++;
@@ -1340,6 +1349,10 @@ FString UGameplayLogSubsystem::GenerateCSVString() const
 	{
 		CSV += FString::Printf(TEXT("%s,Combat,StageGuardCount,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
 	}
+	for (const auto& Pair : LogData.StageRollCounts)
+	{
+		CSV += FString::Printf(TEXT("%s,Combat,StageRollCount,%s,%d\n"), *SessionID, *Pair.Key, Pair.Value);
+	}
 	for (const auto& Pair : LogData.StageDamageMitigatedByGuard)
 	{
 		CSV += FString::Printf(TEXT("%s,Combat,StageDamageMitigatedByGuard,%s,%.2f\n"), *SessionID, *Pair.Key, Pair.Value);
@@ -1891,7 +1904,7 @@ FString UGameplayLogSubsystem::GenerateCSVString() const
 		float Duration_Airborne = LogData.StageActionDurations.FindRef(Stage + TEXT("_Airborne"));
 
 		// 3. 전투 행동 (Combat)
-		int32 Count_Combat = LogData.StageGuardCounts.FindRef(Stage);
+		int32 Count_Combat = LogData.StageGuardCounts.FindRef(Stage) + LogData.StageRollCounts.FindRef(Stage);
 		for (const auto& ComboPair : LogData.StageUsedComboCounts)
 		{
 			if (ComboPair.Key.StartsWith(Stage))

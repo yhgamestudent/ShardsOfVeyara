@@ -34,7 +34,8 @@ void USOVGameInstance::InitializeVariables()
 	CurrentSelectedHotbar = DefaultInstance->CurrentSelectedHotbar;
 	TributeLevel = DefaultInstance->TributeLevel;
 	MouseSensitivity = DefaultInstance->MouseSensitivity;
-	
+	bIsEnding = DefaultInstance->bIsEnding;
+
 	// 데이터 맵 및 인벤토리는 비워줌 (필요 시 CDO에서 복사 가능)
 	ChestMap.Empty();
 	TempInventory.Empty();

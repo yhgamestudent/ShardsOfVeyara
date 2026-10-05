@@ -23,6 +23,10 @@ protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 
+	// Weeds의 SnapWeedsToGround를 기반으로 한 지면/FieldMesh 스냅 및 법선 정렬 함수
+	UFUNCTION(BlueprintCallable, Category = "Farming")
+	void SnapCropToGround();
+
 	//현재 단계의 작물 메시
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	UStaticMeshComponent* CropMesh;
@@ -39,7 +43,15 @@ protected:
 	bool bIsHarvested = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawning")
-	TEnumAsByte<ECollisionChannel> PlacementTraceChannel;
+	TEnumAsByte<ECollisionChannel> PlacementTraceChannel = ECC_WorldStatic;
+
+	// 레이저를 상하로 쏠 거리 (cm 단위, 위아래로 이 거리만큼 레이트레이스 탐색)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawning")
+	float TraceDistance = 100.0f;
+
+	// 바닥 스냅 시 지면 위로 띄울 높이 오프셋 (cm 단위)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawning")
+	float GroundZOffset = 0.0f;
 
 	// 추가 보너스 수확량 (풍요 비료 반영용)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming")

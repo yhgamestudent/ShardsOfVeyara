@@ -20,6 +20,7 @@
 #include "InteractionOwnerInterface.h"
 #include "SpearComboData.h"
 #include "ECharacterState.h"
+#include "TutorialTypes.h"
 #include "AGSDCharacter.generated.h"
 
 class UAGSDComboGuideComponent;
@@ -224,6 +225,12 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="PlayerState")
 	bool bCanCombo = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="PlayerState")
+	bool bCanRollCancel = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="PlayerState")
+	bool bCanMoveCancel = false;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="PlayerState")
 	bool bHasBufferedInput = false;
@@ -459,8 +466,16 @@ public:
 	FORCEINLINE float getPlayerMaxhealth() const { return MaxHealth;}
 
 	void SetCanCombo(bool b);
+	void SetCanRollCancel(bool b);
+	FORCEINLINE bool CanRollCancel() const { return bCanRollCancel; }
+	void EnableMovementFromAttack();
+	FORCEINLINE bool CanMoveCancel() const { return bCanMoveCancel; }
 	
 	FORCEINLINE bool HasBufferedInput() {return bHasBufferedInput;}
+
+	/** 튜토리얼 서브시스템에 플레이어 행동을 보고하는 헬퍼 함수 */
+	UFUNCTION(BlueprintCallable, Category = "Tutorial")
+	void ReportTutorialAction(ETutorialActionType ActionType, int32 Count = 1);
 	
 protected:
 	/** Initialize input action bindings */
@@ -483,6 +498,20 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PlayerState|Movement")
 	bool bIsSprinting = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PlayerState|Movement")
+	float DesiredSpeed = 0.0f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PlayerState|Movement|Roll")
+	bool bIsRolling = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerState|Movement|Roll")
+	float RollCooldown = 0.9f;
+
+	FTimerHandle RollTimerHandle;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PlayerState|Movement|Roll")
+	float InputRollDirection = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerState|Movement|Camera")
 	float DefaultCameraLagSpeed = 12.0f;
@@ -559,6 +588,12 @@ protected:
 	void SprintStart();
 	void SprintEnd();
 	void UpdateSprintSpeed();
+
+	UFUNCTION(BlueprintCallable, Category = "Action|Roll")
+	void StartRoll();
+
+	UFUNCTION(BlueprintCallable, Category = "Action|Roll")
+	void StopRoll();
 	void FaceCameraInput(const FInputActionValue& Value);
 	/** Called for looking input */
 	void Look(const FInputActionValue& Value);
@@ -623,6 +658,8 @@ public:
 	
 	UPROPERTY( BlueprintReadOnly)
 	class ABaseFlyingPet* Pet;
+
+	FORCEINLINE class ABaseFlyingPet* GetPet() const { return Pet; }
 
 	// 에디터의 Details 패널에서 어떤 펫 블루프린트를 쓸지 선택하는 변수
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pet")

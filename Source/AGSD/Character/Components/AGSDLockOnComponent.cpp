@@ -12,6 +12,7 @@
 #include "Components/CapsuleComponent.h"
 #include "Interaction.h"
 #include "DrawDebugHelpers.h"
+#include "BaseFlyingPet.h"
 
 UAGSDLockOnComponent::UAGSDLockOnComponent()
 {
@@ -72,6 +73,10 @@ void UAGSDLockOnComponent::UpdateLockOnState(float DeltaSeconds)
 			FCollisionQueryParams TraceParams;
 			TraceParams.AddIgnoredActor(OwnerCharacter);
 			TraceParams.AddIgnoredActor(LockedTarget);
+			if (OwnerCharacter && OwnerCharacter->GetPet())
+			{
+				TraceParams.AddIgnoredActor(OwnerCharacter->GetPet());
+			}
 
 			FHitResult HitResult;
 			bool bHit = GetWorld()->LineTraceSingleByChannel(HitResult, TraceStart, TraceEnd, ECC_Visibility, TraceParams);
@@ -79,10 +84,12 @@ void UAGSDLockOnComponent::UpdateLockOnState(float DeltaSeconds)
 			if (bHit && HitResult.GetActor())
 			{
 				AActor* HitActor = HitResult.GetActor();
-				// 특정 상호작용 액터나 아이템 태그는 시야 차단에서 예외 처리
+				// 특정 상호작용 액터, 아이템, 또는 동반자 펫은 시야 차단에서 예외 처리
 				if (HitActor->GetClass()->ImplementsInterface(UInteraction::StaticClass()) ||
 					HitActor->ActorHasTag(FName("Item")) ||
-					HitActor->ActorHasTag(FName("Interactable")))
+					HitActor->ActorHasTag(FName("Interactable")) ||
+					HitActor->ActorHasTag(FName("Pet")) ||
+					HitActor->IsA(ABaseFlyingPet::StaticClass()))
 				{
 					bHit = false;
 				}
@@ -230,6 +237,7 @@ void UAGSDLockOnComponent::ToggleLockOn()
 		if (LockedTarget)
 		{
 			SetLockOnMarkerState(LockedTarget, true);
+			OwnerCharacter->ReportTutorialAction(ETutorialActionType::LockOn);
 		}
 	}
 
@@ -494,16 +502,22 @@ AActor* UAGSDLockOnComponent::FindSoftLockTarget()
 		FCollisionQueryParams TraceParams;
 		TraceParams.AddIgnoredActor(OwnerCharacter);
 		TraceParams.AddIgnoredActor(Actor);
+		if (OwnerCharacter && OwnerCharacter->GetPet())
+		{
+			TraceParams.AddIgnoredActor(OwnerCharacter->GetPet());
+		}
 
 		FHitResult HitResult;
 		bool bHit = GetWorld()->LineTraceSingleByChannel(HitResult, TraceStart, TargetCenter, ECC_Visibility, TraceParams);
 		if (bHit && HitResult.GetActor())
 		{
 			AActor* HitActor = HitResult.GetActor();
-			// 상호작용 가능한 아이템 등은 시야 차단에서 예외 처리
+			// 상호작용 가능한 아이템 및 동반자 펫은 시야 차단에서 예외 처리
 			if (HitActor->GetClass()->ImplementsInterface(UInteraction::StaticClass()) ||
 				HitActor->ActorHasTag(FName("Item")) ||
-				HitActor->ActorHasTag(FName("Interactable")))
+				HitActor->ActorHasTag(FName("Interactable")) ||
+				HitActor->ActorHasTag(FName("Pet")) ||
+				HitActor->IsA(ABaseFlyingPet::StaticClass()))
 			{
 				bHit = false;
 			}

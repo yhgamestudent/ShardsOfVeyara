@@ -35,6 +35,7 @@ class PET_API ABaseFlyingPet : public APawn, public IPetConversationInterface
 	GENERATED_BODY()
 
 	friend class UPetTalkComponent; // PetTalkComponent에서 BaseFlyingPet의 protected 멤버에 접근할 수 있도록 합니다.
+	friend class UPetGuideComponent; // PetGuideComponent에서 BaseFlyingPet의 protected 멤버에 접근할 수 있도록 합니다.
 	
 protected:
 	virtual void BeginPlay() override;
@@ -80,13 +81,21 @@ protected:
 	// 펫의 대화 컴포넌트
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 	class UPetTalkComponent* PetTalkComp;
+	// 펫의 길안내/이정표 컴포넌트
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
+	class UPetGuideComponent* PetGuideComp;
 	// 공중에서 떠다니는 움직임을 위한 컴포넌트
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 	class UFloatingPawnMovement* FloatingMovement;
 
-	// 따라다닐 대상 캐릭터
+	// 따라다닐 대상 액터 (플레이어 또는 퀘스트 안내 액터)
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "자체설정")
-	ACharacter* TargetActor;
+	AActor* TargetActor;
+
+	// 원본 주인 플레이어 캐릭터
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "자체설정")
+	ACharacter* MasterCharacter;
+
 	// 펫의 현재 상태
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
 	EPetState PetState;
@@ -105,6 +114,26 @@ protected:
 	// 자유 이동 모드 토글
 	UFUNCTION(BlueprintCallable, Category = "자체설정")
 	void SetFreeRoaming(bool bNewState);
+
+	// 추적할 대상 액터 설정 (플레이어 외에 퀘스트 액터 등 지정 가능)
+	UFUNCTION(BlueprintCallable, Category = "자체설정")
+	void SetTargetActor(AActor* NewTarget);
+
+	// 대상을 다시 플레이어 캐릭터로 복귀
+	UFUNCTION(BlueprintCallable, Category = "자체설정")
+	void ReturnToPlayer();
+
+	/** 퀘스트 액터 안내 시 지면(땅)으로부터 띄울 높이 (cm 단위, 기본 100cm = 1m) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
+	float QuestGuideGroundHeight = 100.0f;
+
+	/** 퀘스트 액터로 이동할 때의 비행 보간 속도 (기본값: 0.5f, 낮을수록 천천히 날아감) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
+	float QuestGuideInterpSpeed = 0.5f;
+
+	/** 퀘스트 목표 액터로 순간이동 이펙트와 함께 이동 */
+	UFUNCTION(BlueprintCallable, Category = "자체설정")
+	void TeleportToTargetActor(AActor* GoalActor);
 	// 디버그 모드 여부 및 감지 범위
 	UPROPERTY(EditAnywhere, Category = "자체설정")
 	bool bDebugMode = false;
@@ -161,6 +190,14 @@ public:
 	// 대화 종료 및 이전 상태로 복귀 로직 처리
 	UFUNCTION(BlueprintCallable)
 	void EndConversation();
+
+	// 길안내 컴포넌트 반환 함수
+	UFUNCTION(BlueprintPure, Category = "Pet|Guide")
+	FORCEINLINE class UPetGuideComponent* GetPetGuideComponent() const { return PetGuideComp; }
+
+	// 대화 컴포넌트 반환 함수
+	UFUNCTION(BlueprintPure, Category = "Pet|Talk")
+	FORCEINLINE class UPetTalkComponent* GetPetTalkComponent() const { return PetTalkComp; }
 	
 #if WITH_EDITOR
 	// 에디터에서 프로퍼티가 변경될 때 호출됩니다.

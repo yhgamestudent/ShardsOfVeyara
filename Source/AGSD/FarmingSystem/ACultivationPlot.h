@@ -97,6 +97,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Farming")
 	void SetSeedInfo(FName InSeedName, UDataTable* InSeedDataTable);
 
+	// 씨앗 정보를 기반으로 작물을 즉시 심는 함수 (bStartFullyGrown이 true면 다 자란 수확 가능 상태로 스폰)
+	UFUNCTION(BlueprintCallable, Category = "Farming")
+	bool PlantSeedDirectly(FName InSeedName, UDataTable* InSeedDataTable, bool bStartFullyGrown = false);
+
 	UFUNCTION(BlueprintCallable, Category = "Farming")
 	void SetSeedDataTable(UDataTable* InSeedDataTable) { SeedDataTable = InSeedDataTable; }
 
@@ -135,6 +139,10 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Farming|Effects")
 	void SpawnGrowthEffect(class UNiagaraSystem* EffectSystem);
+
+	// 경작지의 루트 흙 메시 컴포넌트 반환
+	UFUNCTION(BlueprintCallable, Category = "Farming")
+	class UStaticMeshComponent* GetPlotMesh() const { return Mesh; }
     
 private:
 	//루트 컴포넌트

@@ -42,6 +42,7 @@ public class AGSD : ModuleRules
 
         PublicIncludePaths.AddRange(new string[] {
 			"AGSD",
+			"AGSD/Tutorial",
 			"AGSD/Character",
 			"AGSD/Character/Components",
 			"AGSD/Inventory",
