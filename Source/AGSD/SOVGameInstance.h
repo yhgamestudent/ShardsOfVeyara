@@ -60,6 +60,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerState")
 	float PlayerHealth = MaxPlayerHealth;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "PlayerState")
+	bool bCombatStatsInitialized = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerState")
 	bool bHasPet = false;
 

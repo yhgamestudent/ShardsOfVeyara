@@ -8,6 +8,7 @@
 #include "CombatDamageable.h"
 #include "Animation/AnimMontage.h"
 #include "Engine/TimerHandle.h"
+#include "CombatStatData.h"
 #include "CombatEnemy.generated.h"
 
 class UWidgetComponent;
@@ -46,6 +47,15 @@ protected:
 	/** Max amount of HP the character will have on respawn */
 	UPROPERTY(EditAnywhere, Category="Damage")
 	float MaxHP = 3.0f;
+
+public:
+	/** Kalivra 밸런싱 데이터테이블(DT_CombatStats) 행 바인딩 (설정 시 MaxHP, MeleeDamage 등을 자동 초기화) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Stats")
+	FDataTableRowHandle CombatStatHandle;
+
+	/** 데이터테이블로부터 전투 스탯을 읽어와 초기화합니다 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Stats")
+	void InitializeStatsFromDataTable();
 
 public:
 

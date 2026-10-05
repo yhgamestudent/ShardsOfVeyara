@@ -11,6 +11,7 @@
 #include "Inventory/UI/AGSDItemNotificationWidget.h"
 #include "Inventory/UI/AGSDComboGuideWidget.h"
 #include "Character/Components/AGSDComboGuideComponent.h"
+#include "PlayerStateWidget.h"
 
 void UAGSDPlayerHUD::NativeConstruct()
 {
@@ -67,6 +68,15 @@ void UAGSDPlayerHUD::ToggleInventory()
 			WBP_InventoryUI->SetVisibility(ESlateVisibility::Visible);
 		}
 
+		if (UPlayerStateWidget* StateWidget = GetPlayerStateWidget())
+		{
+			StateWidget->SetVisibility(ESlateVisibility::Visible);
+			if (AAGSDCharacter* Character = Cast<AAGSDCharacter>(GetOwningPlayerPawn()))
+			{
+				StateWidget->SetDamageText(Character->getDamage());
+			}
+		}
+
 		if (HotbarSlide)
 		{
 			PlayAnimation(HotbarSlide, 0.0f, 1, EUMGSequencePlayMode::Forward);
@@ -98,6 +108,11 @@ void UAGSDPlayerHUD::CloseInventory()
 	if (WBP_InventoryUI)
 	{
 		WBP_InventoryUI->SetVisibility(ESlateVisibility::Collapsed);
+	}
+
+	if (UPlayerStateWidget* StateWidget = GetPlayerStateWidget())
+	{
+		StateWidget->SetVisibility(ESlateVisibility::Collapsed);
 	}
 
 	if (HotbarSlide)
@@ -163,5 +178,14 @@ void UAGSDPlayerHUD::AddItemNotification(FStruct_ItemData ItemData, int32 Amount
 void UAGSDPlayerHUD::CloseUI_Implementation()
 {
 	CloseInventory();
+}
+
+UPlayerStateWidget* UAGSDPlayerHUD::GetPlayerStateWidget() const
+{
+	if (WBP_PlayerStateUI)
+	{
+		return WBP_PlayerStateUI;
+	}
+	return WBP_PlayerStateWidget;
 }
 

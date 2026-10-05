@@ -6,5 +6,8 @@
 
 void UPlayerStateWidget::SetDamageText(float playerdamage)
 {
-	DamageText->SetText(FText::AsNumber(playerdamage));
+	if (DamageText)
+	{
+		DamageText->SetText(FText::AsNumber(playerdamage));
+	}
 }

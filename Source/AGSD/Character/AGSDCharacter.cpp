@@ -386,9 +386,69 @@ void AAGSDCharacter::Tick(float DeltaSeconds)
 	}
 }
 
+void AAGSDCharacter::InitializeCombatStatsFromDataTable()
+{
+	if (CombatStatHandle.DataTable && !CombatStatHandle.RowName.IsNone())
+	{
+		const FCombatStatRow* StatRow = CombatStatHandle.GetRow<FCombatStatRow>(TEXT("AAGSDCharacter::InitializeCombatStatsFromDataTable"));
+		if (StatRow)
+		{
+			MaxHealth = StatRow->MaxHealth;
+			Damage = StatRow->BaseAttackDamage;
+			Health = MaxHealth;
+
+			UE_LOG(LogTemp, Warning, TEXT("[CombatStat] Loaded Row: %s -> MaxHealth: %.1f, Damage: %.1f"),
+				*CombatStatHandle.RowName.ToString(), MaxHealth, Damage);
+
+			if (GI)
+			{
+				GI->MaxPlayerHealth = MaxHealth;
+				GI->PlayerHealth = Health;
+				GI->Damage = Damage;
+				GI->bCombatStatsInitialized = true;
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[CombatStat Warning] Row '%s' not found in DataTable '%s'"),
+				*CombatStatHandle.RowName.ToString(), *CombatStatHandle.DataTable->GetName());
+		}
+	}
+}
+
 void AAGSDCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+	PC = Cast<AAGSDPlayerController>(GetController());
+	GI = Cast<USOVGameInstance>(GetGameInstance());
+
+	// 1. 전투 스탯 초기화 (CombatStatHandle 우선 적용)
+	if (CombatStatHandle.DataTable && !CombatStatHandle.RowName.IsNone())
+	{
+		// 세션 최초 시작이거나 GI가 아직 초기화되지 않은 경우 데이터테이블에서 로드
+		if (!GI || !GI->bCombatStatsInitialized)
+		{
+			InitializeCombatStatsFromDataTable();
+		}
+		else
+		{
+			// 레벨 전환 후 GI에 유지된 플레이어의 진행 상태(체력/공격력) 복원
+			Health = GI->PlayerHealth;
+			MaxHealth = GI->MaxPlayerHealth;
+			Damage = GI->Damage;
+		}
+	}
+	else if (GI)
+	{
+		// CombatStatHandle 미지정 시 기존 GI 로직 유지 (하위 호환)
+		if (GI->MaxPlayerHealth != 0.f)
+		{
+			Health = GI->PlayerHealth;
+			MaxHealth = GI->MaxPlayerHealth;
+		}
+		Damage = GI->Damage;
+	}
 
 	if (GetCharacterMovement())
 	{
@@ -405,8 +465,6 @@ void AAGSDCharacter::BeginPlay()
 
 	OnLockOnStateChanged.AddDynamic(this, &AAGSDCharacter::HandleLockOn);
 
-	PC = Cast<AAGSDPlayerController>(GetController());
-	
 	if (PC && AudioListenerComponent)
 	{
 		// 카메라 거리에 따른 오디오 감쇠 문제를 해결하기 위해 오디오 리스너를 AudioListenerComponent로 설정합니다.
@@ -414,13 +472,10 @@ void AAGSDCharacter::BeginPlay()
 		PC->SetAudioListenerOverride(AudioListenerComponent, FVector::ZeroVector, FRotator::ZeroRotator);
 	}
 
-	GI = Cast<USOVGameInstance>(GetGameInstance());
-
 	if (GI)
 	{
 		bHasPet = GI->bHasPet;
 		Coin = GI->Coin;
-		Damage = GI->Damage;
 	}
 	SpawnMyPetAfterTravel(); // 펫 있으면 오픈 레벨 이후 펫 스폰
 	
@@ -462,16 +517,16 @@ void AAGSDCharacter::BeginPlay()
 	if (PlayerHUDRef)
 	{
 		HealthBar = PlayerHUDRef->WBP_HealthBar;
+		PlayerStateWidget = PlayerHUDRef->GetPlayerStateWidget();
+		if (PlayerStateWidget)
+		{
+			PlayerStateWidget->SetDamageText(Damage);
+		}
 	}
 
 	if (HealthBar)
 	{
-		if (GI && GI->MaxPlayerHealth != 0.f)
-		{
-			Health = GI->PlayerHealth;
-			MaxHealth = GI->MaxPlayerHealth;
-		}
-		HealthBar->HealthProgressBar->SetPercent(Health / MaxHealth);
+		HealthBar->UpdateHealth(Health, MaxHealth);
 	}
 	playFadeWidget(1.0f, 0.0f);
 	
@@ -582,9 +637,9 @@ float AAGSDCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& 
 	{
 		Health = FMath::Clamp(Health - DamageToApply, 0.0f, MaxHealth);
 		
-		if (HealthBar && HealthBar->HealthProgressBar) 
+		if (HealthBar) 
 		{
-			HealthBar->HealthProgressBar->SetPercent(Health / MaxHealth);
+			HealthBar->UpdateHealth(Health, MaxHealth);
 		}
 		return DamageToApply;
 	}
@@ -620,7 +675,7 @@ float AAGSDCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& 
 	if ( DamageToApply > 0.f )
 	{
 		Health = FMath::Clamp(Health - DamageToApply, 0.f, MaxHealth);
-		if (HealthBar) HealthBar->HealthProgressBar->SetPercent(Health / MaxHealth);
+		if (HealthBar) HealthBar->UpdateHealth(Health, MaxHealth);
 
 		if (UWorld* World = GetWorld())
 		{
@@ -2101,7 +2156,7 @@ void AAGSDCharacter::AddDamage(float addDamage)
 void AAGSDCharacter::HealthRecovery(float amount)
 {
 	Health = FMath::Clamp(Health + amount, 0, MaxHealth);
-	if (HealthBar) HealthBar->HealthProgressBar->SetPercent(Health / MaxHealth);
+	if (HealthBar) HealthBar->UpdateHealth(Health, MaxHealth);
 }
 //--------------
 

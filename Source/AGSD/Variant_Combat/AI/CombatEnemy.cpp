@@ -326,8 +326,32 @@ void ACombatEnemy::Landed(const FHitResult& Hit)
 	OnEnemyLanded.ExecuteIfBound();
 }
 
+void ACombatEnemy::InitializeStatsFromDataTable()
+{
+	if (CombatStatHandle.DataTable && !CombatStatHandle.RowName.IsNone())
+	{
+		const FCombatStatRow* StatRow = CombatStatHandle.GetRow<FCombatStatRow>(TEXT("ACombatEnemy::InitializeStatsFromDataTable"));
+		if (StatRow)
+		{
+			MaxHP = StatRow->MaxHealth;
+			MeleeDamage = StatRow->BaseAttackDamage;
+			CurrentHP = MaxHP;
+			UE_LOG(LogTemp, Warning, TEXT("[CombatStat Enemy] %s -> Loaded Row: %s, MaxHP: %.1f, Damage: %.1f"),
+				*GetName(), *CombatStatHandle.RowName.ToString(), MaxHP, MeleeDamage);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[CombatStat Enemy Warning] %s -> Row '%s' not found in DataTable '%s'"),
+				*GetName(), *CombatStatHandle.RowName.ToString(), *CombatStatHandle.DataTable->GetName());
+		}
+	}
+}
+
 void ACombatEnemy::BeginPlay()
 {
+	// 데이터테이블에 바인딩된 스탯이 있을 경우 먼저 초기화
+	InitializeStatsFromDataTable();
+
 	// reset HP to maximum
 	CurrentHP = MaxHP;
 

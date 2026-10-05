@@ -13,6 +13,7 @@ class UVerticalBox;
 class UAGSDItemNotificationWidget;
 class UHealthBar;
 class UAGSDComboGuideWidget;
+class UPlayerStateWidget;
 
 /**
  * UAGSDPlayerHUD
@@ -43,6 +44,17 @@ public:
 	/** 플레이어 체력 바 위젯 */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidget), Category = "UI")
 	TObjectPtr<UHealthBar> WBP_HealthBar;
+
+	/** 플레이어 상태(공격력 등) 표시 위젯 */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "UI")
+	TObjectPtr<UPlayerStateWidget> WBP_PlayerStateUI;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "UI")
+	TObjectPtr<UPlayerStateWidget> WBP_PlayerStateWidget;
+
+	/** 유효한 PlayerStateWidget 반환 헬퍼 */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Player HUD")
+	UPlayerStateWidget* GetPlayerStateWidget() const;
 
 	// ── 애니메이션 ──
 	UPROPERTY(Transient, meta = (BindWidgetAnim))

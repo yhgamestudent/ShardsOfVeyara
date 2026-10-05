@@ -1,0 +1,8 @@
+---,CharacterName,CombatRole,MaxHealth,BaseAttackDamage,Defense,CriticalChance,CriticalMultiplier,AttackInterval,KnockbackResistance,TargetTTK
+Player_Tier0,"플레이어 (기본/Tier0)",Player,800.0,70.0,0.0,0.05,1.5,1.8,0.0,0.0
+Player_Tier1,"플레이어 (1단계 성장/Tier1)",Player,1000.0,90.0,10.0,0.10,1.5,1.8,0.1,0.0
+Player_Tier2,"플레이어 (2단계 성장/Tier2)",Player,1300.0,120.0,20.0,0.15,1.6,1.8,0.2,0.0
+Enemy_Forest_Bee,"숲 맵 벌 (잡몹)",NormalEnemy,280.0,90.0,0.0,0.0,1.0,3.5,0.0,4.5
+Enemy_Forest_Elite,"숲 맵 거대 괴수 (정예)",EliteEnemy,900.0,160.0,5.0,0.05,1.3,3.0,0.4,14.0
+Boss_Dungeon_SkeletonMage,"스켈레톤 메이지 (던전 보스)",Boss,7000.0,200.0,15.0,0.10,1.5,2.5,0.8,165.0
+Dummy_Training,"훈련용 허수아비",Dummy,10000.0,0.0,0.0,0.0,1.0,0.0,1.0,0.0

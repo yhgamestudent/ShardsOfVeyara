@@ -21,6 +21,7 @@
 #include "SpearComboData.h"
 #include "ECharacterState.h"
 #include "TutorialTypes.h"
+#include "CombatStatData.h"
 #include "AGSDCharacter.generated.h"
 
 class UAGSDComboGuideComponent;
@@ -489,6 +490,14 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerState")
 	float Damage = 100.0f;
+
+	/** Kalivra 밸런싱 데이터테이블(DT_CombatStats) 행 바인딩 (설정 시 MaxHealth, Damage 등을 자동 초기화) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Stats")
+	FDataTableRowHandle CombatStatHandle;
+
+	/** 데이터테이블로부터 플레이어 기본 스탯을 읽어와 초기화합니다 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Stats")
+	void InitializeCombatStatsFromDataTable();
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerState|Movement")
 	float WalkSpeed = 400.0f;

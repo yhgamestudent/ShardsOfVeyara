@@ -30,6 +30,7 @@ void USOVGameInstance::InitializeVariables()
 	Damage = DefaultInstance->Damage;
 	MaxPlayerHealth = DefaultInstance->MaxPlayerHealth;
 	PlayerHealth = MaxPlayerHealth;
+	bCombatStatsInitialized = false;
 	bHasPet = DefaultInstance->bHasPet;
 	CurrentSelectedHotbar = DefaultInstance->CurrentSelectedHotbar;
 	TributeLevel = DefaultInstance->TributeLevel;
