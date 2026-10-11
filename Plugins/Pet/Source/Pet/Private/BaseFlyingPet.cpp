@@ -9,6 +9,9 @@
 #include "GameFramework/FloatingPawnMovement.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "NavigationSystem.h"
+#include "NavigationPath.h"
+#include "DrawDebugHelpers.h"
 #include "Header/PetState.h"
 
 ABaseFlyingPet::ABaseFlyingPet()
@@ -152,6 +155,7 @@ void ABaseFlyingPet::SetTargetActor(AActor* NewTarget)
 	{
 		TargetActor = NewTarget;
 		bIsFolloingTarget = true;
+		ResetNavPath();
 	}
 }
 
@@ -167,6 +171,7 @@ void ABaseFlyingPet::ReturnToPlayer()
 		TargetActor = MasterCharacter;
 	}
 	bIsFolloingTarget = true;
+	ResetNavPath();
 }
 
 void ABaseFlyingPet::TeleportToTargetActor(AActor* GoalActor)
@@ -237,8 +242,253 @@ void ABaseFlyingPet::TeleportToTargetActor(AActor* GoalActor)
 
 	// 6. 타겟 액터 전환 (도착 후에도 위치 유지)
 	SetTargetActor(GoalActor);
+	ResetNavPath();
 
 	UE_LOG(LogTemp, Log, TEXT("[BaseFlyingPet] Teleported to Target Actor: %s"), *GoalActor->GetName());
+}
+
+void ABaseFlyingPet::ResetNavPath()
+{
+	NavPathPoints.Empty();
+	CurrentNavPathIndex = 0;
+	LastNavTargetLocation = FVector::ZeroVector;
+	NavPathUpdateTimer = 0.0f;
+	StuckTimer = 0.0f;
+	TemporaryStuckLiftZ = 0.0f;
+	CurrentObstacleAltitudeOffset = 0.0f;
+	LastStuckCheckLocation = GetActorLocation();
+}
+
+float ABaseFlyingPet::CalculateObstacleClearanceZ(const FVector& StartLoc, const FVector& EndLoc)
+{
+	FHitResult Hit;
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(this);
+	if (TargetActor) QueryParams.AddIgnoredActor(TargetActor);
+	if (MasterCharacter) QueryParams.AddIgnoredActor(MasterCharacter);
+
+	// 출발지에서 목적지 방향으로 장애물(WorldStatic) 검사
+	if (GetWorld()->LineTraceSingleByChannel(Hit, StartLoc, EndLoc, ECC_WorldStatic, QueryParams))
+	{
+		// 장애물 꼭대기 높이를 찾기 위해 위에서 아래로 레이캐스트
+		FHitResult TopHit;
+		float MaxZ = FMath::Max(StartLoc.Z, EndLoc.Z) + 800.0f;
+		FVector SearchHigh = FVector(Hit.ImpactPoint.X, Hit.ImpactPoint.Y, MaxZ);
+		FVector SearchLow = Hit.ImpactPoint;
+
+		if (GetWorld()->LineTraceSingleByChannel(TopHit, SearchHigh, SearchLow, ECC_WorldStatic, QueryParams))
+		{
+			// 장애물 꼭대기 표면보다 130cm 위로 상승 유도
+			float DesiredClearanceZ = TopHit.ImpactPoint.Z + 130.0f;
+			if (DesiredClearanceZ > StartLoc.Z)
+			{
+				return DesiredClearanceZ - StartLoc.Z;
+			}
+		}
+	}
+	return 0.0f;
+}
+
+bool ABaseFlyingPet::UpdateNavPath(const FVector& TargetDesiredLocation)
+{
+	UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
+	if (!NavSys)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[BaseFlyingPet] NavigationSystem not found in World!"));
+		return false;
+	}
+
+	FVector StartLocation = GetActorLocation();
+	FVector EndLocation = TargetDesiredLocation;
+
+	// 바닥 내비메시 상의 정확한 지점을 찾기 위해 수직 레이캐스트로 지면 탐색
+	FHitResult StartHit, EndHit;
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(this);
+	if (TargetActor) QueryParams.AddIgnoredActor(TargetActor);
+	if (MasterCharacter) QueryParams.AddIgnoredActor(MasterCharacter);
+
+	if (GetWorld()->LineTraceSingleByChannel(StartHit, StartLocation + FVector(0.f, 0.f, 200.f), StartLocation - FVector(0.f, 0.f, 2000.f), ECC_WorldStatic, QueryParams))
+	{
+		StartLocation = StartHit.ImpactPoint;
+	}
+
+	if (GetWorld()->LineTraceSingleByChannel(EndHit, EndLocation + FVector(0.f, 0.f, 200.f), EndLocation - FVector(0.f, 0.f, 2000.f), ECC_WorldStatic, QueryParams))
+	{
+		EndLocation = EndHit.ImpactPoint;
+	}
+
+	// [정밀 보정] 내비메시 표면으로 정확히 프로젝션(스냅)하여 탐색 실패 방지
+	FNavLocation ProjectedStart, ProjectedEnd;
+	const FVector Extent(500.f, 500.f, 1000.f);
+	if (NavSys->ProjectPointToNavigation(StartLocation, ProjectedStart, Extent))
+	{
+		StartLocation = ProjectedStart.Location;
+	}
+	if (NavSys->ProjectPointToNavigation(EndLocation, ProjectedEnd, Extent))
+	{
+		EndLocation = ProjectedEnd.Location;
+	}
+
+	// [핵심] PathfindingAgent로 펫(this) 대신 MasterCharacter(플레이어) 또는 nullptr을 넘겨 지면 표준 NavMesh 사용
+	AActor* AgentActor = MasterCharacter ? MasterCharacter : nullptr;
+	UNavigationPath* NavPath = UNavigationSystemV1::FindPathToLocationSynchronously(GetWorld(), StartLocation, EndLocation, AgentActor);
+
+	if (!NavPath || !NavPath->IsValid() || NavPath->PathPoints.Num() < 2)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[BaseFlyingPet] NavPath Search FAILED (Points: %d)! Fallback to direct fly."),
+			NavPath ? NavPath->PathPoints.Num() : 0);
+		return false;
+	}
+
+	NavPathPoints.Empty();
+	float TargetHeight = (MasterCharacter && TargetActor != MasterCharacter) ? QuestGuideGroundHeight : FollowSettings.UpOffset;
+	if (TargetHeight <= 10.0f)
+	{
+		TargetHeight = 100.0f;
+	}
+
+	for (const FVector& Pt : NavPath->PathPoints)
+	{
+		// 지면 경로점의 Z축을 공중 비행 높이만큼 띄워줌
+		NavPathPoints.Add(Pt + FVector(0.0f, 0.0f, TargetHeight));
+	}
+
+	// 0번 포인트는 시작 지점 근처이므로 1번 경유지부터 추적
+	CurrentNavPathIndex = 1;
+	LastNavTargetLocation = TargetDesiredLocation;
+
+	UE_LOG(LogTemp, Log, TEXT("[BaseFlyingPet] NavPath Found! Total Waypoints: %d"), NavPathPoints.Num());
+
+	// 디버그 경로선 시각화 (선명한 초록색 선 및 노란색 경유점 구체)
+	if (bDebugMode)
+	{
+		for (int32 i = 0; i < NavPathPoints.Num() - 1; ++i)
+		{
+			DrawDebugLine(GetWorld(), NavPathPoints[i], NavPathPoints[i + 1], FColor::Green, false, 5.0f, 0, 4.0f);
+			DrawDebugSphere(GetWorld(), NavPathPoints[i], 20.0f, 12, FColor::Yellow, false, 5.0f);
+		}
+		if (NavPathPoints.Num() > 0)
+		{
+			DrawDebugSphere(GetWorld(), NavPathPoints.Last(), 30.0f, 12, FColor::Cyan, false, 5.0f);
+		}
+	}
+
+	return true;
+}
+
+FVector ABaseFlyingPet::GetNextNavWaypoint(const FVector& FinalDesiredLocation)
+{
+	if (!bUseNavMeshFlight || NavPathPoints.Num() == 0 || CurrentNavPathIndex >= NavPathPoints.Num())
+	{
+		return FinalDesiredLocation;
+	}
+
+	FVector CurrentLocation = GetActorLocation();
+
+	while (CurrentNavPathIndex < NavPathPoints.Num())
+	{
+		FVector Waypoint = NavPathPoints[CurrentNavPathIndex];
+		float Dist2D = FVector::Dist2D(CurrentLocation, Waypoint);
+
+		// 마지막 웨이포인트가 아닌 경우 거리 체크로 다음으로 진행
+		if (CurrentNavPathIndex < NavPathPoints.Num() - 1)
+		{
+			if (Dist2D <= NavWaypointAcceptanceRadius)
+			{
+				CurrentNavPathIndex++;
+				continue;
+			}
+
+			// 지름길(Corner Shortcut) 검사: 다다음 경로점까지 벽 없이 뚫려있다면 바로 건너뛰어 자연스러운 곡선 유영
+			if (CurrentNavPathIndex + 1 < NavPathPoints.Num())
+			{
+				FHitResult Hit;
+				FCollisionQueryParams Params;
+				Params.AddIgnoredActor(this);
+				if (TargetActor) Params.AddIgnoredActor(TargetActor);
+				if (MasterCharacter) Params.AddIgnoredActor(MasterCharacter);
+
+				FVector NextNextPt = NavPathPoints[CurrentNavPathIndex + 1];
+				if (!GetWorld()->LineTraceSingleByChannel(Hit, CurrentLocation, NextNextPt, ECC_WorldStatic, Params))
+				{
+					CurrentNavPathIndex++;
+					continue;
+				}
+			}
+		}
+		break;
+	}
+
+	if (CurrentNavPathIndex < NavPathPoints.Num())
+	{
+		FVector SelectedPt = NavPathPoints[CurrentNavPathIndex];
+		// 마지막 경유지일 때는 원래 목적지의 정확한 높이를 사용
+		if (CurrentNavPathIndex == NavPathPoints.Num() - 1)
+		{
+			SelectedPt.Z = FinalDesiredLocation.Z;
+		}
+		return SelectedPt;
+	}
+
+	return FinalDesiredLocation;
+}
+
+void ABaseFlyingPet::ProcessStuckRecovery(float DeltaTime, const FVector& FinalDesiredLocation)
+{
+	FVector CurrentLoc = GetActorLocation();
+	float DistToFinal = FVector::Dist(CurrentLoc, FinalDesiredLocation);
+
+	// 최종 목적지 반경에 거의 도달했다면 끼임 체크 해제
+	if (DistToFinal <= 120.0f)
+	{
+		StuckTimer = 0.0f;
+		TemporaryStuckLiftZ = FMath::FInterpTo(TemporaryStuckLiftZ, 0.0f, DeltaTime, 3.0f);
+		LastStuckCheckLocation = CurrentLoc;
+		return;
+	}
+
+	// 직전 체크 위치와의 이동 거리
+	float MoveDist = FVector::Dist(CurrentLoc, LastStuckCheckLocation);
+	if (MoveDist < 15.0f) // 거의 전진하지 못하고 벽/장애물에 걸림
+	{
+		StuckTimer += DeltaTime;
+
+		// 1초 이상 정체: 공중으로 살짝 상승하여 낮은 난간/울타리 극복 시도
+		if (StuckTimer >= 1.0f && StuckTimer < StuckTeleportThresholdTime)
+		{
+			TemporaryStuckLiftZ = FMath::FInterpTo(TemporaryStuckLiftZ, StuckAvoidanceHeight, DeltaTime, 2.0f);
+		}
+		// 3초 이상 완전 끼임: 다음 웨이포인트나 목표 지점으로 안전 탈출 텔레포트
+		else if (StuckTimer >= StuckTeleportThresholdTime)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[BaseFlyingPet] Stuck detected for %.1fs! Escaping via recovery teleport."), StuckTimer);
+
+			FVector EscapeLoc = FinalDesiredLocation;
+			if (NavPathPoints.Num() > 0 && CurrentNavPathIndex < NavPathPoints.Num())
+			{
+				EscapeLoc = NavPathPoints[CurrentNavPathIndex];
+			}
+
+			SetActorLocation(EscapeLoc, false, nullptr, ETeleportType::TeleportPhysics);
+			if (TeleportEffect)
+			{
+				UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), TeleportEffect, EscapeLoc, FRotator::ZeroRotator);
+			}
+
+			StuckTimer = 0.0f;
+			TemporaryStuckLiftZ = 0.0f;
+			CurrentNavPathIndex++;
+			LastStuckCheckLocation = EscapeLoc;
+		}
+	}
+	else
+	{
+		// 정상 이동 중이면 타이머 리셋
+		StuckTimer = 0.0f;
+		TemporaryStuckLiftZ = FMath::FInterpTo(TemporaryStuckLiftZ, 0.0f, DeltaTime, 3.0f);
+		LastStuckCheckLocation = CurrentLoc;
+	}
 }
 
 void ABaseFlyingPet::FollowingTarget(float DeltaTime)
@@ -298,27 +548,73 @@ void ABaseFlyingPet::FollowingTarget(float DeltaTime)
 			DesiredLocation.Z = TargetLocation.Z + QuestGuideGroundHeight;
 		}
 	}
-	
-	// 이동 속도 계산
-	float DistanceToTarget = FVector::Dist(CurrentLocation, DesiredLocation);
-	float FinalInterpSpeed = MoveInterpSpeed;
 
-	if (MasterCharacter && TargetActor != MasterCharacter)
+	// [내비메시 경로 갱신]
+	if (bUseNavMeshFlight)
 	{
-		// [퀘스트 액터 안내 비행]: 순간이동을 체크하지 않았을 때 플레이어가 보고 따라올 수 있도록 부드럽고 여유로운 속도로 비행
-		// 급격한 순간 가속을 방지하기 위해 가속 계수를 대폭 완화하고 최대 배율을 3.0배로 제한
-		float GuideSpeedMultiplier = FMath::Clamp(1.0f + (DistanceToTarget * 0.003f), 1.0f, 3.0f);
-		FinalInterpSpeed = QuestGuideInterpSpeed * GuideSpeedMultiplier;
+		NavPathUpdateTimer += DeltaTime;
+		bool bNeedRepath = (NavPathPoints.Num() == 0) ||
+						   (NavPathUpdateTimer >= NavPathUpdateInterval && FVector::Dist(DesiredLocation, LastNavTargetLocation) > 150.0f);
+
+		if (bNeedRepath)
+		{
+			NavPathUpdateTimer = 0.0f;
+			UpdateNavPath(DesiredLocation);
+		}
+	}
+
+	// [끼임 감지 및 단계별 탈출 처리]
+	ProcessStuckRecovery(DeltaTime, DesiredLocation);
+
+	// 실제 비행할 목표 경유점 (내비메시 경로가 있으면 다음 웨이포인트, 없으면 DesiredLocation)
+	FVector MoveTargetLocation = DesiredLocation;
+	if (bUseNavMeshFlight && NavPathPoints.Num() > 0)
+	{
+		MoveTargetLocation = GetNextNavWaypoint(DesiredLocation);
+	}
+
+	// [3D 비행 장애물 자동 극복]: 전방에 돌담, 울타리, 단차가 가로막고 있으면 장애물 꼭대기 높이를 측정해 고도를 상승!
+	float NeededClearance = CalculateObstacleClearanceZ(CurrentLocation, MoveTargetLocation);
+	if (NeededClearance > CurrentObstacleAltitudeOffset)
+	{
+		CurrentObstacleAltitudeOffset = FMath::FInterpTo(CurrentObstacleAltitudeOffset, NeededClearance, DeltaTime, 4.0f);
 	}
 	else
 	{
-		// [평소 플레이어 추적]: 플레이어의 빠른 이동/달리기를 놓치지 않도록 기존 가속 유지
-		float MoveSpeedMultiplier = 1.0f + (DistanceToTarget * 0.040f);
+		CurrentObstacleAltitudeOffset = FMath::FInterpTo(CurrentObstacleAltitudeOffset, 0.0f, DeltaTime, 2.0f);
+	}
+	MoveTargetLocation.Z += (CurrentObstacleAltitudeOffset + TemporaryStuckLiftZ);
+
+	// 이동 거리 및 속도 계산
+	float DistanceToWaypoint = FVector::Dist(CurrentLocation, MoveTargetLocation);
+	float DistanceToFinalTarget = FVector::Dist(CurrentLocation, DesiredLocation);
+	float FinalInterpSpeed = MoveInterpSpeed;
+	float CurrentMaxSpeed = MaxFollowFlightSpeed;
+
+	if (MasterCharacter && TargetActor != MasterCharacter)
+	{
+		// [퀘스트 액터 안내 비행]: 급발진 없이 차분하고 여유로운 유영 속도 유지
+		FinalInterpSpeed = QuestGuideInterpSpeed;
+		CurrentMaxSpeed = MaxGuideFlightSpeed;
+	}
+	else
+	{
+		// [평소 플레이어 추적]: 플레이어와 거리가 멀어졌을 때만 완만하게 가속
+		float MoveSpeedMultiplier = FMath::Clamp(1.0f + (DistanceToWaypoint * 0.005f), 1.0f, 2.5f);
 		FinalInterpSpeed = MoveInterpSpeed * MoveSpeedMultiplier;
+		CurrentMaxSpeed = MaxFollowFlightSpeed;
 	}
     
 	// 보간된 새로운 위치 계산
-	FVector NewLocation = FMath::VInterpTo(CurrentLocation, DesiredLocation, DeltaTime, FinalInterpSpeed);
+	FVector NewLocation = FMath::VInterpTo(CurrentLocation, MoveTargetLocation, DeltaTime, FinalInterpSpeed);
+
+	// [속도 제한] 프레임당 최대 이동 거리(MaxStep)를 제한하여 순간 급발진을 완전히 방지하고 일정한 유영 속도 유지
+	FVector MoveDelta = NewLocation - CurrentLocation;
+	float MaxStep = CurrentMaxSpeed * DeltaTime;
+	if (MoveDelta.SizeSquared() > (MaxStep * MaxStep))
+	{
+		NewLocation = CurrentLocation + (MoveDelta.GetSafeNormal() * MaxStep);
+	}
 
 	// bSweep을 true로 설정하여 충돌 감지 활성화
 	FHitResult Hit;
@@ -327,10 +623,13 @@ void ABaseFlyingPet::FollowingTarget(float DeltaTime)
 	// 만약 벽에 부딪혔다면 (충돌이 발생했다면)
 	if (Hit.IsValidBlockingHit())
 	{
-		// 벽을 타고 미끄러지는 이동(Slide)을 추가하여 자연스럽게 함
+		// 1. 벽을 타고 미끄러지는 이동(Slide)
 		FVector RemainingDelta = NewLocation - Hit.Location;
 		FVector SlideDelta = FVector::VectorPlaneProject(RemainingDelta, Hit.Normal);
 		AddActorWorldOffset(SlideDelta, true);
+
+		// 2. [비행 펫 특권]: 벽이나 돌담 난간에 부딪혔을 때 수직 상승하여 장애물 턱을 사뿐히 타넘음!
+		AddActorWorldOffset(FVector(0.0f, 0.0f, 300.0f * DeltaTime), true);
 	}
     
 	// 속도 계산 로직 유지
@@ -344,37 +643,53 @@ void ABaseFlyingPet::FollowingTarget(float DeltaTime)
 
 	if (PetState == EPetState::EPS_Conversation)
 	{
-		// [대화 상태] 펫이 캐릭터를 바라보도록 회전 계산 (LookAt)
-		TargetRotation = UKismetMathLibrary::FindLookAtRotation(CurrentLocation, TargetLocation);
+		// [대화 상태] 펫이 캐릭터의 눈높이를 바라보도록 회전 (LookAt)
+		FVector LookTarget = TargetLocation + FVector(0.f, 0.f, 60.f);
+		TargetRotation = UKismetMathLibrary::FindLookAtRotation(CurrentLocation, LookTarget);
+		TargetRotation.Pitch = FMath::Clamp(TargetRotation.Pitch, -20.0f, 20.0f);
+		TargetRotation.Roll = 0.0f;
 	}
 	else if (MasterCharacter && TargetActor != MasterCharacter)
 	{
-		// [퀘스트 액터 추적 상태] 비행 이동 중에는 이동 방향을 바라보고, 도착 후에는 다가오는 플레이어를 마주봄
-		if (DistanceToTarget > 60.0f)
+		// [퀘스트 액터 안내 상태]
+		bool bArrivedAtQuest = (PetGuideComp && PetGuideComp->HasArrived()) || (DistanceToFinalTarget <= 150.0f);
+		if (!bArrivedAtQuest)
 		{
-			FVector MoveDir = (DesiredLocation - CurrentLocation).GetSafeNormal();
+			// 비행 이동 중: 진행 방향을 바라봄
+			FVector MoveDir = (MoveTargetLocation - CurrentLocation).GetSafeNormal();
 			TargetRotation = MoveDir.IsNearlyZero() ? TargetActor->GetActorRotation() : MoveDir.Rotation();
 		}
 		else
 		{
-			// 퀘스트 지점 도착 후 다가오는 플레이어(주인)를 향해 마주보는 회전 (LookAt)
-			TargetRotation = UKismetMathLibrary::FindLookAtRotation(CurrentLocation, MasterCharacter->GetActorLocation());
+			// 퀘스트 지점 도착 후: 다가오는 플레이어(나)를 마주봄 (LookAt Player)
+			FVector LookTarget = MasterCharacter->GetActorLocation() + FVector(0.f, 0.f, 60.f);
+			TargetRotation = UKismetMathLibrary::FindLookAtRotation(CurrentLocation, LookTarget);
 			TargetRotation.Pitch = FMath::Clamp(TargetRotation.Pitch, -20.0f, 20.0f);
 			TargetRotation.Roll = 0.0f;
 		}
 	}
 	else
 	{
-		TargetRotation = TargetActor->GetActorRotation();
+		// [평소 플레이어 동행 상태]
+		// 펫이 항상 나(플레이어 캐릭터)를 마주보도록 회전 (LookAt Player)
+		if (MasterCharacter)
+		{
+			FVector LookTarget = MasterCharacter->GetActorLocation() + FVector(0.f, 0.f, 60.f);
+			TargetRotation = UKismetMathLibrary::FindLookAtRotation(CurrentLocation, LookTarget);
+			TargetRotation.Pitch = FMath::Clamp(TargetRotation.Pitch, -20.0f, 20.0f);
+			TargetRotation.Roll = 0.0f;
+		}
+		else
+		{
+			TargetRotation = TargetActor->GetActorRotation();
+		}
 	}
 
-	// [수정] 회전 속도도 각도 차이에 따라 선형 증가
+	// 회전 보간: 자연스럽고 기민하게 회전 (기본 속도 6.0f)
 	FRotator CurrentRotation = GetActorRotation();
 	float DeltaYaw = FMath::Abs(FMath::FindDeltaAngleDegrees(CurrentRotation.Yaw, TargetRotation.Yaw));
-
-	// !!!!!!!!!!!! 각도 차이가 클수록 회전 속도 선형 증가 (예: 10도 차이날 때마다 0.5배씩 증가 등)
-	float RotSpeedMultiplier = 1.0f + (DeltaYaw * 0.10f);
-	float FinalRotationSpeed = MoveInterpSpeed * RotSpeedMultiplier;
+	float RotSpeedMultiplier = FMath::Clamp(1.0f + (DeltaYaw * 0.05f), 1.0f, 3.0f);
+	float FinalRotationSpeed = 6.0f * RotSpeedMultiplier;
 
 	FRotator NewRotation = FMath::RInterpTo(CurrentRotation, TargetRotation, DeltaTime, FinalRotationSpeed);
 	SetActorRotation(NewRotation);

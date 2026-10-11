@@ -57,7 +57,9 @@ void UTutorialObjectiveEntryWidget::UpdateObjective(const FText& InDescription, 
 
 	if (ProgressTextBlock)
 	{
-		if (InRequiredCount > 1 || InCurrentCount > 0)
+		// 목표 수량이 2개 이상인 경우(예: 몬스터 2마리 처치 [0/2])에만 진행도 텍스트를 표시
+		// 목표가 1개인 경우(지역 도달, 단일 몬스터 등)는 완료 시에도 [1/1]을 띄우지 않고 깔끔하게 숨김
+		if (InRequiredCount > 1)
 		{
 			ProgressTextBlock->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 			FText ProgText = FText::Format(NSLOCTEXT("Tutorial", "ProgressFormat", "[ {0} / {1} ]"),

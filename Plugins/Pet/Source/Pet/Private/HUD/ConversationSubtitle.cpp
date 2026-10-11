@@ -39,6 +39,18 @@ void UConversationSubtitle::NativeConstruct()
 
 void UConversationSubtitle::SetConversationSubtitle(const FText& InName, const FText& InDialogue)
 {
+	// 대사 갱신 시 진행 중이던 페이드아웃 타이머 및 애니메이션을 즉시 중지하고 불투명도 100% 보장
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(FadeOutTimerHandle);
+	}
+	if (FadeOutAnim && IsAnimationPlaying(FadeOutAnim))
+	{
+		StopAnimation(FadeOutAnim);
+	}
+	SetRenderOpacity(1.0f);
+	SetVisibility(ESlateVisibility::Visible);
+
 	if (Text_Name)
 	{
 		// [수정] 이미 FText이므로 FromString 없이 바로 넣습니다.
@@ -53,8 +65,19 @@ void UConversationSubtitle::SetConversationSubtitle(const FText& InName, const F
 
 void UConversationSubtitle::PlayFadeInAnimation()
 {
-	//보이게 설정
+	// 1. 기존 페이드아웃 타이머 및 애니메이션 즉시 중지
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(FadeOutTimerHandle);
+	}
+	if (FadeOutAnim && IsAnimationPlaying(FadeOutAnim))
+	{
+		StopAnimation(FadeOutAnim);
+	}
+
+	// 2. 가시성 및 불투명도 완전 복원
 	SetVisibility(ESlateVisibility::Visible);
+	SetRenderOpacity(1.0f);
 
 	// 📜 대화 활성 상태를 플레이어에게 전달하여 대화 시간 누적 시작
 	if (UWorld* World = GetWorld())
@@ -77,8 +100,18 @@ void UConversationSubtitle::PlayFadeInAnimation()
 
 void UConversationSubtitle::PlayFadeOutAnimation()
 {
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(FadeOutTimerHandle);
+	}
+
 	if (FadeOutAnim)
 	{
+		if (FadeInAnim && IsAnimationPlaying(FadeInAnim))
+		{
+			StopAnimation(FadeInAnim);
+		}
+
 		PlayAnimation(FadeOutAnim);
 
 		// FadeOut 애니메이션 길이만큼 기다렸다가 완전히 숨김 (예: 0.5초)
@@ -96,6 +129,7 @@ void UConversationSubtitle::PlayFadeOutAnimation()
 void UConversationSubtitle::OnFadeOutFinished()
 {
 	SetVisibility(ESlateVisibility::Hidden);
+	SetRenderOpacity(0.0f);
 
 	// 📜 대화 종료 상태를 플레이어에게 전달하여 대화 시간 누적 종료
 	if (UWorld* World = GetWorld())

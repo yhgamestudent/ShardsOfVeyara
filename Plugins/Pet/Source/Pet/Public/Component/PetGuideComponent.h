@@ -124,7 +124,9 @@ private:
 	TWeakObjectPtr<AActor> TargetActor = nullptr;
 	FVector TargetOffset = FVector::ZeroVector;
 	float CurrentArrivalRadius = 150.0f;
-
 	float HoverTime = 0.0f;
 	FVector BaseArrivalLocation = FVector::ZeroVector;
+
+	TArray<FVector> GuidePathPoints;
+	int32 CurrentGuidePathIndex = 0;
 };

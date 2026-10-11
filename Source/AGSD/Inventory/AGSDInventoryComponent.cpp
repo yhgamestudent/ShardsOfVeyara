@@ -340,10 +340,56 @@ int32 UAGSDInventoryComponent::FindStackableSlot(const FString& ItemID) const
 // 아이템 드롭
 // ═══════════════════════════════════════════════════
 
+bool UAGSDInventoryComponent::IsToolItem(const FStruct_ItemData& ItemData) const
+{
+	// 1. 메모리에 캐시된 ItemData의 카테고리 검사 (ItemCategory 또는 EquipHoldingState)
+	if (ItemData.ItemCategory == EHoldingState::EHS_Tool || ItemData.EquipHoldingState == EHoldingState::EHS_Tool)
+	{
+		return true;
+	}
+
+	// 2. 데이터테이블(ItemDataTable) 원본 행 조회 검사
+	if (ItemDataTable && !ItemData.ItemID.IsEmpty())
+	{
+		if (const FStruct_ItemData* RowData = ItemDataTable->FindRow<FStruct_ItemData>(FName(*ItemData.ItemID), TEXT("IsToolItemCheck")))
+		{
+			if (RowData->ItemCategory == EHoldingState::EHS_Tool || RowData->EquipHoldingState == EHoldingState::EHS_Tool)
+			{
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
+bool UAGSDInventoryComponent::CanDropItem(int32 SlotIndex) const
+{
+	if (!InventorySlots.IsValidIndex(SlotIndex) || InventorySlots[SlotIndex].IsEmpty)
+	{
+		return false;
+	}
+
+	// 도구(Tool) 카테고리 아이템은 버리기 불가
+	if (IsToolItem(InventorySlots[SlotIndex].ItemData))
+	{
+		return false;
+	}
+
+	return true;
+}
+
 bool UAGSDInventoryComponent::DropItem(int32 SlotIndex)
 {
 	if (!ValidateSlotIndex(SlotIndex, TEXT("DropItem"))) return false;
 	if (InventorySlots[SlotIndex].IsEmpty) return false;
+
+	// 도구(Tool) 아이템은 땅에 버릴 수 없음 (상자 보관 및 슬롯 이동은 가능)
+	if (!CanDropItem(SlotIndex))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[AGSDInventoryComponent] Tool item [%s] cannot be dropped to the ground."), *InventorySlots[SlotIndex].ItemData.ItemID);
+		return false;
+	}
 
 	const FStruct_ItemData& ItemData = InventorySlots[SlotIndex].ItemData;
 

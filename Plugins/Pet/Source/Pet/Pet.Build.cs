@@ -43,6 +43,7 @@ public class Pet : ModuleRules
 				"InputCore",
 				"EnhancedInput",
 				"LogData",
+				"NavigationSystem",
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);

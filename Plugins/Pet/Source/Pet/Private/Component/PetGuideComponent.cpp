@@ -4,6 +4,8 @@
 #include "Components/SphereComponent.h"
 #include "Components/WidgetComponent.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "NavigationSystem.h"
+#include "NavigationPath.h"
 
 UPetGuideComponent::UPetGuideComponent()
 {
@@ -89,15 +91,41 @@ void UPetGuideComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAc
 		}
 		else
 		{
-			// 가속/감속 유영 비행 보간
-			float MoveInterp = OwnerPet ? OwnerPet->MoveInterpSpeed : 1.0f;
-			float MoveSpeedMultiplier = 1.0f + (Distance * 0.040f);
-			float FinalInterpSpeed = MoveInterp * MoveSpeedMultiplier;
+			// 내비메시 경유지 선택 (우회 비행 활성화 시에만 사용)
+			FVector IntermediateTarget = TargetLocation;
+			if (OwnerPet && OwnerPet->bUseNavMeshFlight && GuidePathPoints.Num() > 0 && CurrentGuidePathIndex < GuidePathPoints.Num())
+			{
+				while (CurrentGuidePathIndex < GuidePathPoints.Num() - 1)
+				{
+					float DistToWaypoint = FVector::Dist2D(CurrentLoc, GuidePathPoints[CurrentGuidePathIndex]);
+					if (DistToWaypoint <= 120.0f)
+					{
+						CurrentGuidePathIndex++;
+						continue;
+					}
+					break;
+				}
+				IntermediateTarget = GuidePathPoints[CurrentGuidePathIndex];
+				if (CurrentGuidePathIndex == GuidePathPoints.Num() - 1)
+				{
+					IntermediateTarget.Z = TargetLocation.Z;
+				}
+			}
 
-			FVector NextLoc = FMath::VInterpTo(CurrentLoc, TargetLocation, DeltaTime, FinalInterpSpeed);
+			// 가속/감속 유영 비행 보간 (급발진 방지 및 일정한 속도 제어)
+			float FinalInterpSpeed = OwnerPet ? OwnerPet->QuestGuideInterpSpeed : 0.5f;
+			FVector NextLoc = FMath::VInterpTo(CurrentLoc, IntermediateTarget, DeltaTime, FinalInterpSpeed);
+
+			float MaxSpeed = (OwnerPet && OwnerPet->MaxGuideFlightSpeed > 50.0f) ? OwnerPet->MaxGuideFlightSpeed : 570.0f;
+			FVector DeltaMove = NextLoc - CurrentLoc;
+			float MaxStep = MaxSpeed * DeltaTime;
+			if (DeltaMove.SizeSquared() > (MaxStep * MaxStep))
+			{
+				NextLoc = CurrentLoc + (DeltaMove.GetSafeNormal() * MaxStep);
+			}
 
 			// 이동 방향으로 부드럽게 회전
-			FVector Direction = (TargetLocation - CurrentLoc).GetSafeNormal();
+			FVector Direction = (IntermediateTarget - CurrentLoc).GetSafeNormal();
 			if (!Direction.IsNearlyZero())
 			{
 				FRotator TargetRot = Direction.Rotation();
@@ -133,12 +161,32 @@ void UPetGuideComponent::MoveToLocation(const FVector& NewTargetLocation, float 
 	CurrentArrivalRadius = ArrivalRadius;
 	bIsGuiding = true;
 	bHasArrived = false;
+	GuidePathPoints.Empty();
+	CurrentGuidePathIndex = 0;
 
 	SetExclamationMarkVisible(false);
 
 	if (OwnerPet)
 	{
 		OwnerPet->SetFreeRoaming(false);
+
+		if (OwnerPet->bUseNavMeshFlight)
+		{
+			UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
+			if (NavSys)
+			{
+				FVector StartLoc = OwnerPet->GetActorLocation();
+				UNavigationPath* NavPath = UNavigationSystemV1::FindPathToLocationSynchronously(GetWorld(), StartLoc, TargetLocation, OwnerPet);
+				if (NavPath && NavPath->IsValid() && NavPath->PathPoints.Num() > 1)
+				{
+					for (const FVector& Pt : NavPath->PathPoints)
+					{
+						GuidePathPoints.Add(Pt + FVector(0.0f, 0.0f, UpOffset));
+					}
+					CurrentGuidePathIndex = 1;
+				}
+			}
+		}
 	}
 }
 
@@ -209,6 +257,8 @@ void UPetGuideComponent::ReturnToFollow()
 	bHasArrived = false;
 	TargetActor = nullptr;
 	TargetLocation = FVector::ZeroVector;
+	GuidePathPoints.Empty();
+	CurrentGuidePathIndex = 0;
 
 	SetExclamationMarkVisible(false);
 

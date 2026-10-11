@@ -931,14 +931,16 @@ void AAGSDCharacter::StopMove()
 
 void AAGSDCharacter::Jump()
 {
-	// 창을 들고 있는 상태라면 물리 점프를 하지 않고 구르기(Roll) 실행
+	// 창 장착 시 구르기 임시 비활성화 -> 일반 점프로 동작
+	/*
 	if (HoldingWeapon == EHoldingWeapon::Spear)
 	{
 		StartRoll();
 		return;
 	}
+	*/
 
-	if (Mining) return;
+	if (bIsAttacking || bIsRolling || Mining) return;
 	if (CharacterState == ECharacterState::Block) return;
  	if (Jumping && !GetCharacterMovement()->IsFalling())
 	{
@@ -2160,13 +2162,21 @@ void AAGSDCharacter::HealthRecovery(float amount)
 }
 //--------------
 
+void AAGSDCharacter::SetPet(ABaseFlyingPet* NewPet)
+{
+	Pet = NewPet;
+	bHasPet = (NewPet != nullptr);
+
+	if (Pet)
+	{
+		Pet->SetOwner(this);
+		Pet->ReturnToPlayer();
+	}
+}
+
 void AAGSDCharacter::SetMyPet_Implementation(AActor* NewPet)
 {
-	if (NewPet)
-	{
-		Pet = Cast<ABaseFlyingPet>(NewPet);
-		bHasPet = true; // 이제 펫이 있다고 표시
-	}
+	SetPet(Cast<ABaseFlyingPet>(NewPet));
 }
 
 void AAGSDCharacter::MasterToPetBigConversation_Implementation(FName DialogueID)
@@ -2198,7 +2208,10 @@ void AAGSDCharacter::SpawnMyPetAfterTravel()
 		FVector SpawnLocation = GetActorLocation() + FVector(0.f, -180.f, 0.f); // 캐릭터 뒤쪽에 스폰
 		FRotator SpawnRotation = FRotator::ZeroRotator;
 
-		GetWorld()->SpawnActor<ABaseFlyingPet>(DefaultPetClass, SpawnLocation, SpawnRotation, SpawnParams);
+		if (ABaseFlyingPet* SpawnedPet = GetWorld()->SpawnActor<ABaseFlyingPet>(DefaultPetClass, SpawnLocation, SpawnRotation, SpawnParams))
+		{
+			SetPet(SpawnedPet);
+		}
 	}
 }
 
@@ -2206,6 +2219,15 @@ void AAGSDCharacter::SpawnMyPetAfterTravel()
 
 void AAGSDCharacter::HandleEnemyDeadAndDropItem_Implementation(AActor* DeadActor)
 {
+	// 1. 퀘스트 / 튜토리얼 서브시스템에 몬스터 처치 보고 (아이템 드롭 테이블 유무와 상관없이 항상 실행)
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UTutorialSubsystem* TutSub = GameInst->GetSubsystem<UTutorialSubsystem>())
+		{
+			TutSub->ReportMonsterDefeated(DeadActor);
+		}
+	}
+
 	if (DeadActor && DeadActor->Implements<UItemDropInterface>())
 	{
 		// 1. 죽은 에너미에게서 고유 ID 받아오기 (데이터 테이블 Row Name)

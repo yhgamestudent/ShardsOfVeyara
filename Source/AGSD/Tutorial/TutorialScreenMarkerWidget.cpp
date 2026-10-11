@@ -147,7 +147,8 @@ bool UTutorialScreenMarkerWidget::ResolveTargetWorldLocation(FVector& OutWorldLo
 		{
 			if (UTutorialSubsystem* TutSub = GI->GetSubsystem<UTutorialSubsystem>())
 			{
-				if (TutSub->IsTutorialActive())
+				// 대화 진행 중(bWaitingForDialogue)일 때는 마커를 표시하지 않고, 대화가 끝난 후에만 표시
+				if (TutSub->IsTutorialActive() && !TutSub->IsWaitingForDialogue())
 				{
 					// 서브시스템에서 현재 웨이포인트 액터가 유효하면 액터의 바운딩 박스 상단 자동 계산
 					if (AActor* WaypointActor = TutSub->GetCurrentWaypointActor())

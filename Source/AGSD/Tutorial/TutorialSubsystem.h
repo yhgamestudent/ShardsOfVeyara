@@ -53,6 +53,14 @@ public:
 	void ReportInteractionAction(AActor* InteractedActor, const FString& InteractionType = TEXT(""));
 
 	/**
+	 * 몬스터 처치 시 호출하여 튜토리얼 스텝 조건을 검증합니다.
+	 * 몬스터 액터의 모든 태그(Tags) 및 EnemyID를 검사하여 목표 대상과 일치할 시 진행도를 증가시킵니다.
+	 * @param DefeatedMonster 처치된 몬스터 액터
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Tutorial")
+	void ReportMonsterDefeated(AActor* DefeatedMonster);
+
+	/**
 	 * 특정 레벨/맵으로 전환되었음을 알립니다. (맵 전환 시점 외부/수동 호출용)
 	 * 현재 스텝의 목표 레벨과 일치하거나 EnterPortal 조건이면 스텝을 완료합니다.
 	 * @param NewLevelName 전환된 맵/레벨 이름
@@ -95,6 +103,34 @@ public:
 	/** 거점 튜토리얼 완료 여부 설정 (세이브 데이터 연동) */
 	UFUNCTION(BlueprintCallable, Category = "Tutorial")
 	void SetHubTutorialCompleted(bool bCompleted);
+
+	/** 특정 시퀀스가 이미 완료되었는지 확인 (1회 실행 검증용) */
+	UFUNCTION(BlueprintPure, Category = "Tutorial")
+	bool IsSequenceCompleted(FName SequenceName) const;
+
+	/** 특정 게이트(블로킹 볼륨)가 이미 해제되었는지 확인 */
+	UFUNCTION(BlueprintPure, Category = "Tutorial")
+	bool IsGateOpened(FName GateTag) const;
+
+	/** 완료된 시퀀스 이름 목록 반환 (세이브 연동용) */
+	UFUNCTION(BlueprintPure, Category = "Tutorial")
+	TArray<FName> GetCompletedSequences() const { return CompletedSequences; }
+
+	/** 완료된 시퀀스 이름 목록 설정 (로드 연동용) */
+	UFUNCTION(BlueprintCallable, Category = "Tutorial")
+	void SetCompletedSequences(const TArray<FName>& InSequences);
+
+	/** 이미 열린 게이트 태그 목록 반환 (세이브 연동용) */
+	UFUNCTION(BlueprintPure, Category = "Tutorial")
+	TArray<FName> GetOpenedGateTags() const { return OpenedGateTags; }
+
+	/** 이미 열린 게이트 태그 목록 설정 (로드 연동용) */
+	UFUNCTION(BlueprintCallable, Category = "Tutorial")
+	void SetOpenedGateTags(const TArray<FName>& InGateTags);
+
+	/** 현재 맵에 존재하는 해제 완료된 게이트(블로킹 볼륨) 액터들의 충돌을 끄고 숨김 상태로 복원 */
+	UFUNCTION(BlueprintCallable, Category = "Tutorial")
+	void RestoreWorldGateStates();
 
 	/** 현재 가리키고 있는 목표 웨이포인트 액터 반환 */
 	UFUNCTION(BlueprintPure, Category = "Tutorial")
@@ -174,6 +210,17 @@ protected:
 	/** 플레이어의 동반자 펫 참조 가져오기 */
 	class ABaseFlyingPet* GetPlayerPet() const;
 
+	/** 퀘스트 대상 액터 테두리 하이라이트(CustomDepth) 제어 */
+	void SetActorHighlight(AActor* TargetActor, bool bActive);
+	void UpdateTargetHighlight();
+	void ClearTargetHighlight();
+
+	/** 몬스터의 태그 및 EnemyID가 목표 태그와 일치하는지 종합 검증 */
+	bool MatchMonsterIdentifier(AActor* Monster, FName TargetTag) const;
+
+	/** 다중 몬스터 사냥 시 아직 살아있는 동일 태그 몬스터를 찾아 마커 갱신 */
+	void UpdateNearestAliveTarget(FName TargetTag);
+
 private:
 	UPROPERTY()
 	TArray<FTutorialStepData> CurrentSteps;
@@ -194,7 +241,18 @@ private:
 	UPROPERTY()
 	bool bCompletedHubTutorial = false;
 
+	/** 이미 완료된 튜토리얼 시퀀스 이름 목록 (1회 실행 차단용) */
+	UPROPERTY()
+	TArray<FName> CompletedSequences;
+
+	/** 퀘스트로 인해 해제된 게이트(블로킹 볼륨) 태그 목록 */
+	UPROPERTY()
+	TArray<FName> OpenedGateTags;
+
 	TWeakObjectPtr<AActor> CachedWaypointActor = nullptr;
+
+	/** 현재 테두리 하이라이트가 켜져 있는 대상 액터 */
+	TWeakObjectPtr<AActor> CurrentHighlightedActor = nullptr;
 
 	FTimerHandle ReachAreaTimerHandle;
 

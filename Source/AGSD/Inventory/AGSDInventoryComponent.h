@@ -156,13 +156,29 @@ public:
 	int32 FindStackableSlot(const FString& ItemID) const;
 
 	/**
-	 * 특정 슬롯의 아이템을 월드에 드롭합니다.
+	 * 특정 슬롯의 아이템을 월드에 드롭합니다. (도구 등 드롭 불가 아이템은 제외)
 	 * 
 	 * @param SlotIndex 드롭할 슬롯 인덱스
 	 * @return 드롭 성공 여부
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool DropItem(int32 SlotIndex);
+
+	/**
+	 * 특정 슬롯의 아이템이 월드에 버릴 수 있는 아이템인지 확인합니다. (도구 카테고리는 버리기 불가)
+	 * @param SlotIndex 확인할 슬롯 인덱스
+	 * @return 버리기 가능 여부
+	 */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Inventory")
+	bool CanDropItem(int32 SlotIndex) const;
+
+	/**
+	 * 해당 아이템이 도구(Tool) 카테고리인지 확인합니다.
+	 * @param ItemData 확인할 아이템 데이터
+	 * @return 도구 여부
+	 */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Inventory")
+	bool IsToolItem(const FStruct_ItemData& ItemData) const;
 
 	/**
 	 * 인벤토리를 정렬합니다 (빈 슬롯을 뒤로 이동).

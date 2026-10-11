@@ -84,6 +84,18 @@ struct FSaveData : public FTableRowBase
 	UPROPERTY()
 	FGameplayLogData LogData;
 
+	/** 완료된 튜토리얼/퀘스트 시퀀스 이름 목록 */
+	UPROPERTY()
+	TArray<FName> CompletedTutorialSequences;
+
+	/** 퀘스트 클리어로 인해 열린/비활성화된 게이트(블로킹 볼륨) 태그 목록 */
+	UPROPERTY()
+	TArray<FName> OpenedGateTags;
+
+	/** 거점 튜토리얼 완료 여부 플래그 */
+	UPROPERTY()
+	bool bCompletedHubTutorial;
+
 	FSaveData()
 	{
 		PlayerSessionID = TEXT("Unknown");
@@ -97,5 +109,6 @@ struct FSaveData : public FTableRowBase
 		bHasPet = false;
 		TempHotbar.SetNum(10);
 		TributeLevel = 1;
+		bCompletedHubTutorial = false;
 	}
 };

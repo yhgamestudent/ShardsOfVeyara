@@ -36,6 +36,9 @@ enum class ETutorialActionType : uint8
 	OrbAltar UMETA(DisplayName = "Orb Altar"),
 	PortalExit UMETA(DisplayName = "Portal Exit"),
 
+	// 전투 퀘스트
+	DefeatMonster UMETA(DisplayName = "Defeat Monster"),
+
 	// 범용 커스텀 액션
 	Custom UMETA(DisplayName = "Custom Action")
 };
@@ -147,6 +150,10 @@ public:
 	/** 커스텀 액션 식별용 태그 (ActionType == Custom일 때 사용) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")
 	FName CustomActionTag;
+
+	/** 퀘스트 대상 액터에 하이라이트(외곽선 테두리 빛남) 효과를 적용할지 여부 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")
+	bool bHighlightTarget = false;
 
 	/**
 	 * 병렬로 동시에 진행할 세부 목표 목록입니다.

@@ -111,18 +111,6 @@ protected:
 	// 이동 속도 (보간 속도)
 	UPROPERTY(EditAnywhere, Category = "자체설정")
 	float MoveInterpSpeed = 1.0f;
-	// 자유 이동 모드 토글
-	UFUNCTION(BlueprintCallable, Category = "자체설정")
-	void SetFreeRoaming(bool bNewState);
-
-	// 추적할 대상 액터 설정 (플레이어 외에 퀘스트 액터 등 지정 가능)
-	UFUNCTION(BlueprintCallable, Category = "자체설정")
-	void SetTargetActor(AActor* NewTarget);
-
-	// 대상을 다시 플레이어 캐릭터로 복귀
-	UFUNCTION(BlueprintCallable, Category = "자체설정")
-	void ReturnToPlayer();
-
 	/** 퀘스트 액터 안내 시 지면(땅)으로부터 띄울 높이 (cm 단위, 기본 100cm = 1m) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
 	float QuestGuideGroundHeight = 100.0f;
@@ -131,9 +119,68 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
 	float QuestGuideInterpSpeed = 0.5f;
 
-	/** 퀘스트 목표 액터로 순간이동 이펙트와 함께 이동 */
-	UFUNCTION(BlueprintCallable, Category = "자체설정")
-	void TeleportToTargetActor(AActor* GoalActor);
+	/** 퀘스트 안내 비행 시 최대 속도 (cm/s, 기본 570cm/s: 플레이어 달리기 속도 600cm/s의 95% 수준) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|속도")
+	float MaxGuideFlightSpeed = 570.0f;
+
+	/** 평소 플레이어 추적 시 최대 속도 (cm/s, 기본 750cm/s: 플레이어 이동을 부드럽게 추종하는 속도) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|속도")
+	float MaxFollowFlightSpeed = 750.0f;
+
+	/** 내비메시 기반 공중 우회 비행 활성화 여부 (임시 비활성화: false) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|내비게이션")
+	bool bUseNavMeshFlight = false;
+
+	/** 다음 경로점 도달 판정 거리 (수평 반경 cm) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|내비게이션")
+	float NavWaypointAcceptanceRadius = 120.0f;
+
+	/** 경로 재계산 간격 (초 단위) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|내비게이션")
+	float NavPathUpdateInterval = 0.5f;
+
+	/** 벽 끼임 감지 시 공중 회피 상승 높이 (cm) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|내비게이션")
+	float StuckAvoidanceHeight = 120.0f;
+
+	/** 벽 끼임 감지 시 강제 순간이동 탈출 임계 시간 (초 단위) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|내비게이션")
+	float StuckTeleportThresholdTime = 3.0f;
+
+	/** 현재 내비게이션 경로점 목록 (공중 비행 고도 보정 적용됨) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "자체설정|내비게이션")
+	TArray<FVector> NavPathPoints;
+
+	/** 현재 향하고 있는 경로점 인덱스 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "자체설정|내비게이션")
+	int32 CurrentNavPathIndex = 0;
+
+	// 마지막으로 경로를 계산한 목표 위치
+	FVector LastNavTargetLocation = FVector::ZeroVector;
+	// 경로 재계산 누적 타이머
+	float NavPathUpdateTimer = 0.0f;
+	// 끼임 감지용 이전 위치
+	FVector LastStuckCheckLocation = FVector::ZeroVector;
+	// 끼임 누적 시간
+	float StuckTimer = 0.0f;
+	// 끼임 탈출용 임시 상승 Z값
+	float TemporaryStuckLiftZ = 0.0f;
+
+	/** 내비게이션 경로 초기화 */
+	void ResetNavPath();
+	/** 목표 지점으로의 내비게이션 경로 탐색 및 갱신 */
+	bool UpdateNavPath(const FVector& TargetDesiredLocation);
+	/** 현재 이동해야 할 다음 경유지 반환 */
+	FVector GetNextNavWaypoint(const FVector& FinalDesiredLocation);
+	/** 벽 끼임 감지 및 단계별 탈출 처리 */
+	void ProcessStuckRecovery(float DeltaTime, const FVector& FinalDesiredLocation);
+
+	// 장애물 넘기용 현재 공중 회피 오프셋 (부드럽게 보간됨)
+	float CurrentObstacleAltitudeOffset = 0.0f;
+
+	/** 전방 장애물(돌담, 울타리 등) 감지 및 필요 상승 고도 계산 */
+	float CalculateObstacleClearanceZ(const FVector& StartLoc, const FVector& EndLoc);
+
 	// 디버그 모드 여부 및 감지 범위
 	UPROPERTY(EditAnywhere, Category = "자체설정")
 	bool bDebugMode = false;
@@ -167,6 +214,22 @@ protected:
 public:
 	ABaseFlyingPet();
 	virtual void Tick(float DeltaTime) override;
+
+	// 자유 이동 모드 토글
+	UFUNCTION(BlueprintCallable, Category = "자체설정")
+	void SetFreeRoaming(bool bNewState);
+
+	// 추적할 대상 액터 설정 (플레이어 외에 퀘스트 액터 등 지정 가능)
+	UFUNCTION(BlueprintCallable, Category = "자체설정")
+	void SetTargetActor(AActor* NewTarget);
+
+	// 대상을 다시 플레이어 캐릭터로 복귀
+	UFUNCTION(BlueprintCallable, Category = "자체설정")
+	void ReturnToPlayer();
+
+	/** 퀘스트 목표 액터로 순간이동 이펙트와 함께 이동 */
+	UFUNCTION(BlueprintCallable, Category = "자체설정")
+	void TeleportToTargetActor(AActor* GoalActor);
 	// 인터페이스 함수 구현
 	virtual void TriggerPetBigConversation_Implementation(FName DialogueID) override;
 	virtual void TriggerPetSmallConversation_Implementation(FName DialogueID) override;

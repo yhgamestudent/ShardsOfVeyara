@@ -8,6 +8,7 @@
 #include "GameplayLogSubsystem.h"
 #include "Kismet/GameplayStatics.h"
 #include "EngineUtils.h"
+#include "Interface/ItemDropInterface.h"
 
 UTutorialSubsystem::UTutorialSubsystem()
 {
@@ -42,6 +43,7 @@ void UTutorialSubsystem::Deinitialize()
 			Pet->GetPetTalkComponent()->OnConversationEnded.RemoveDynamic(this, &UTutorialSubsystem::HandleDialogueFinished);
 		}
 	}
+	ClearTargetHighlight();
 	bWaitingForDialogue = false;
 	Super::Deinitialize();
 }
@@ -51,6 +53,13 @@ void UTutorialSubsystem::StartTutorialSequence(UDataTable* TutorialTable, FName 
 	if (!TutorialTable)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[TutorialSubsystem] TutorialTable is null!"));
+		return;
+	}
+
+	// 이미 완료된 시퀀스인 경우 1회 실행 보장을 위해 재시작 차단
+	if (IsSequenceCompleted(SequenceName))
+	{
+		UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] StartTutorialSequence IGNORED: Sequence [%s] is ALREADY COMPLETED."), *SequenceName.ToString());
 		return;
 	}
 
@@ -72,6 +81,7 @@ void UTutorialSubsystem::StartTutorialSequence(UDataTable* TutorialTable, FName 
 		return;
 	}
 
+	ClearTargetHighlight();
 	CurrentStepIndex = 0;
 	CurrentActionCount = 0;
 	CurrentObjectiveCounts.Empty();
@@ -96,8 +106,19 @@ void UTutorialSubsystem::StartTutorialSequence(UDataTable* TutorialTable, FName 
 
 void UTutorialSubsystem::ReportTutorialAction(ETutorialActionType ActionType, int32 Count, FName CustomTag)
 {
-	if (!bIsActive || bWaitingForDialogue || !CurrentSteps.IsValidIndex(CurrentStepIndex))
+	if (!bIsActive)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[TutorialSubsystem] ReportTutorialAction IGNORED: Tutorial is NOT active. (Action: %d)"), (int32)ActionType);
+		return;
+	}
+	if (bWaitingForDialogue)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[TutorialSubsystem] ReportTutorialAction IGNORED: Waiting for dialogue. (Action: %d)"), (int32)ActionType);
+		return;
+	}
+	if (!CurrentSteps.IsValidIndex(CurrentStepIndex))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[TutorialSubsystem] ReportTutorialAction IGNORED: Invalid step index (%d)."), CurrentStepIndex);
 		return;
 	}
 
@@ -124,10 +145,10 @@ void UTutorialSubsystem::ReportTutorialAction(ETutorialActionType ActionType, in
 				continue;
 			}
 
-			// 2. CustomActionTag 검사 (ActionType이 Custom이든 Interact이든 상관없이 항상 검증!)
+			// 2. CustomActionTag 검사 (ActionType이 Custom이든 Interact이든 검증, 단 ReachArea는 위치 도달이 완료된 경우 예외 허용)
 			if (!Obj.CustomActionTag.IsNone())
 			{
-				if (Obj.CustomActionTag != CustomTag)
+				if (Obj.CustomActionTag != CustomTag && ActionType != ETutorialActionType::ReachArea)
 				{
 					continue;
 				}
@@ -212,12 +233,20 @@ void UTutorialSubsystem::ReportTutorialAction(ETutorialActionType ActionType, in
 	// 2. 기존 단일 목표 처리 (SubObjectives가 비어있는 경우)
 	if (CurrentStep.ActionType != ActionType)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[TutorialSubsystem] ActionType mismatch: Step requires %d, but reported %d"),
+			(int32)CurrentStep.ActionType, (int32)ActionType);
 		return;
 	}
 
 	if (!CurrentStep.CustomActionTag.IsNone() && CurrentStep.CustomActionTag != CustomTag)
 	{
-		return;
+		// ReachArea는 이미 위치/웨이포인트 도달이 검증된 상태이므로 CustomTag가 없거나 다르더라도 유연하게 통과 허용
+		if (ActionType != ETutorialActionType::ReachArea)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[TutorialSubsystem] CustomActionTag mismatch: Step requires '%s', but reported '%s'"),
+				*CurrentStep.CustomActionTag.ToString(), *CustomTag.ToString());
+			return;
+		}
 	}
 
 	if (!CurrentStep.TargetLevelName.IsNone() && !CustomTag.IsNone())
@@ -229,6 +258,8 @@ void UTutorialSubsystem::ReportTutorialAction(ETutorialActionType ActionType, in
 	}
 
 	CurrentActionCount += Count;
+	UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Progress updated: %d / %d (Action: %d)"),
+		CurrentActionCount, CurrentStep.RequiredActionCount, (int32)ActionType);
 	OnTutorialStepProgress.Broadcast(CurrentActionCount, CurrentStep.RequiredActionCount);
 
 	// 목표 횟수 달성 여부 확인
@@ -249,6 +280,7 @@ void UTutorialSubsystem::CompleteCurrentStep()
 	UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Step [%s] Completed!"), *CurrentStep.StepID.ToString());
 
 	OnTutorialStepCompleted.Broadcast(CurrentStep);
+	ClearTargetHighlight();
 
 	// 통과 시 열리는 장벽/문 해제
 	if (!CurrentStep.GateActorTag.IsNone())
@@ -412,6 +444,17 @@ void UTutorialSubsystem::ReportInteractionAction(AActor* InteractedActor, const 
 			}
 		}
 
+		// PlantSeed 액션의 경우 상호작용 타입이 Planting이거나 대상이 밭 액터(CultivationPlot)이면 자동 매칭
+		if (CurrentStep.ActionType == ETutorialActionType::PlantSeed)
+		{
+			if (InteractionType.Equals(TEXT("Planting"), ESearchCase::IgnoreCase) ||
+				InteractionType.Equals(TEXT("CultivationPlot"), ESearchCase::IgnoreCase) ||
+				(IsValid(InteractedActor) && InteractedActor->GetName().Contains(TEXT("CultivationPlot"))))
+			{
+				bTagMatches = true;
+			}
+		}
+
 		if (!bTagMatches)
 		{
 			return;
@@ -444,6 +487,205 @@ void UTutorialSubsystem::ReportInteractionAction(AActor* InteractedActor, const 
 	ReportTutorialAction(CurrentStep.ActionType, 1, CurrentStep.CustomActionTag);
 }
 
+void UTutorialSubsystem::ReportMonsterDefeated(AActor* DefeatedMonster)
+{
+	if (!bIsActive || bWaitingForDialogue || !CurrentSteps.IsValidIndex(CurrentStepIndex))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[TutorialSubsystem] ReportMonsterDefeated IGNORED: Inactive, WaitingForDialogue, or Invalid step."));
+		return;
+	}
+
+	const FTutorialStepData& CurrentStep = CurrentSteps[CurrentStepIndex];
+
+	// 1. 다중 세부 목표(SubObjectives)가 정의된 경우
+	if (CurrentStep.SubObjectives.Num() > 0)
+	{
+		bool bAnyProgressed = false;
+		for (int32 i = 0; i < CurrentStep.SubObjectives.Num(); ++i)
+		{
+			const FTutorialObjective& Obj = CurrentStep.SubObjectives[i];
+			if (CurrentObjectiveCounts.IsValidIndex(i) && CurrentObjectiveCounts[i] >= Obj.RequiredActionCount)
+			{
+				continue;
+			}
+			if (Obj.ActionType != ETutorialActionType::DefeatMonster)
+			{
+				continue;
+			}
+
+			bool bMatches = false;
+			if (!Obj.CustomActionTag.IsNone())
+			{
+				bMatches = MatchMonsterIdentifier(DefeatedMonster, Obj.CustomActionTag);
+			}
+			else if (!Obj.TargetWaypointTag.IsNone())
+			{
+				bMatches = MatchMonsterIdentifier(DefeatedMonster, Obj.TargetWaypointTag);
+			}
+			else
+			{
+				bMatches = true; // 태그 제한 없는 일반 몬스터 처치
+			}
+
+			if (bMatches)
+			{
+				CurrentObjectiveCounts[i] += 1;
+				bAnyProgressed = true;
+				UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Monster Defeated for SubObjective [%d: %s] (%d / %d)"),
+					i, *Obj.ObjectiveDescription.ToString(), CurrentObjectiveCounts[i], Obj.RequiredActionCount);
+				break;
+			}
+		}
+
+		if (!bAnyProgressed)
+		{
+			return;
+		}
+
+		// 전체 목표 진행도 합산 및 완료 판정
+		bool bAllCompleted = true;
+		int32 TotalCurrent = 0;
+		int32 TotalRequired = 0;
+		for (int32 i = 0; i < CurrentStep.SubObjectives.Num(); ++i)
+		{
+			const FTutorialObjective& Obj = CurrentStep.SubObjectives[i];
+			int32 Cur = CurrentObjectiveCounts.IsValidIndex(i) ? CurrentObjectiveCounts[i] : 0;
+			TotalCurrent += FMath::Min(Cur, Obj.RequiredActionCount);
+			TotalRequired += Obj.RequiredActionCount;
+			if (Cur < Obj.RequiredActionCount)
+			{
+				bAllCompleted = false;
+			}
+		}
+
+		CurrentActionCount = TotalCurrent;
+		UpdateNearestWaypoint();
+		OnTutorialStepProgress.Broadcast(TotalCurrent, TotalRequired);
+
+		if (bAllCompleted)
+		{
+			CompleteCurrentStep();
+		}
+		return;
+	}
+
+	// 2. 단일 목표 처리
+	if (CurrentStep.ActionType != ETutorialActionType::DefeatMonster)
+	{
+		return;
+	}
+
+	bool bMatches = false;
+	if (!CurrentStep.CustomActionTag.IsNone())
+	{
+		bMatches = MatchMonsterIdentifier(DefeatedMonster, CurrentStep.CustomActionTag);
+	}
+	else if (!CurrentStep.TargetWaypointTag.IsNone())
+	{
+		bMatches = MatchMonsterIdentifier(DefeatedMonster, CurrentStep.TargetWaypointTag);
+	}
+	else
+	{
+		bMatches = true; // 태그 미지정 시 모든 몬스터 처치 인정
+	}
+
+	if (!bMatches)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[TutorialSubsystem] Defeated Monster [%s] does not match target tag for Step [%s]"),
+			DefeatedMonster ? *DefeatedMonster->GetName() : TEXT("None"), *CurrentStep.StepID.ToString());
+		return;
+	}
+
+	CurrentActionCount += 1;
+	UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Monster Defeated Progress: %d / %d for Step [%s]"),
+		CurrentActionCount, CurrentStep.RequiredActionCount, *CurrentStep.StepID.ToString());
+
+	OnTutorialStepProgress.Broadcast(CurrentActionCount, CurrentStep.RequiredActionCount);
+
+	if (CurrentActionCount >= CurrentStep.RequiredActionCount)
+	{
+		CompleteCurrentStep();
+	}
+	else
+	{
+		// 아직 사냥할 몬스터가 남았다면, 월드에 남은 동일 태그 몬스터로 웨이포인트 마커 자동 갱신
+		FName TargetTagToTrack = !CurrentStep.TargetWaypointTag.IsNone() ? CurrentStep.TargetWaypointTag : CurrentStep.CustomActionTag;
+		UpdateNearestAliveTarget(TargetTagToTrack);
+	}
+}
+
+bool UTutorialSubsystem::MatchMonsterIdentifier(AActor* Monster, FName TargetTag) const
+{
+	if (!IsValid(Monster) || TargetTag.IsNone())
+	{
+		return false;
+	}
+
+	// 1. 액터의 Tags 배열 전체 순회 검사 (Index 0뿐만 아니라 모든 태그 확인)
+	for (const FName& Tag : Monster->Tags)
+	{
+		if (Tag == TargetTag)
+		{
+			return true;
+		}
+	}
+
+	// 2. ItemDropInterface의 GetItemDropTableEnemyID 검사
+	if (Monster->Implements<UItemDropInterface>())
+	{
+		FName DropEnemyID = IItemDropInterface::Execute_GetItemDropTableEnemyID(Monster);
+		if (DropEnemyID == TargetTag)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+void UTutorialSubsystem::UpdateNearestAliveTarget(FName TargetTag)
+{
+	if (TargetTag.IsNone())
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(World, 0);
+	if (!World || !PlayerPawn)
+	{
+		return;
+	}
+
+	TArray<AActor*> FoundActors;
+	UGameplayStatics::GetAllActorsWithTag(World, TargetTag, FoundActors);
+
+	AActor* BestActor = nullptr;
+	float BestDistSq = TNumericLimits<float>::Max();
+	const FVector PlayerLoc = PlayerPawn->GetActorLocation();
+
+	for (AActor* Actor : FoundActors)
+	{
+		// 파괴 예정이 아니며 화면에 보이는 살아있는 액터 필터링
+		if (IsValid(Actor) && !Actor->IsPendingKillPending() && !Actor->IsHidden())
+		{
+			float DistSq = FVector::DistSquared(PlayerLoc, Actor->GetActorLocation());
+			if (DistSq < BestDistSq)
+			{
+				BestDistSq = DistSq;
+				BestActor = Actor;
+			}
+		}
+	}
+
+	if (BestActor)
+	{
+		CachedWaypointActor = BestActor;
+		UpdateTargetHighlight();
+		UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Waypoint updated to next alive target: %s"), *BestActor->GetName());
+	}
+}
+
 void UTutorialSubsystem::AdvanceToNextStep()
 {
 	CurrentStepIndex++;
@@ -465,6 +707,7 @@ void UTutorialSubsystem::AdvanceToNextStep()
 	else
 	{
 		// 모든 스텝 완료
+		ClearTargetHighlight();
 		bIsActive = false;
 		bWaitingForDialogue = false;
 
@@ -476,6 +719,11 @@ void UTutorialSubsystem::AdvanceToNextStep()
 		if (CurrentSequenceName == FName("Farm_Sky_Island") || CurrentSequenceName.ToString().Contains(TEXT("Hub")))
 		{
 			bCompletedHubTutorial = true;
+		}
+
+		if (!CurrentSequenceName.IsNone())
+		{
+			CompletedSequences.AddUnique(CurrentSequenceName);
 		}
 
 		// 펫을 플레이어 추적 상태로 복귀
@@ -506,6 +754,7 @@ void UTutorialSubsystem::SkipCurrentSequence()
 
 	UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Skipping sequence: %s"), *CurrentSequenceName.ToString());
 
+	ClearTargetHighlight();
 	bIsActive = false;
 	bWaitingForDialogue = false;
 
@@ -526,6 +775,11 @@ void UTutorialSubsystem::SkipCurrentSequence()
 	if (CurrentSequenceName == FName("Farm_Sky_Island") || CurrentSequenceName.ToString().Contains(TEXT("Hub")))
 	{
 		bCompletedHubTutorial = true;
+	}
+
+	if (!CurrentSequenceName.IsNone())
+	{
+		CompletedSequences.AddUnique(CurrentSequenceName);
 	}
 
 	// 펫 복귀 및 대화 종료 처리
@@ -651,6 +905,21 @@ void UTutorialSubsystem::SetupCurrentStepVisuals()
 		}
 	}
 
+	// 대화 시작 여부 확인 (대화가 있으면 대화가 끝난 뒤에 퀘스트 부여 및 펫 이동)
+	if (!Step.DialogueID.IsNone() && Pet && Pet->GetPetTalkComponent())
+	{
+		bWaitingForDialogue = true;
+		Pet->GetPetTalkComponent()->OnConversationEnded.AddDynamic(this, &UTutorialSubsystem::HandleDialogueFinished);
+		Pet->StartBigConversation(Step.DialogueID);
+		UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Step [%s] Waiting for dialogue [%s] to finish before presenting quest."),
+			*Step.StepID.ToString(), *Step.DialogueID.ToString());
+	}
+	else if (!Step.DialogueID.IsNone())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[TutorialSubsystem] Step [%s] has DialogueID [%s] but Pet or PetTalkComponent is not available!"),
+			*Step.StepID.ToString(), *Step.DialogueID.ToString());
+	}
+
 	// 동반자 펫 안내 제어
 	if (Pet && Pet->GetPetGuideComponent())
 	{
@@ -659,7 +928,12 @@ void UTutorialSubsystem::SetupCurrentStepVisuals()
 		// 메쉬 가시성 제어 (마을 맵 투명 이정표 연출 등)
 		Guide->SetPetMeshHidden(Step.bHidePetMesh);
 
-		if (CachedWaypointActor.IsValid() && Step.bSendPetToWaypoint)
+		// 대화가 있는 스텝이면 대화 중에는 펫이 먼저 날아가지 않고 플레이어 곁에서 대화 나눔
+		if (bWaitingForDialogue)
+		{
+			Guide->ReturnToFollow();
+		}
+		else if (CachedWaypointActor.IsValid() && Step.bSendPetToWaypoint)
 		{
 			if (Step.bTeleportPet)
 			{
@@ -677,21 +951,6 @@ void UTutorialSubsystem::SetupCurrentStepVisuals()
 		}
 	}
 
-	// 대화 시작 여부 확인
-	if (!Step.DialogueID.IsNone() && Pet && Pet->GetPetTalkComponent())
-	{
-		bWaitingForDialogue = true;
-		Pet->GetPetTalkComponent()->OnConversationEnded.AddDynamic(this, &UTutorialSubsystem::HandleDialogueFinished);
-		Pet->StartBigConversation(Step.DialogueID);
-		UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Step [%s] Waiting for dialogue [%s] to finish before presenting quest."),
-			*Step.StepID.ToString(), *Step.DialogueID.ToString());
-	}
-	else if (!Step.DialogueID.IsNone())
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[TutorialSubsystem] Step [%s] has DialogueID [%s] but Pet or PetTalkComponent is not available!"),
-			*Step.StepID.ToString(), *Step.DialogueID.ToString());
-	}
-
 	// ReachArea 자동 거리 감지 타이머 설정 (대화 중이 아닐 때만 시작)
 	if (UWorld* World = GetWorld())
 	{
@@ -701,6 +960,9 @@ void UTutorialSubsystem::SetupCurrentStepVisuals()
 			World->GetTimerManager().SetTimer(ReachAreaTimerHandle, this, &UTutorialSubsystem::CheckPlayerReachArea, 0.2f, true);
 		}
 	}
+
+	// 대상 테두리 하이라이트 갱신 (대화 중이면 대화 종료 후 활성화)
+	UpdateTargetHighlight();
 }
 
 void UTutorialSubsystem::HandleDialogueFinished()
@@ -720,7 +982,30 @@ void UTutorialSubsystem::HandleDialogueFinished()
 	bWaitingForDialogue = false;
 
 	const FTutorialStepData& Step = CurrentSteps[CurrentStepIndex];
-	UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Dialogue finished for Step [%s]. Presenting quest guide now!"), *Step.StepID.ToString());
+	UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Dialogue finished for Step [%s]. Presenting quest guide and moving pet now!"), *Step.StepID.ToString());
+
+	// [대화 종료 후 펫 출발]: 대화가 끝나고 퀘스트를 받았을 때 목표 위치로 펫 안내 비행 시작
+	if (Pet && Pet->GetPetGuideComponent())
+	{
+		UPetGuideComponent* Guide = Pet->GetPetGuideComponent();
+		Guide->SetPetMeshHidden(Step.bHidePetMesh);
+
+		if (CachedWaypointActor.IsValid() && Step.bSendPetToWaypoint)
+		{
+			if (Step.bTeleportPet)
+			{
+				Guide->TeleportToActor(CachedWaypointActor.Get());
+			}
+			else
+			{
+				Guide->MoveToActor(CachedWaypointActor.Get());
+			}
+		}
+		else
+		{
+			Guide->ReturnToFollow();
+		}
+	}
 
 	// 대화가 끝났으므로 퀘스트 가이드 UI 시작 브로드캐스트
 	OnTutorialStepStarted.Broadcast(Step);
@@ -737,6 +1022,24 @@ void UTutorialSubsystem::HandleDialogueFinished()
 
 	// 최적의 목표 웨이포인트 갱신
 	UpdateNearestWaypoint();
+
+	// 대화가 끝났으므로 대상 액터 테두리 하이라이트 활성화
+	UpdateTargetHighlight();
+
+	// 대화 종료 시 플레이어가 여전히 UI 조작 중(Mining 등 연금술/봉헌/상자 상호작용 중)인 경우 마우스 커서 및 UI 입력 모드 유지/복원
+	if (APlayerController* PC = UGameplayStatics::GetPlayerController(GetWorld(), 0))
+	{
+		AAGSDCharacter* PlayerChar = Cast<AAGSDCharacter>(PC->GetPawn());
+		if (PlayerChar && PlayerChar->Mining)
+		{
+			PC->bShowMouseCursor = true;
+			FInputModeGameAndUI UIMode;
+			UIMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+			UIMode.SetHideCursorDuringCapture(false);
+			PC->SetInputMode(UIMode);
+			UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Player is currently in UI mode (Mining=true). Preserved mouse cursor and GameAndUI mode."));
+		}
+	}
 }
 
 void UTutorialSubsystem::OnPostLoadMapWithWorld(UWorld* LoadedWorld)
@@ -744,6 +1047,19 @@ void UTutorialSubsystem::OnPostLoadMapWithWorld(UWorld* LoadedWorld)
 	if (!LoadedWorld || !LoadedWorld->IsGameWorld())
 	{
 		return;
+	}
+
+	// 맵이 변경되거나 재진입했을 때, 튜토리얼 활성 여부와 무관하게 이미 열린 게이트(블로킹 볼륨) 상태 자동 복원
+	if (OpenedGateTags.Num() > 0)
+	{
+		FTimerHandle GateRestoreTimerHandle;
+		LoadedWorld->GetTimerManager().SetTimer(
+			GateRestoreTimerHandle,
+			this,
+			&UTutorialSubsystem::RestoreWorldGateStates,
+			0.2f,
+			false
+		);
 	}
 
 	if (!bIsActive || !CurrentSteps.IsValidIndex(CurrentStepIndex))
@@ -922,17 +1238,26 @@ void UTutorialSubsystem::CheckPlayerReachArea()
 	const float EffectiveRadius = (Step.ReachAreaRadius > 0.0f) ? Step.ReachAreaRadius : ReachAreaDistanceThreshold;
 
 	// 수평 반경 및 수직 높이 오차 범위 이내 진입 시 지점 도달 완료 판정
-	if (Dist2D <= EffectiveRadius && DiffZ <= ReachAreaZThreshold)
+	// 포탈 등 대형 구조물이나 지형 단차를 고려하여 Z 높이 허용치도 EffectiveRadius 이상으로 유연하게 적용
+	const float EffectiveZThreshold = FMath::Max(ReachAreaZThreshold, EffectiveRadius);
+	if (Dist2D <= EffectiveRadius && DiffZ <= EffectiveZThreshold)
 	{
 		World->GetTimerManager().ClearTimer(ReachAreaTimerHandle);
-		ReportTutorialAction(ETutorialActionType::ReachArea, 1);
+		ReportTutorialAction(ETutorialActionType::ReachArea, 1, Step.CustomActionTag);
 	}
 }
 
 void UTutorialSubsystem::OpenGateActor(FName GateTag)
 {
+	if (GateTag.IsNone())
+	{
+		return;
+	}
+
+	OpenedGateTags.AddUnique(GateTag);
+
 	UWorld* World = GetWorld();
-	if (!World || GateTag.IsNone())
+	if (!World)
 	{
 		return;
 	}
@@ -949,6 +1274,77 @@ void UTutorialSubsystem::OpenGateActor(FName GateTag)
 			UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Gate actor [%s] opened/disabled."), *Actor->GetName());
 		}
 	}
+}
+
+void UTutorialSubsystem::RestoreWorldGateStates()
+{
+	UWorld* World = GetWorld();
+	if (!World || OpenedGateTags.Num() == 0)
+	{
+		return;
+	}
+
+	int32 DisabledCount = 0;
+	for (const FName& GateTag : OpenedGateTags)
+	{
+		if (GateTag.IsNone())
+		{
+			continue;
+		}
+
+		TArray<AActor*> GateActors;
+		UGameplayStatics::GetAllActorsWithTag(World, GateTag, GateActors);
+
+		for (AActor* Actor : GateActors)
+		{
+			if (IsValid(Actor))
+			{
+				Actor->SetActorHiddenInGame(true);
+				Actor->SetActorEnableCollision(false);
+				DisabledCount++;
+			}
+		}
+	}
+
+	if (DisabledCount > 0)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] RestoreWorldGateStates: Restored %d gate actors across %d tags to open state."),
+			DisabledCount, OpenedGateTags.Num());
+	}
+}
+
+bool UTutorialSubsystem::IsSequenceCompleted(FName SequenceName) const
+{
+	if (SequenceName.IsNone())
+	{
+		return false;
+	}
+
+	if (SequenceName == FName("Farm_Sky_Island") || SequenceName.ToString().Contains(TEXT("Hub")))
+	{
+		if (bCompletedHubTutorial)
+		{
+			return true;
+		}
+	}
+
+	return CompletedSequences.Contains(SequenceName);
+}
+
+bool UTutorialSubsystem::IsGateOpened(FName GateTag) const
+{
+	return !GateTag.IsNone() && OpenedGateTags.Contains(GateTag);
+}
+
+void UTutorialSubsystem::SetCompletedSequences(const TArray<FName>& InSequences)
+{
+	CompletedSequences = InSequences;
+}
+
+void UTutorialSubsystem::SetOpenedGateTags(const TArray<FName>& InGateTags)
+{
+	OpenedGateTags = InGateTags;
+	RestoreWorldGateStates();
 }
 
 AActor* UTutorialSubsystem::FindActorWithTag(FName Tag) const
@@ -1027,13 +1423,20 @@ FText UTutorialSubsystem::GetDetailedProgressText() const
 			FString ObjStr;
 			FString Desc = Obj.ObjectiveDescription.ToString();
 
-			if (!Desc.IsEmpty())
+			if (Req > 1)
 			{
-				ObjStr = FString::Printf(TEXT("%s [ %d / %d ]"), *Desc, Cur, Req);
+				if (!Desc.IsEmpty())
+				{
+					ObjStr = FString::Printf(TEXT("%s [ %d / %d ]"), *Desc, Cur, Req);
+				}
+				else
+				{
+					ObjStr = FString::Printf(TEXT("[ %d / %d ]"), Cur, Req);
+				}
 			}
 			else
 			{
-				ObjStr = FString::Printf(TEXT("[ %d / %d ]"), Cur, Req);
+				ObjStr = Desc;
 			}
 
 			ObjectiveStrings.Add(ObjStr);
@@ -1120,6 +1523,70 @@ void UTutorialSubsystem::UpdateNearestWaypoint()
 		if (Pet && Pet->GetPetGuideComponent() && CurrentStep.bSendPetToWaypoint)
 		{
 			Pet->GetPetGuideComponent()->MoveToActor(BestActor);
+		}
+		UpdateTargetHighlight();
+	}
+}
+
+void UTutorialSubsystem::UpdateTargetHighlight()
+{
+	// 대화 대기 중이거나 시퀀스가 비활성 상태이면 하이라이트 해제
+	if (!bIsActive || bWaitingForDialogue || !CurrentSteps.IsValidIndex(CurrentStepIndex))
+	{
+		ClearTargetHighlight();
+		return;
+	}
+
+	const FTutorialStepData& Step = CurrentSteps[CurrentStepIndex];
+	AActor* TargetActor = CachedWaypointActor.Get();
+
+	// 데이터테이블에서 bHighlightTarget 옵션이 true이고 유효한 타겟 액터가 있을 때
+	if (Step.bHighlightTarget && IsValid(TargetActor))
+	{
+		// 이전에 하이라이트된 액터와 타겟이 다르면 이전 액터 해제
+		if (CurrentHighlightedActor.IsValid() && CurrentHighlightedActor.Get() != TargetActor)
+		{
+			SetActorHighlight(CurrentHighlightedActor.Get(), false);
+		}
+
+		SetActorHighlight(TargetActor, true);
+		CurrentHighlightedActor = TargetActor;
+	}
+	else
+	{
+		ClearTargetHighlight();
+	}
+}
+
+void UTutorialSubsystem::ClearTargetHighlight()
+{
+	if (CurrentHighlightedActor.IsValid())
+	{
+		SetActorHighlight(CurrentHighlightedActor.Get(), false);
+		CurrentHighlightedActor = nullptr;
+	}
+}
+
+void UTutorialSubsystem::SetActorHighlight(AActor* TargetActor, bool bActive)
+{
+	if (!IsValid(TargetActor))
+	{
+		return;
+	}
+
+	// NPC 태그가 있는 경우 하이라이트 제외 (AGSDInteractionComponent와 동일 정책)
+	if (TargetActor->ActorHasTag(TEXT("NPC")))
+	{
+		return;
+	}
+
+	TArray<UPrimitiveComponent*> Comps;
+	TargetActor->GetComponents(Comps);
+	for (UPrimitiveComponent* Comp : Comps)
+	{
+		if (Comp)
+		{
+			Comp->SetRenderCustomDepth(bActive);
 		}
 	}
 }

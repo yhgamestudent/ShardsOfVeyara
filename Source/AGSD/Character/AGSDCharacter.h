@@ -662,13 +662,17 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent, Category = "PlayerState")
 	void TeleportToBed();
 
-	UPROPERTY( EditAnywhere, BlueprintReadWrite, Category="Pet")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Pet")
 	bool bHasPet = false;
 	
-	UPROPERTY( BlueprintReadOnly)
+	UPROPERTY(BlueprintReadWrite, Category="Pet")
 	class ABaseFlyingPet* Pet;
 
+	UFUNCTION(BlueprintPure, Category = "Pet")
 	FORCEINLINE class ABaseFlyingPet* GetPet() const { return Pet; }
+
+	UFUNCTION(BlueprintCallable, Category = "Pet")
+	void SetPet(class ABaseFlyingPet* NewPet);
 
 	// 에디터의 Details 패널에서 어떤 펫 블루프린트를 쓸지 선택하는 변수
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pet")

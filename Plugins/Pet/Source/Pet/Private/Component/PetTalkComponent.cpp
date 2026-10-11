@@ -18,6 +18,7 @@
 #include "HUD/ConversationLog.h"
 #include "HUD/DialogueEntry.h"
 #include "Interface/PetConversationInterface.h"
+#include "Framework/Application/SlateApplication.h"
 
 UPetTalkComponent::UPetTalkComponent()
 {
@@ -269,36 +270,60 @@ void UPetTalkComponent::StartConversation(FName DialogueID)
         return;
     }
 
-	// 인풋 게임 모드를 game and UI로 전환
-	if (APlayerController* PC = UGameplayStatics::GetPlayerController(GetWorld(), 0))
-	{
-		PC->SetShowMouseCursor(true);
-		PC->SetInputMode(  FInputModeGameAndUI());
-	}
-	
-	// [컨텍스트 교체] 기본 -> 대화용
+	// [컨텍스트 교체 및 입력 모드 전환] 대화 세션 시작 시 1회만 실행
 	if (!bIsInputBound)
 	{
-		bIsInputBound = true; // [Tick 활성화
+		bIsInputBound = true; // [Tick 활성화]
 
-		// [컨텍스트 교체] 기본 -> 대화용
 		if (APlayerController* PC = UGameplayStatics::GetPlayerController(GetWorld(), 0))
 		{
+			// 누적 카운터를 확실히 리셋한 후 정확히 1회만 차단
+			PC->ResetIgnoreMoveInput();
+			PC->ResetIgnoreLookInput();
 			PC->SetIgnoreMoveInput(true);
+			PC->SetIgnoreLookInput(true);
+
+			FInputModeGameAndUI InputMode;
+			InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+			InputMode.SetHideCursorDuringCapture(false);
+			if (ConversationSubtitleInstance)
+			{
+				InputMode.SetWidgetToFocus(ConversationSubtitleInstance->TakeWidget());
+			}
+			PC->SetInputMode(InputMode);
+			PC->SetShowMouseCursor(true);
 
 			if (ULocalPlayer* LocalPlayer = PC->GetLocalPlayer())
 			{
 				if (UEnhancedInputLocalPlayerSubsystem* Subsystem =
 					LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(LocalPlayer))
 				{
-                    
-					// 2. 대화용 컨텍스트를 높은 우선순위(10)로 추가
-					// 주의: 이 컨텍스트가 비어있으면 스페이스바 입력이 기본 컨텍스트로 넘어가서 점프가 발생함
+					// 대화용 컨텍스트를 높은 우선순위(10)로 추가
 					if (ConversationMappingContext)
 					{
 						Subsystem->AddMappingContext(ConversationMappingContext, 10);
 					}
 				}
+			}
+
+			// 게임 시작 직후 뷰포트 초기화 타이밍으로 인해 마우스 커서가 덮어씌워지는 문제 방지 (다음 틱 재보장)
+			if (UWorld* World = GetWorld())
+			{
+				World->GetTimerManager().SetTimerForNextTick([this, PC]()
+				{
+					if (IsValid(this) && IsValid(PC) && bIsInputBound)
+					{
+						FInputModeGameAndUI NextInputMode;
+						NextInputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+						NextInputMode.SetHideCursorDuringCapture(false);
+						if (ConversationSubtitleInstance)
+						{
+							NextInputMode.SetWidgetToFocus(ConversationSubtitleInstance->TakeWidget());
+						}
+						PC->SetInputMode(NextInputMode);
+						PC->SetShowMouseCursor(true);
+					}
+				});
 			}
 		}
 	}
@@ -343,8 +368,8 @@ void UPetTalkComponent::StartConversation(FName DialogueID)
         //  UI 업데이트
         if (ConversationSubtitleInstance)
         {
-            // 대화창이 꺼져있다면 페이드 인 (연속 대화 중에는 깜빡이지 않게 처리)
-            if (!ConversationSubtitleInstance->IsVisible())
+            // 대화창이 꺼져있거나 투명도가 떨어져 있다면 페이드 인 (연속 대화 중에도 투명도 복원)
+            if (!ConversationSubtitleInstance->IsVisible() || ConversationSubtitleInstance->GetRenderOpacity() < 0.95f)
             {
                 ConversationSubtitleInstance->PlayFadeInAnimation();
             }
@@ -531,10 +556,18 @@ void UPetTalkComponent::EndConversation()
 		}
 		// [추가] 마우스 커서 숨기기 및 인풋 모드 복구 (GameOnly)
 		PC->SetShowMouseCursor(false);
-		PC->SetInputMode(FInputModeGameOnly());
+		FInputModeGameOnly InputMode;
+		InputMode.SetConsumeCaptureMouseDown(false);
+		PC->SetInputMode(InputMode);
 		
-		// 이동 입력 차단 해제
+		// 중요: 누적 카운터를 0으로 강제 리셋하여 이동 및 시선 회전 차단 완전 해제
+		PC->ResetIgnoreMoveInput();
+		PC->ResetIgnoreLookInput();
 		PC->SetIgnoreMoveInput(false);
+		PC->SetIgnoreLookInput(false);
+
+		// Slate 포커스를 게임 뷰포트로 즉시 복구 (클릭하지 않아도 마우스 즉시 회전 가능)
+		FSlateApplication::Get().SetAllUserFocusToGameViewport();
 	}
 
 	GetWorld()->GetTimerManager().ClearTimer(ConversationTimerHandle); // 대화 타이머 초기화

@@ -7,6 +7,7 @@
 #include "Struct_ItemData.h"
 #include "Engine/DataTable.h"
 #include "GameplayLogSubsystem.h"
+#include "Tutorial/TutorialSubsystem.h"
 
 USOVGameInstance::USOVGameInstance()
 {
@@ -126,6 +127,14 @@ FSaveData USOVGameInstance::GetSaveData()
 	{
 		SaveData.LogData = LogSubsystem->GetLogData();
 	}
+
+	// 튜토리얼/퀘스트 완료 상태 및 해제된 게이트 태그 영구 저장
+	if (UTutorialSubsystem* TutSub = GetSubsystem<UTutorialSubsystem>())
+	{
+		SaveData.CompletedTutorialSequences = TutSub->GetCompletedSequences();
+		SaveData.OpenedGateTags = TutSub->GetOpenedGateTags();
+		SaveData.bCompletedHubTutorial = TutSub->IsHubTutorialCompleted();
+	}
 	
 	return SaveData; 
 }
@@ -158,6 +167,14 @@ void USOVGameInstance::SetSaveData(FSaveData SaveData)
 	if (UGameplayLogSubsystem* LogSubsystem = GetSubsystem<UGameplayLogSubsystem>())
 	{
 		LogSubsystem->SetLogData(SaveData.LogData);
+	}
+
+	// 튜토리얼/퀘스트 완료 상태 및 해제된 게이트 태그 복원 (월드 내 게이트 열림 자동 복원 포함)
+	if (UTutorialSubsystem* TutSub = GetSubsystem<UTutorialSubsystem>())
+	{
+		TutSub->SetCompletedSequences(SaveData.CompletedTutorialSequences);
+		TutSub->SetOpenedGateTags(SaveData.OpenedGateTags);
+		TutSub->SetHubTutorialCompleted(SaveData.bCompletedHubTutorial);
 	}
 }
 

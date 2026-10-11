@@ -12,6 +12,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/AnimInstance.h"
 #include "GameplayLogSubsystem.h"
+#include "TutorialSubsystem.h"
 
 ACombatEnemy::ACombatEnemy()
 {
@@ -247,6 +248,11 @@ void ACombatEnemy::HandleDeath()
 		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
 		{
 			LogSubsystem->RecordMonsterKill(GetName());
+		}
+
+		if (UTutorialSubsystem* TutSub = GameInst->GetSubsystem<UTutorialSubsystem>())
+		{
+			TutSub->ReportMonsterDefeated(this);
 		}
 	}
 
