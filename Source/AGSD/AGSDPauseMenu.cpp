@@ -4,6 +4,7 @@
 #include "Kismet/KismetSystemLibrary.h"
 #include "AGSDCharacter.h"
 #include "GameplayLogSubsystem.h"
+#include "SOVGameInstance.h"
 
 void UAGSDPauseMenu::NativeConstruct()
 {
@@ -91,6 +92,12 @@ void UAGSDPauseMenu::OnReturnToMainMenuClicked()
 	APlayerController* PlayerController = GetOwningPlayer();
 	if (PlayerController)
 	{
+		// 메인 메뉴 진입 전 활성 슬롯 비우기 (메인 메뉴 로드 시 세이브 슬롯 덮어쓰기 원천 차단)
+		if (USOVGameInstance* GI = Cast<USOVGameInstance>(GetGameInstance()))
+		{
+			GI->SaveGameSlot = TEXT("");
+		}
+
 		// 메인 메뉴 레벨로 비동기 전환
 		if (!MainMenuLevel.IsNull())
 		{

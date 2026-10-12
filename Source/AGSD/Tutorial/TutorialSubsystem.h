@@ -34,6 +34,20 @@ public:
 	void StartTutorialSequence(UDataTable* TutorialTable, FName SequenceName);
 
 	/**
+	 * 특정 데이터 테이블 및 스텝 인덱스 기반으로 중단되었던 튜토리얼을 복원하여 재개합니다. (세이브 로드 연동용)
+	 * @param TutorialTable FTutorialStepData 행 구조를 가진 데이터 테이블
+	 * @param SequenceName 시퀀스 식별자
+	 * @param StepIndex 재개할 스텝 번호 (0-based)
+	 * @param InObjectiveCounts 세부 목표별 진행 카운트 복원값
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Tutorial")
+	void ResumeTutorialSequence(UDataTable* TutorialTable, FName SequenceName, int32 StepIndex, const TArray<int32>& InObjectiveCounts);
+
+	/** 현재 진행 중인 활성 튜토리얼 상태 반환 (세이브 연동용) */
+	UFUNCTION(BlueprintPure, Category = "Tutorial")
+	bool GetActiveTutorialState(FName& OutSequenceName, TSoftObjectPtr<UDataTable>& OutTutorialTable, int32& OutStepIndex, TArray<int32>& OutObjectiveCounts) const;
+
+	/**
 	 * 플레이어나 상호작용 오브젝트가 수행한 행동을 보고합니다.
 	 * 현재 스텝의 목표 행동과 일치하면 카운트가 올라가고, 목표 달성 시 다음 스텝으로 진행합니다.
 	 * @param ActionType 수행된 행동 타입
@@ -234,6 +248,16 @@ private:
 
 	FName CurrentSequenceName = NAME_None;
 	bool bIsActive = false;
+
+	/** 현재 시퀀스에서 사용 중인 데이터 테이블 소프트 참조 */
+	UPROPERTY()
+	TSoftObjectPtr<UDataTable> CurrentTutorialTable = nullptr;
+
+	/** 튜토리얼 진행 상태 자동 저장 헬퍼 */
+	void AutoSaveTutorialProgress();
+
+	/** 현재 스텝의 세부 목표(SubObjectives)들이 완료 조건을 만족했는지 검사 (bOrSubObjectives OR/AND 판정) */
+	bool CheckSubObjectivesCompleted(const FTutorialStepData& Step, const TArray<int32>& Counts) const;
 
 	/** 현재 스텝의 대화가 진행 중이어서 퀘스트 부여를 대기하고 있는지 여부 */
 	bool bWaitingForDialogue = false;

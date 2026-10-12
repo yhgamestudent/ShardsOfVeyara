@@ -134,6 +134,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GameInstance")
 	void InitializeVariables();
 
+	/** 주어진 월드가 메인 메뉴나 타이틀이 아닌 실제 플레이용 게임플레이 맵인지 여부를 반환합니다. */
+	UFUNCTION(BlueprintPure, Category = "SaveGame")
+	static bool IsGameplayMap(const UWorld* World);
+
 
 
 	/** GameInstance 메모리에 저장된 인벤토리 데이터를 완전히 비웁니다. */
@@ -152,9 +156,12 @@ protected:
 	// 게임 인스턴스가 초기화될 때 호출되는 함수 오버라이드
 	virtual void Init() override;
 
+	// 게임 인스턴스가 종료될 때 호출되는 함수 오버라이드
+	virtual void Shutdown() override;
+
 	// 클린업 시 실행될 실제 로직 함수
-	// 델리게이트 형식을 맞추기 위해 파라미터 구성을 동일하게 해야 합니다.
 	void HandleWorldCleanup(UWorld* World, bool bSessionEnded, bool bCleanupResources);
 
+	// 새 맵이 열릴 때 호출되어 맵 도착 시점 체크포인트를 저장하는 콜백
 	void HandleWorldInitialized(UWorld* World, const UWorld::InitializationValues IVS);
 };

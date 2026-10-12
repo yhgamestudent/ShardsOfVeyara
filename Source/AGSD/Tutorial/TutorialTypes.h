@@ -158,8 +158,16 @@ public:
 	/**
 	 * 병렬로 동시에 진행할 세부 목표 목록입니다.
 	 * 비어 있으면 기존의 단일 ActionType / RequiredActionCount 방식을 사용합니다.
-	 * 채워져 있으면 이 목록의 모든 목표가 완료되어야 해당 스텝이 클리어됩니다.
+	 * 채워져 있으면 SubObjectives의 세부 목표들을 기반으로 진행합니다.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial")
 	TArray<FTutorialObjective> SubObjectives;
+
+	/**
+	 * 세부 목표(SubObjectives)의 완료 판정 방식 (OR 조건 여부).
+	 * true이면 세부 목표 중 어느 하나라도 달성(OR 조건) 시 스텝이 완료됩니다.
+	 * false(기본값)이면 모든 세부 목표를 달성(AND 조건)해야 스텝이 완료됩니다.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tutorial", meta = (DisplayName = "Use OR Logic For SubObjectives"))
+	bool bOrSubObjectives = false;
 };

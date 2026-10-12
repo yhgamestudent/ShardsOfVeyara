@@ -120,8 +120,10 @@ void USaveGameSlot::OnClickSavedSlotButton()
 	{
 		GI->SaveGameSlot = SlotName;
 		GI->LoadGame();
-		FName LevelName = FName(*GI->Level.GetAssetName());
-    
+		
+		const FString LevelAssetStr = GI->Level.GetAssetName();
+		const FName LevelName = !LevelAssetStr.IsEmpty() ? FName(*LevelAssetStr) : FName("Tutorial_Village");
+
 		UGameplayStatics::OpenLevel(this, LevelName);
 	}
 }

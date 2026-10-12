@@ -6,6 +6,7 @@
 #include "Inventory/AGSDInventoryComponent.h"
 #include "Inventory/UI/AGSDPlayerHUD.h"
 #include "GameplayLogSubsystem.h"
+#include "SOVGameInstance.h"
 #include "Kismet/GameplayStatics.h"
 #include "EngineUtils.h"
 #include "Interface/ItemDropInterface.h"
@@ -22,6 +23,7 @@ void UTutorialSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	CurrentStepIndex = 0;
 	CurrentActionCount = 0;
 	PendingLoadedMapName = NAME_None;
+	CurrentTutorialTable = nullptr;
 
 	// 엔진 레벨 전환(맵 로드 완료) 감지 델리게이트 등록
 	FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &UTutorialSubsystem::OnPostLoadMapWithWorld);
@@ -90,6 +92,7 @@ void UTutorialSubsystem::StartTutorialSequence(UDataTable* TutorialTable, FName 
 		CurrentObjectiveCounts.Init(0, CurrentSteps[0].SubObjectives.Num());
 	}
 	CurrentSequenceName = SequenceName;
+	CurrentTutorialTable = TutorialTable;
 	bIsActive = true;
 	bWaitingForDialogue = false;
 
@@ -102,6 +105,173 @@ void UTutorialSubsystem::StartTutorialSequence(UDataTable* TutorialTable, FName 
 	{
 		OnTutorialStepStarted.Broadcast(CurrentSteps[0]);
 	}
+}
+
+void UTutorialSubsystem::ResumeTutorialSequence(UDataTable* TutorialTable, FName SequenceName, int32 StepIndex, const TArray<int32>& InObjectiveCounts)
+{
+	if (!TutorialTable)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[TutorialSubsystem] ResumeTutorialSequence: TutorialTable is null!"));
+		return;
+	}
+
+	if (IsSequenceCompleted(SequenceName))
+	{
+		UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] ResumeTutorialSequence IGNORED: Sequence [%s] is ALREADY COMPLETED."), *SequenceName.ToString());
+		return;
+	}
+
+	CurrentSteps.Empty();
+	TArray<FTutorialStepData*> RowPtrs;
+	TutorialTable->GetAllRows<FTutorialStepData>(TEXT("TutorialSubsystem"), RowPtrs);
+
+	for (FTutorialStepData* Row : RowPtrs)
+	{
+		if (Row)
+		{
+			CurrentSteps.Add(*Row);
+		}
+	}
+
+	if (CurrentSteps.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[TutorialSubsystem] ResumeTutorialSequence: No steps found in DataTable for sequence %s"), *SequenceName.ToString());
+		return;
+	}
+
+	// 저장된 스텝 인덱스 범위 클램핑
+	if (!CurrentSteps.IsValidIndex(StepIndex))
+	{
+		StepIndex = FMath::Clamp(StepIndex, 0, CurrentSteps.Num() - 1);
+	}
+
+	ClearTargetHighlight();
+	CurrentStepIndex = StepIndex;
+	CurrentSequenceName = SequenceName;
+	CurrentTutorialTable = TutorialTable;
+	bIsActive = true;
+	bWaitingForDialogue = false;
+
+	// 세부 목표 진행 카운트 복원
+	const FTutorialStepData& ResumedStep = CurrentSteps[CurrentStepIndex];
+	CurrentObjectiveCounts.Empty();
+	if (ResumedStep.SubObjectives.Num() > 0)
+	{
+		CurrentObjectiveCounts = InObjectiveCounts;
+		if (CurrentObjectiveCounts.Num() < ResumedStep.SubObjectives.Num())
+		{
+			CurrentObjectiveCounts.SetNumZeroed(ResumedStep.SubObjectives.Num());
+		}
+
+		int32 TotalCurrent = 0;
+		int32 TotalRequired = 0;
+		for (int32 i = 0; i < ResumedStep.SubObjectives.Num(); ++i)
+		{
+			int32 Cur = CurrentObjectiveCounts[i];
+			TotalCurrent += FMath::Min(Cur, ResumedStep.SubObjectives[i].RequiredActionCount);
+			TotalRequired += ResumedStep.SubObjectives[i].RequiredActionCount;
+		}
+		CurrentActionCount = TotalCurrent;
+	}
+	else
+	{
+		CurrentActionCount = (InObjectiveCounts.Num() > 0) ? InObjectiveCounts[0] : 0;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] RESUMED tutorial sequence: %s at Step [%d: %s]"),
+		*SequenceName.ToString(), CurrentStepIndex, *ResumedStep.StepID.ToString());
+
+	SetupCurrentStepVisuals();
+
+	// 퀘스트 UI 알림 브로드캐스트
+	OnTutorialStepStarted.Broadcast(ResumedStep);
+	if (ResumedStep.SubObjectives.Num() > 0)
+	{
+		int32 TotalRequired = 0;
+		for (const FTutorialObjective& Obj : ResumedStep.SubObjectives)
+		{
+			TotalRequired += Obj.RequiredActionCount;
+		}
+		OnTutorialStepProgress.Broadcast(CurrentActionCount, TotalRequired);
+	}
+	else if (ResumedStep.RequiredActionCount > 1)
+	{
+		OnTutorialStepProgress.Broadcast(CurrentActionCount, ResumedStep.RequiredActionCount);
+	}
+}
+
+bool UTutorialSubsystem::GetActiveTutorialState(FName& OutSequenceName, TSoftObjectPtr<UDataTable>& OutTutorialTable, int32& OutStepIndex, TArray<int32>& OutObjectiveCounts) const
+{
+	if (!bIsActive || CurrentSequenceName.IsNone())
+	{
+		OutSequenceName = NAME_None;
+		OutTutorialTable = nullptr;
+		OutStepIndex = 0;
+		OutObjectiveCounts.Empty();
+		return false;
+	}
+
+	OutSequenceName = CurrentSequenceName;
+	OutTutorialTable = CurrentTutorialTable;
+	OutStepIndex = CurrentStepIndex;
+	OutObjectiveCounts = CurrentObjectiveCounts;
+	return true;
+}
+
+void UTutorialSubsystem::AutoSaveTutorialProgress()
+{
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (USOVGameInstance* SOVGI = Cast<USOVGameInstance>(GI))
+		{
+			SOVGI->SaveGame();
+		}
+	}
+}
+
+bool UTutorialSubsystem::CheckSubObjectivesCompleted(const FTutorialStepData& Step, const TArray<int32>& Counts) const
+{
+	if (Step.SubObjectives.Num() == 0)
+	{
+		return true;
+	}
+
+	bool bAllCompleted = true;
+	bool bAnyCompleted = false;
+	int32 TotalActionCount = 0;
+
+	for (int32 i = 0; i < Step.SubObjectives.Num(); ++i)
+	{
+		const FTutorialObjective& Obj = Step.SubObjectives[i];
+		int32 Cur = Counts.IsValidIndex(i) ? Counts[i] : 0;
+		TotalActionCount += Cur;
+
+		if (Cur >= Obj.RequiredActionCount)
+		{
+			bAnyCompleted = true;
+		}
+		else
+		{
+			bAllCompleted = false;
+		}
+	}
+
+	// 1) OR 조건 (bOrSubObjectives == true):
+	// 세부 목표 중 어느 하나라도 목표치를 달성했거나, 최소 목표치 이상의 행동 총합을 달성한 경우 완료
+	if (Step.bOrSubObjectives)
+	{
+		int32 MinTargetCount = Step.SubObjectives.Num() > 0 ? Step.SubObjectives[0].RequiredActionCount : 1;
+		bool bFinished = bAnyCompleted || (TotalActionCount >= MinTargetCount);
+		if (bFinished)
+		{
+			UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] OR-Objective Step [%s] completed! (bAnyCompleted=%s, TotalCount=%d)"),
+				*Step.StepID.ToString(), bAnyCompleted ? TEXT("True") : TEXT("False"), TotalActionCount);
+		}
+		return bFinished;
+	}
+
+	// 2) 기본 AND 조건: 모든 세부 목표를 달성해야 완료
+	return bAllCompleted;
 }
 
 void UTutorialSubsystem::ReportTutorialAction(ETutorialActionType ActionType, int32 Count, FName CustomTag)
@@ -199,7 +369,6 @@ void UTutorialSubsystem::ReportTutorialAction(ETutorialActionType ActionType, in
 		}
 
 		// 전체 목표 달성 여부 확인 및 합산 카운트 계산
-		bool bAllCompleted = true;
 		int32 TotalCurrent = 0;
 		int32 TotalRequired = 0;
 
@@ -209,12 +378,9 @@ void UTutorialSubsystem::ReportTutorialAction(ETutorialActionType ActionType, in
 			int32 Cur = CurrentObjectiveCounts.IsValidIndex(i) ? CurrentObjectiveCounts[i] : 0;
 			TotalCurrent += FMath::Min(Cur, Obj.RequiredActionCount);
 			TotalRequired += Obj.RequiredActionCount;
-
-			if (Cur < Obj.RequiredActionCount)
-			{
-				bAllCompleted = false;
-			}
 		}
+
+		bool bCompleted = CheckSubObjectivesCompleted(CurrentStep, CurrentObjectiveCounts);
 
 		CurrentActionCount = TotalCurrent;
 
@@ -223,7 +389,7 @@ void UTutorialSubsystem::ReportTutorialAction(ETutorialActionType ActionType, in
 
 		OnTutorialStepProgress.Broadcast(TotalCurrent, TotalRequired);
 
-		if (bAllCompleted)
+		if (bCompleted)
 		{
 			CompleteCurrentStep();
 		}
@@ -376,6 +542,25 @@ void UTutorialSubsystem::ReportInteractionAction(AActor* InteractedActor, const 
 					 InteractionType.Contains(Obj.CustomActionTag.ToString(), ESearchCase::IgnoreCase)))
 				{
 					bMatches = true;
+				}
+				// 씨앗 심기(Planting / CultivationPlot) 상호작용 지원
+				else if (Obj.CustomActionTag == FName("CultivationPlot") || Obj.ActionType == ETutorialActionType::PlantSeed)
+				{
+					if (InteractionType.Equals(TEXT("Planting"), ESearchCase::IgnoreCase) ||
+						InteractionType.Equals(TEXT("CultivationPlot"), ESearchCase::IgnoreCase) ||
+						(IsValid(InteractedActor) && InteractedActor->GetName().Contains(TEXT("CultivationPlot"))))
+					{
+						bMatches = true;
+					}
+				}
+				// 작물 수확(CropHarvest) 상호작용 지원
+				else if (Obj.CustomActionTag == FName("CropHarvest") || Obj.ActionType == ETutorialActionType::WeedHarvest)
+				{
+					if (InteractionType.Equals(TEXT("CropHarvest"), ESearchCase::IgnoreCase) ||
+						(IsValid(InteractedActor) && InteractedActor->GetName().Contains(TEXT("Crop"))))
+					{
+						bMatches = true;
+					}
 				}
 			}
 			// TargetWaypointTag 검증
@@ -543,7 +728,6 @@ void UTutorialSubsystem::ReportMonsterDefeated(AActor* DefeatedMonster)
 		}
 
 		// 전체 목표 진행도 합산 및 완료 판정
-		bool bAllCompleted = true;
 		int32 TotalCurrent = 0;
 		int32 TotalRequired = 0;
 		for (int32 i = 0; i < CurrentStep.SubObjectives.Num(); ++i)
@@ -552,17 +736,15 @@ void UTutorialSubsystem::ReportMonsterDefeated(AActor* DefeatedMonster)
 			int32 Cur = CurrentObjectiveCounts.IsValidIndex(i) ? CurrentObjectiveCounts[i] : 0;
 			TotalCurrent += FMath::Min(Cur, Obj.RequiredActionCount);
 			TotalRequired += Obj.RequiredActionCount;
-			if (Cur < Obj.RequiredActionCount)
-			{
-				bAllCompleted = false;
-			}
 		}
+
+		bool bCompleted = CheckSubObjectivesCompleted(CurrentStep, CurrentObjectiveCounts);
 
 		CurrentActionCount = TotalCurrent;
 		UpdateNearestWaypoint();
 		OnTutorialStepProgress.Broadcast(TotalCurrent, TotalRequired);
 
-		if (bAllCompleted)
+		if (bCompleted)
 		{
 			CompleteCurrentStep();
 		}
@@ -721,10 +903,14 @@ void UTutorialSubsystem::AdvanceToNextStep()
 			bCompletedHubTutorial = true;
 		}
 
+		FName FinishedSequence = CurrentSequenceName;
 		if (!CurrentSequenceName.IsNone())
 		{
 			CompletedSequences.AddUnique(CurrentSequenceName);
 		}
+
+		CurrentSequenceName = NAME_None;
+		CurrentTutorialTable = nullptr;
 
 		// 펫을 플레이어 추적 상태로 복귀
 		ABaseFlyingPet* Pet = GetPlayerPet();
@@ -740,8 +926,11 @@ void UTutorialSubsystem::AdvanceToNextStep()
 			}
 		}
 
-		UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Sequence [%s] Fully Completed!"), *CurrentSequenceName.ToString());
-		OnTutorialSequenceCompleted.Broadcast(CurrentSequenceName);
+		// 시퀀스 완료 상태 영구 저장
+		AutoSaveTutorialProgress();
+
+		UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Sequence [%s] Fully Completed!"), *FinishedSequence.ToString());
+		OnTutorialSequenceCompleted.Broadcast(FinishedSequence);
 	}
 }
 
@@ -777,10 +966,14 @@ void UTutorialSubsystem::SkipCurrentSequence()
 		bCompletedHubTutorial = true;
 	}
 
+	FName SkippedSequence = CurrentSequenceName;
 	if (!CurrentSequenceName.IsNone())
 	{
 		CompletedSequences.AddUnique(CurrentSequenceName);
 	}
+
+	CurrentSequenceName = NAME_None;
+	CurrentTutorialTable = nullptr;
 
 	// 펫 복귀 및 대화 종료 처리
 	ABaseFlyingPet* Pet = GetPlayerPet();
@@ -805,7 +998,10 @@ void UTutorialSubsystem::SkipCurrentSequence()
 		}
 	}
 
-	OnTutorialSequenceCompleted.Broadcast(CurrentSequenceName);
+	// 스킵 완료 상태 저장
+	AutoSaveTutorialProgress();
+
+	OnTutorialSequenceCompleted.Broadcast(SkippedSequence);
 }
 
 void UTutorialSubsystem::ReportLevelChanged(FName NewLevelName)
