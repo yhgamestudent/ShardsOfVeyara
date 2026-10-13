@@ -334,6 +334,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
 	void RecordPotionCrafted(const FString& PotionItemID);
 
+	// 특정 포션의 제작 횟수 조회
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
+	int32 GetCraftedPotionCount(const FString& PotionItemID) const;
+
+	// 특정 포션의 해금/발견 여부 조회
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
+	bool IsPotionDiscovered(const FString& PotionItemID) const;
+
 	// 데이터 테이블 기반 동적 기준치 및 봉헌 레벨 동기화
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Milestone")
 	void SetTargetCropTypeCount(int32 Count);

@@ -260,6 +260,7 @@ public:
 	AAGSDCharacter();	
 
 	FORCEINLINE FStruct_ItemData GetHoldingItemData() const { return HoldingItemData; }
+	FORCEINLINE USceneComponent* GetAudioListenerComponent() const { return AudioListenerComponent; }
 
 	// G 키 입력 및 외부 상호작용 위임 함수
 	void TryInteract();

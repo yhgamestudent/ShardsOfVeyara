@@ -70,6 +70,28 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Alchemy")
 	void InsertMaterial(UAlchemyCropSlotBase* InsertedSlot);
 
+	FORCEINLINE const TMap<FString, FStruct_MaterialAddress>& GetMaterialAddress() const { return MaterialAddress; }
+	FORCEINLINE class UDataTable* GetItemDataTable() const { return ItemDataTable; }
+
+	// ── 레시피 북(도감) 관련 기능 ──
+	UFUNCTION(BlueprintCallable, Category = "Alchemy")
+	void ToggleRecipeBook();
+
+	UFUNCTION(BlueprintCallable, Category = "Alchemy")
+	void OpenRecipeBook(bool bOpen);
+
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Alchemy")
+	FORCEINLINE bool IsRecipeBookOpen() const { return bIsRecipeBookOpen; }
+
+	// 레시피 북에서 원클릭 완전 자동 제작
+	UFUNCTION(BlueprintCallable, Category = "Alchemy")
+	void ExecuteQuickBrew(const FPotionData& RecipeToBrew);
+
+	// 연금술 안내/경고 토스트 알림 (블루프린트 오버라이드 지원)
+	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "Alchemy")
+	void ShowNotice(const FText& NoticeText);
+	virtual void ShowNotice_Implementation(const FText& NoticeText);
+
 public:
 	virtual void CloseUI_Implementation() override;
 
@@ -84,6 +106,14 @@ protected:
 
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UButton> EmptyButton;
+
+	// 도감 토글 버튼 [📖]
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> RecipeBookButton;
+
+	// 우측 슬라이드 레시피 북 위젯
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<class UAlchemyRecipeBookWidget> WBP_AlchemyRecipeBookWidget;
 
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UAlchemyInventoryUI> CropSlot;
@@ -103,6 +133,13 @@ protected:
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<class UVerticalBox> VB_ItemNotificationList;
 
+	// 알림 텍스트 및 애니메이션 바인딩 (선택적)
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<class UTextBlock> TXT_NoticeMessage;
+
+	UPROPERTY(Transient, meta = (BindWidgetAnimOptional))
+	TObjectPtr<UWidgetAnimation> NoticeAnim;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Alchemy")
 	TSubclassOf<class UAGSDItemNotificationWidget> ItemNotificationClass;
 
@@ -112,12 +149,22 @@ protected:
 	UPROPERTY(Transient, meta = (BindWidgetAnim))
 	TObjectPtr<UWidgetAnimation> FadeinAnim;
 
+	// 레시피 북 슬라이드 애니메이션 (열기/닫기 양방향 역재생)
+	UPROPERTY(Transient, meta = (BindWidgetAnimOptional))
+	TObjectPtr<UWidgetAnimation> RecipeBookAnim;
+
+	UFUNCTION()
+	void OnRecipeBookCloseFinished();
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Alchemy")
 	TObjectPtr<AActor> OwnerActor;
 
 	// ── 가방 및 핫바의 연금술 재료 맵 데이터 ──
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Alchemy")
 	TMap<FString, FStruct_MaterialAddress> MaterialAddress;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Alchemy")
+	bool bIsRecipeBookOpen = false;
 
 protected:
 	TWeakObjectPtr<class AAGSDCharacter> OwningCharacter;

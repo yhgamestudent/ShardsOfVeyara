@@ -1100,6 +1100,20 @@ void UGameplayLogSubsystem::RecordPotionCrafted(const FString& PotionItemID)
 	}
 }
 
+int32 UGameplayLogSubsystem::GetCraftedPotionCount(const FString& PotionItemID) const
+{
+	if (const int32* FoundCount = LogData.CraftedPotionTypeCounts.Find(PotionItemID))
+	{
+		return *FoundCount;
+	}
+	return 0;
+}
+
+bool UGameplayLogSubsystem::IsPotionDiscovered(const FString& PotionItemID) const
+{
+	return GetCraftedPotionCount(PotionItemID) > 0;
+}
+
 void UGameplayLogSubsystem::SetTargetCropTypeCount(int32 Count)
 {
 	if (Count > 0)

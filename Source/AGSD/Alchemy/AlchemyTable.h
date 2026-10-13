@@ -72,6 +72,7 @@ public:
 	virtual FString GetInteractionActionType_Implementation(AAGSDCharacter* player) override;
 
 	FORCEINLINE TArray<FString>& GetInsertedItemID() { return InsertedItemID; }
+	FORCEINLINE class UDataTable* GetAlchemyDataTable() const { return AlchemyDataTable; }
 
 	//오버랩 시작 시 작동할 함수
 	UFUNCTION()
