@@ -107,6 +107,10 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Input")
 	class UInputAction* SprintAction;
 
+	/** Roll Input Action */
+	UPROPERTY(EditAnywhere, Category="Input")
+	class UInputAction* RollAction;
+
 	/** Move Input Action */
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* MoveAction;

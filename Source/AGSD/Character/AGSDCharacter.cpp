@@ -763,6 +763,12 @@ void AAGSDCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &AAGSDCharacter::SprintEnd);
 		}
 
+		// Rolling (구르기 회피)
+		if (RollAction)
+		{
+			EnhancedInputComponent->BindAction(RollAction, ETriggerEvent::Started, this, &AAGSDCharacter::StartRoll);
+		}
+
 		// Moving
 		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &AAGSDCharacter::Move);
 		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Completed, this, &AAGSDCharacter::StopMove);
@@ -771,7 +777,7 @@ void AAGSDCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 		// Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AAGSDCharacter::Look);
 
-		// 우클릭(IA_Interaction) 누르는 순간 TryInteract 호출하도록 바인딩
+		// 상호작용 (IA_Interaction) 누르는 순간 TryInteract 호출하도록 바인딩
 		if (Interaction)
 		{
 			EnhancedInputComponent->BindAction(Interaction, ETriggerEvent::Started, this, &AAGSDCharacter::TryInteract);
@@ -931,15 +937,6 @@ void AAGSDCharacter::StopMove()
 
 void AAGSDCharacter::Jump()
 {
-	// 창 장착 시 구르기 임시 비활성화 -> 일반 점프로 동작
-	/*
-	if (HoldingWeapon == EHoldingWeapon::Spear)
-	{
-		StartRoll();
-		return;
-	}
-	*/
-
 	if (bIsAttacking || bIsRolling || Mining) return;
 	if (CharacterState == ECharacterState::Block) return;
  	if (Jumping && !GetCharacterMovement()->IsFalling())
@@ -1448,32 +1445,30 @@ void AAGSDCharacter::UseEquippedItem()
 
 void AAGSDCharacter::Input_SecondaryAttack()
 {
-	// 구르기 중에는 우클릭 공격 차단
+	// 구르기 중에는 공격 차단
 	if (bIsRolling) return;
 
-	// 가드(Block) 상태 중에는 우클릭 일반 공격 차단
-	if (CharacterState == ECharacterState::Block)
-	{
-		return;
-	}
+	// 인벤토리, 상자 등 UI가 열려있는 동안에는 공격 차단
+	if (PlayerHUDRef && PlayerHUDRef->IsInventoryOpen()) return;
+	if (ActiveCloseableUI.IsValid()) return;
+	if (OpenedChest != nullptr) return;
 
-	// 인벤토리, 상자 등 UI가 열려있는 동안에는 우클릭 공격 차단
-	if (PlayerHUDRef && PlayerHUDRef->IsInventoryOpen())
-	{
-		return;
-	}
-	if (ActiveCloseableUI.IsValid())
-	{
-		return;
-	}
-	if (OpenedChest != nullptr)
+	// ★ 핵심 설계: 4타 피니시(Combo 5-4)는 상시 단독 발동하지 않고, 공격 진행 중 콤보 윈도우(피니시) 시점에만 의도적으로 발동!
+	// 비공격 상태(평상시)에서는 단독 실행을 차단하여 평상시 가드(우클릭)와의 조작 충돌을 원천 차단
+	if (!bIsAttacking)
 	{
 		return;
 	}
 
 	if (HoldingWeapon == EHoldingWeapon::Spear || HoldingWeapon == EHoldingWeapon::Sickle)
 	{
-		ProcessAttackInputWithButton(ESpearAttackInput::RMB);
+		// 대기 타이머가 돌고 있다면 취소하고 즉시 Both_LMB_RMB 콤보 피니시 확정 실행
+		if (bIsWaitingForComboDecision)
+		{
+			GetWorld()->GetTimerManager().ClearTimer(ComboInputDecisionTimerHandle);
+			bIsWaitingForComboDecision = false;
+		}
+		ConfirmAndExecuteCombo(ESpearAttackInput::Both_LMB_RMB);
 	}
 }
 
@@ -1585,10 +1580,19 @@ FSpearComboData* AAGSDCharacter::GetComboDataByDirectionAndInput(ESpearAttackDir
 	TArray<FSpearComboData*> AllRows;
 	SpearComboDataTable->GetAllRows<FSpearComboData>(ContextString, AllRows);
 
-	// 방향과 입력 요구사항이 모두 일치하는 항목 검색
+	// 1차 검색: 방향과 입력 요구사항이 정확히 일치하는 항목 검색
 	for (FSpearComboData* ComboData : AllRows)
 	{
 		if (ComboData && ComboData->DirectionRequirement == Direction && ComboData->InputRequirement == Input)
+		{
+			return ComboData;
+		}
+	}
+
+	// 2차 검색: 방향 무관(Any)으로 등록되어 해당 입력 조건을 만족하는 항목 검색
+	for (FSpearComboData* ComboData : AllRows)
+	{
+		if (ComboData && ComboData->DirectionRequirement == ESpearAttackDirection::Any && ComboData->InputRequirement == Input)
 		{
 			return ComboData;
 		}
@@ -1608,8 +1612,9 @@ void AAGSDCharacter::ExecuteNextStageWithInput(ESpearAttackInput Input)
 
 	if (CurrentComboData)
 	{
-		// 방향 키 입력이 변경되어 현재 콤보 요구 방향과 다를 경우 해당 방향 및 버튼에 어울리는 새로운 콤보 1타로 전환 (Parry 콤보 진행 중일 경우 제외)
+		// 방향 키 입력이 변경되어 현재 콤보 요구 방향과 다를 경우 해당 방향 및 버튼에 어울리는 새로운 콤보 1타로 전환 (Parry 콤보 진행 중이거나 Any 방향일 경우 제외)
 		if (CurrentComboData->DirectionRequirement != ESpearAttackDirection::Parry &&
+			CurrentComboData->DirectionRequirement != ESpearAttackDirection::Any &&
 			CurrentComboData->DirectionRequirement != CurrentDir)
 		{
 			FSpearComboData* NewComboData = GetComboDataByDirectionAndInput(CurrentDir, Input);

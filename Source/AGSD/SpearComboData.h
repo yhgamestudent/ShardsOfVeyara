@@ -11,7 +11,8 @@ enum class ESpearAttackDirection : uint8
 	Forward,
 	Backward,
 	Sprint,
-	Parry
+	Parry,
+	Any UMETA(DisplayName = "Any (방향 무관)")
 };
 
 UENUM(BlueprintType)
