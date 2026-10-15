@@ -676,6 +676,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Pet")
 	FORCEINLINE class ABaseFlyingPet* GetPet() const { return Pet; }
 
+	UFUNCTION(BlueprintPure, Category = "Pet")
+	bool IsInDialogue() const;
+
 	UFUNCTION(BlueprintCallable, Category = "Pet")
 	void SetPet(class ABaseFlyingPet* NewPet);
 

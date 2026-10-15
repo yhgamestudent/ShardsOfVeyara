@@ -37,7 +37,9 @@ void UTutorialSubsystem::Deinitialize()
 	{
 		World->GetTimerManager().ClearTimer(ReachAreaTimerHandle);
 		World->GetTimerManager().ClearTimer(LevelTransitionTimerHandle);
+		World->GetTimerManager().ClearTimer(DialogueRetryTimerHandle);
 	}
+	DialogueRetryCount = 0;
 	if (ABaseFlyingPet* Pet = GetPlayerPet())
 	{
 		if (Pet->GetPetTalkComponent())
@@ -96,7 +98,20 @@ void UTutorialSubsystem::StartTutorialSequence(UDataTable* TutorialTable, FName 
 	bIsActive = true;
 	bWaitingForDialogue = false;
 
-	UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Started tutorial sequence: %s (Steps: %d)"), *SequenceName.ToString(), CurrentSteps.Num());
+	// 이전 레벨 전환 및 대화 재시도 타이머가 남아있다면 즉시 취소하여 새 퀘스트가 오작동하는 것을 방지
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(LevelTransitionTimerHandle);
+		World->GetTimerManager().ClearTimer(DialogueRetryTimerHandle);
+		FString CleanMap = World->GetMapName();
+		World->RemovePIEPrefix(CleanMap);
+		CleanMap = FPaths::GetBaseFilename(CleanMap);
+		CurrentSequenceOriginMapName = FName(*CleanMap);
+	}
+	DialogueRetryCount = 0;
+
+	UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Started tutorial sequence: %s in Map [%s] (Steps: %d)"),
+		*SequenceName.ToString(), *CurrentSequenceOriginMapName.ToString(), CurrentSteps.Num());
 
 	SetupCurrentStepVisuals();
 
@@ -151,6 +166,17 @@ void UTutorialSubsystem::ResumeTutorialSequence(UDataTable* TutorialTable, FName
 	CurrentTutorialTable = TutorialTable;
 	bIsActive = true;
 	bWaitingForDialogue = false;
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(LevelTransitionTimerHandle);
+		World->GetTimerManager().ClearTimer(DialogueRetryTimerHandle);
+		FString CleanMap = World->GetMapName();
+		World->RemovePIEPrefix(CleanMap);
+		CleanMap = FPaths::GetBaseFilename(CleanMap);
+		CurrentSequenceOriginMapName = FName(*CleanMap);
+	}
+	DialogueRetryCount = 0;
 
 	// 세부 목표 진행 카운트 복원
 	const FTutorialStepData& ResumedStep = CurrentSteps[CurrentStepIndex];
@@ -950,7 +976,9 @@ void UTutorialSubsystem::SkipCurrentSequence()
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(ReachAreaTimerHandle);
+		World->GetTimerManager().ClearTimer(DialogueRetryTimerHandle);
 	}
+	DialogueRetryCount = 0;
 
 	// 남아있는 모든 단계의 장벽/문 해제
 	for (int32 i = CurrentStepIndex; i < CurrentSteps.Num(); ++i)
@@ -974,6 +1002,7 @@ void UTutorialSubsystem::SkipCurrentSequence()
 
 	CurrentSequenceName = NAME_None;
 	CurrentTutorialTable = nullptr;
+	CurrentSequenceOriginMapName = NAME_None;
 
 	// 펫 복귀 및 대화 종료 처리
 	ABaseFlyingPet* Pet = GetPlayerPet();
@@ -998,10 +1027,104 @@ void UTutorialSubsystem::SkipCurrentSequence()
 		}
 	}
 
-	// 스킵 완료 상태 저장
 	AutoSaveTutorialProgress();
 
 	OnTutorialSequenceCompleted.Broadcast(SkippedSequence);
+}
+
+void UTutorialSubsystem::CancelCurrentSequence()
+{
+	if (!bIsActive)
+	{
+		return;
+	}
+
+	FName CancelledSequence = CurrentSequenceName;
+	UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Cancelling and clearing sequence: %s"), *CancelledSequence.ToString());
+
+	ClearTargetHighlight();
+	bIsActive = false;
+	bWaitingForDialogue = false;
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(ReachAreaTimerHandle);
+		World->GetTimerManager().ClearTimer(LevelTransitionTimerHandle);
+		World->GetTimerManager().ClearTimer(DialogueRetryTimerHandle);
+	}
+	DialogueRetryCount = 0;
+
+	CurrentSteps.Empty();
+	CurrentStepIndex = 0;
+	CurrentActionCount = 0;
+	CurrentObjectiveCounts.Empty();
+	CurrentSequenceName = NAME_None;
+	CurrentTutorialTable = nullptr;
+	CachedWaypointActor = nullptr;
+	CurrentSequenceOriginMapName = NAME_None;
+
+	// 펫 복귀 및 대화 종료 처리
+	ABaseFlyingPet* Pet = GetPlayerPet();
+	if (Pet)
+	{
+		if (Pet->GetPetTalkComponent())
+		{
+			Pet->GetPetTalkComponent()->OnConversationEnded.RemoveDynamic(this, &UTutorialSubsystem::HandleDialogueFinished);
+		}
+		if (Pet->GetPetGuideComponent())
+		{
+			Pet->GetPetGuideComponent()->ReturnToFollow();
+		}
+	}
+
+	AutoSaveTutorialProgress();
+	OnTutorialSequenceCompleted.Broadcast(CancelledSequence);
+}
+
+void UTutorialSubsystem::ResetAllQuests()
+{
+	UE_LOG(LogTemp, Warning, TEXT("[TutorialSubsystem] ResetAllQuests called! Clearing all completed sequence history and resetting active quests."));
+
+	ClearTargetHighlight();
+	bIsActive = false;
+	bWaitingForDialogue = false;
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(ReachAreaTimerHandle);
+		World->GetTimerManager().ClearTimer(LevelTransitionTimerHandle);
+		World->GetTimerManager().ClearTimer(DialogueRetryTimerHandle);
+	}
+	DialogueRetryCount = 0;
+
+	CurrentSteps.Empty();
+	CurrentStepIndex = 0;
+	CurrentActionCount = 0;
+	CurrentObjectiveCounts.Empty();
+	CurrentSequenceName = NAME_None;
+	CurrentTutorialTable = nullptr;
+	CachedWaypointActor = nullptr;
+	CurrentSequenceOriginMapName = NAME_None;
+
+	CompletedSequences.Empty();
+	bCompletedHubTutorial = false;
+	OpenedGateTags.Empty();
+
+	// 펫 복귀 및 대화 종료 처리
+	ABaseFlyingPet* Pet = GetPlayerPet();
+	if (Pet)
+	{
+		if (Pet->GetPetTalkComponent())
+		{
+			Pet->GetPetTalkComponent()->OnConversationEnded.RemoveDynamic(this, &UTutorialSubsystem::HandleDialogueFinished);
+		}
+		if (Pet->GetPetGuideComponent())
+		{
+			Pet->GetPetGuideComponent()->ReturnToFollow();
+		}
+	}
+
+	AutoSaveTutorialProgress();
 }
 
 void UTutorialSubsystem::ReportLevelChanged(FName NewLevelName)
@@ -1070,6 +1193,13 @@ void UTutorialSubsystem::SetupCurrentStepVisuals()
 
 	const FTutorialStepData& Step = CurrentSteps[CurrentStepIndex];
 
+	// 기존 대화 재시도 타이머 취소
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(DialogueRetryTimerHandle);
+	}
+	DialogueRetryCount = 0;
+
 	// 이전 대화 델리게이트 바인딩 해제
 	ABaseFlyingPet* Pet = GetPlayerPet();
 	if (Pet && Pet->GetPetTalkComponent())
@@ -1102,18 +1232,36 @@ void UTutorialSubsystem::SetupCurrentStepVisuals()
 	}
 
 	// 대화 시작 여부 확인 (대화가 있으면 대화가 끝난 뒤에 퀘스트 부여 및 펫 이동)
-	if (!Step.DialogueID.IsNone() && Pet && Pet->GetPetTalkComponent())
+	if (!Step.DialogueID.IsNone())
 	{
 		bWaitingForDialogue = true;
-		Pet->GetPetTalkComponent()->OnConversationEnded.AddDynamic(this, &UTutorialSubsystem::HandleDialogueFinished);
-		Pet->StartBigConversation(Step.DialogueID);
-		UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Step [%s] Waiting for dialogue [%s] to finish before presenting quest."),
-			*Step.StepID.ToString(), *Step.DialogueID.ToString());
-	}
-	else if (!Step.DialogueID.IsNone())
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[TutorialSubsystem] Step [%s] has DialogueID [%s] but Pet or PetTalkComponent is not available!"),
-			*Step.StepID.ToString(), *Step.DialogueID.ToString());
+
+		if (Pet && Pet->GetPetTalkComponent())
+		{
+			Pet->GetPetTalkComponent()->OnConversationEnded.RemoveDynamic(this, &UTutorialSubsystem::HandleDialogueFinished);
+			Pet->GetPetTalkComponent()->OnConversationEnded.AddDynamic(this, &UTutorialSubsystem::HandleDialogueFinished);
+			Pet->StartBigConversation(Step.DialogueID);
+			UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Step [%s] Waiting for dialogue [%s] to finish before presenting quest."),
+				*Step.StepID.ToString(), *Step.DialogueID.ToString());
+		}
+		else
+		{
+			// 맵 이동 직후 펫이 아직 스폰되지 않았거나 준비 중인 경우 재시도 타이머 가동 (0.1초마다 검사)
+			UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Step [%s] has DialogueID [%s] but Pet/PetTalkComponent is not ready yet. Starting retry timer..."),
+				*Step.StepID.ToString(), *Step.DialogueID.ToString());
+
+			if (UWorld* World = GetWorld())
+			{
+				World->GetTimerManager().ClearTimer(DialogueRetryTimerHandle);
+				World->GetTimerManager().SetTimer(
+					DialogueRetryTimerHandle,
+					this,
+					&UTutorialSubsystem::TryStartPendingDialogue,
+					0.1f,
+					true
+				);
+			}
+		}
 	}
 
 	// 동반자 펫 안내 제어
@@ -1163,6 +1311,12 @@ void UTutorialSubsystem::SetupCurrentStepVisuals()
 
 void UTutorialSubsystem::HandleDialogueFinished()
 {
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(DialogueRetryTimerHandle);
+	}
+	DialogueRetryCount = 0;
+
 	if (!bIsActive || !CurrentSteps.IsValidIndex(CurrentStepIndex))
 	{
 		bWaitingForDialogue = false;
@@ -1222,19 +1376,120 @@ void UTutorialSubsystem::HandleDialogueFinished()
 	// 대화가 끝났으므로 대상 액터 테두리 하이라이트 활성화
 	UpdateTargetHighlight();
 
-	// 대화 종료 시 플레이어가 여전히 UI 조작 중(Mining 등 연금술/봉헌/상자 상호작용 중)인 경우 마우스 커서 및 UI 입력 모드 유지/복원
+	// 대화 종료 시 마우스 커서 숨김 및 GameOnly 입력 모드 복원 (단, 다른 UI가 열려있는 경우에만 UI 모드 유지)
 	if (APlayerController* PC = UGameplayStatics::GetPlayerController(GetWorld(), 0))
 	{
 		AAGSDCharacter* PlayerChar = Cast<AAGSDCharacter>(PC->GetPawn());
-		if (PlayerChar && PlayerChar->Mining)
+		bool bStillInUI = false;
+		if (PlayerChar)
+		{
+			if (PlayerChar->PlayerHUDRef && PlayerChar->PlayerHUDRef->IsInventoryOpen())
+			{
+				bStillInUI = true;
+			}
+			else if (PlayerChar->ActiveCloseableUI.IsValid())
+			{
+				bStillInUI = true;
+			}
+			else if (PlayerChar->OpenedChest != nullptr)
+			{
+				bStillInUI = true;
+			}
+		}
+
+		if (bStillInUI)
 		{
 			PC->bShowMouseCursor = true;
 			FInputModeGameAndUI UIMode;
 			UIMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
 			UIMode.SetHideCursorDuringCapture(false);
 			PC->SetInputMode(UIMode);
-			UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Player is currently in UI mode (Mining=true). Preserved mouse cursor and GameAndUI mode."));
+			UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Player is currently in another UI. Preserved mouse cursor and GameAndUI mode."));
 		}
+		else
+		{
+			PC->SetShowMouseCursor(false);
+			FInputModeGameOnly GameMode;
+			GameMode.SetConsumeCaptureMouseDown(false);
+			PC->SetInputMode(GameMode);
+
+			PC->ResetIgnoreMoveInput();
+			PC->ResetIgnoreLookInput();
+			PC->SetIgnoreMoveInput(false);
+			PC->SetIgnoreLookInput(false);
+
+			FSlateApplication::Get().SetAllUserFocusToGameViewport();
+			UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Dialogue finished: Restored GameOnly input mode and hid mouse cursor."));
+		}
+	}
+}
+
+void UTutorialSubsystem::TryStartPendingDialogue()
+{
+	if (!bIsActive || !CurrentSteps.IsValidIndex(CurrentStepIndex))
+	{
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().ClearTimer(DialogueRetryTimerHandle);
+		}
+		DialogueRetryCount = 0;
+		return;
+	}
+
+	const FTutorialStepData& Step = CurrentSteps[CurrentStepIndex];
+	DialogueRetryCount++;
+
+	ABaseFlyingPet* Pet = GetPlayerPet();
+	if (Pet && Pet->GetPetTalkComponent())
+	{
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().ClearTimer(DialogueRetryTimerHandle);
+		}
+
+		bWaitingForDialogue = true;
+		Pet->GetPetTalkComponent()->OnConversationEnded.RemoveDynamic(this, &UTutorialSubsystem::HandleDialogueFinished);
+		Pet->GetPetTalkComponent()->OnConversationEnded.AddDynamic(this, &UTutorialSubsystem::HandleDialogueFinished);
+		Pet->StartBigConversation(Step.DialogueID);
+
+		UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Pet ready after %d retries (%.1fs). Started dialogue [%s] for Step [%s]."),
+			DialogueRetryCount, DialogueRetryCount * 0.1f, *Step.DialogueID.ToString(), *Step.StepID.ToString());
+
+		if (Pet->GetPetGuideComponent())
+		{
+			Pet->GetPetGuideComponent()->SetPetMeshHidden(Step.bHidePetMesh);
+			Pet->GetPetGuideComponent()->ReturnToFollow();
+		}
+		return;
+	}
+
+	// 최대 30회 (3.0초) 동안 펫을 찾지 못한 경우 폴백 처리 (게임 진행 멈춤 방지)
+	if (DialogueRetryCount >= 30)
+	{
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().ClearTimer(DialogueRetryTimerHandle);
+		}
+
+		UE_LOG(LogTemp, Warning, TEXT("[TutorialSubsystem] Pet was NOT found after 30 retries (3.0s). Fallback: skipping dialogue [%s] and presenting quest."),
+			*Step.DialogueID.ToString());
+
+		bWaitingForDialogue = false;
+
+		// 퀘스트 UI 시작 브로드캐스트
+		OnTutorialStepStarted.Broadcast(Step);
+
+		if (Step.ActionType == ETutorialActionType::ReachArea)
+		{
+			if (UWorld* World = GetWorld())
+			{
+				World->GetTimerManager().ClearTimer(ReachAreaTimerHandle);
+				World->GetTimerManager().SetTimer(ReachAreaTimerHandle, this, &UTutorialSubsystem::CheckPlayerReachArea, 0.2f, true);
+			}
+		}
+
+		UpdateNearestWaypoint();
+		UpdateTargetHighlight();
 	}
 }
 
@@ -1268,6 +1523,14 @@ void UTutorialSubsystem::OnPostLoadMapWithWorld(UWorld* LoadedWorld)
 	CleanMapName = FPaths::GetBaseFilename(CleanMapName);
 	PendingLoadedMapName = FName(*CleanMapName);
 
+	// 만약 이미 진행 중인 퀘스트의 원래 맵과 새로 로드된 맵이 완전히 같다면 타이머를 돌릴 필요조차 없음!
+	if (!CurrentSequenceOriginMapName.IsNone() && CurrentSequenceOriginMapName.ToString().Equals(CleanMapName, ESearchCase::IgnoreCase))
+	{
+		UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] PostLoadMapWithWorld: Same map [%s] as sequence origin [%s]. Ignoring transition check."),
+			*CleanMapName, *CurrentSequenceOriginMapName.ToString());
+		return;
+	}
+
 	UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] PostLoadMapWithWorld detected: %s (Clean: %s)"),
 		*LoadedWorld->GetMapName(), *CleanMapName);
 
@@ -1292,8 +1555,30 @@ void UTutorialSubsystem::HandlePostMapTransitionCheck()
 	const FTutorialStepData& CurrentStep = CurrentSteps[CurrentStepIndex];
 	const FString CurrentMapStr = PendingLoadedMapName.ToString();
 
-	UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Checking map transition condition for Step [%s]. Current Map: %s"),
-		*CurrentStep.StepID.ToString(), *CurrentMapStr);
+	// 1) 현재 퀘스트가 시작된 맵과 지금 로드된 맵이 같다면, 맵 이동으로 인한 캔슬 대상이 아니므로 안전하게 무시
+	if (!CurrentSequenceOriginMapName.IsNone() && CurrentSequenceOriginMapName.ToString().Equals(CurrentMapStr, ESearchCase::IgnoreCase))
+	{
+		UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Current map [%s] matches sequence origin map [%s]. No map transition cancellation needed."),
+			*CurrentMapStr, *CurrentSequenceOriginMapName.ToString());
+		return;
+	}
+
+	// 2) 현재 월드와 원본 맵 이름이 같은 경우도 추가 방어
+	if (UWorld* CurrentWorld = GetWorld())
+	{
+		FString ActiveMap = CurrentWorld->GetMapName();
+		CurrentWorld->RemovePIEPrefix(ActiveMap);
+		ActiveMap = FPaths::GetBaseFilename(ActiveMap);
+		if (!CurrentSequenceOriginMapName.IsNone() && CurrentSequenceOriginMapName.ToString().Equals(ActiveMap, ESearchCase::IgnoreCase))
+		{
+			UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Active world map [%s] matches sequence origin map [%s]. Skipping cancellation."),
+				*ActiveMap, *CurrentSequenceOriginMapName.ToString());
+			return;
+		}
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Checking map transition condition for Step [%s]. Current Map: %s (Origin: %s)"),
+		*CurrentStep.StepID.ToString(), *CurrentMapStr, *CurrentSequenceOriginMapName.ToString());
 
 	bool bMatches = false;
 
@@ -1328,8 +1613,10 @@ void UTutorialSubsystem::HandlePostMapTransitionCheck()
 			}
 		}
 
-		// 일치하지 않은 경우 새 월드에 맞춰 펫 및 웨이포인트 비주얼 재설정
-		SetupCurrentStepVisuals();
+		// 1) 다중 세부 목표가 일치하지 않는 경우: 맵이 변경되었으나 새 맵의 목표와 일치하지 않으므로 이전 맵 퀘스트 자동 취소 및 삭제
+		UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Map changed to [%s], but sub-objectives for sequence [%s] do not match. Cancelling sequence to clear UI."),
+			*CurrentMapStr, *CurrentSequenceName.ToString());
+		CancelCurrentSequence();
 		return;
 	}
 
@@ -1372,8 +1659,10 @@ void UTutorialSubsystem::HandlePostMapTransitionCheck()
 	}
 	else
 	{
-		// 조건이 일치하지 않는 다른 스텝이라면 새 월드의 액터들에 맞게 비주얼 재바인딩
-		SetupCurrentStepVisuals();
+		// 2) 단일 목표가 일치하지 않는 경우: 맵이 변경되었으나 새 맵의 목표와 일치하지 않으므로 이전 맵 퀘스트 자동 취소 및 삭제
+		UE_LOG(LogTemp, Log, TEXT("[TutorialSubsystem] Map changed to [%s], but sequence [%s] (Step [%s]) does not match. Cancelling sequence to clear UI."),
+			*CurrentMapStr, *CurrentSequenceName.ToString(), *CurrentStep.StepID.ToString());
+		CancelCurrentSequence();
 	}
 }
 

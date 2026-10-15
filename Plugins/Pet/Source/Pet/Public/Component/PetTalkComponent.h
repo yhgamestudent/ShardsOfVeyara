@@ -207,4 +207,8 @@ public:
 	// 대화 타이머 다시 시작
 	UFUNCTION()
 	void RestartConversationTimerHandle();
+
+	// 현재 대화가 진행 중인지 여부 반환
+	UFUNCTION(BlueprintPure, Category = "자체설정")
+	bool IsConversationActive() const { return bIsInputBound; }
 };

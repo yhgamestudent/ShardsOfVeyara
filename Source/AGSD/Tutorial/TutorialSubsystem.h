@@ -94,6 +94,19 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Tutorial")
 	void SkipCurrentSequence();
 
+	/**
+	 * 현재 진행 중인 튜토리얼 시퀀스를 완료 처리하지 않고 즉시 취소 및 삭제합니다.
+	 * 화면의 퀘스트 UI와 안내 마커가 완전히 닫히고 펫이 대기 상태로 복귀합니다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Tutorial")
+	void CancelCurrentSequence();
+
+	/**
+	 * 완료된 퀘스트 기록 및 진행 중인 퀘스트를 모두 초기화합니다. (디버그/테스트용)
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Tutorial")
+	void ResetAllQuests();
+
 	/** 현재 스텝 데이터 반환 */
 	UFUNCTION(BlueprintPure, Category = "Tutorial")
 	bool GetCurrentStepData(FTutorialStepData& OutStepData) const;
@@ -285,4 +298,16 @@ private:
 
 	/** 맵 전환 후 안정화 대기 타이머 */
 	FTimerHandle LevelTransitionTimerHandle;
+
+	/** 현재 튜토리얼 시퀀스가 시작된 원래 맵 이름 */
+	FName CurrentSequenceOriginMapName = NAME_None;
+
+	/** 맵 이동 직후 펫이 스폰될 때까지 대화 시작을 재시도하는 함수 */
+	void TryStartPendingDialogue();
+
+	/** 대화 시작 재시도 타이머 */
+	FTimerHandle DialogueRetryTimerHandle;
+
+	/** 대화 시작 재시도 횟수 카운터 */
+	int32 DialogueRetryCount = 0;
 };

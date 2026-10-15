@@ -34,6 +34,7 @@
 #include "Components/ProgressBar.h"
 #include "Kismet/GameplayStatics.h"
 #include "BaseFlyingPet.h"
+#include "Component/PetTalkComponent.h"
 #include "TutorialSubsystem.h"
 #include "NiagaraFunctionLibrary.h"
 #include "SpearComboData.h"
@@ -145,6 +146,12 @@ void AAGSDCharacter::HandleAttackInput(FName ActionName)
 
 void AAGSDCharacter::TryInteract()
 {
+	// 대화 중이거나 UI가 열려있는 동안에는 상호작용 및 공격 차단
+	if (IsInDialogue()) return;
+	if (PlayerHUDRef && PlayerHUDRef->IsInventoryOpen()) return;
+	if (ActiveCloseableUI.IsValid()) return;
+	if (OpenedChest != nullptr) return;
+
 	UTextLog::WriteTextLogByString(TEXT("상호작용 키 입력"), TEXT("단순 상호작용"));
 	// 무기(Spear 등)를 장착 중이거나 공격 진행 중일 경우 우클릭(RMB) 콤보/스킬 신호 전송
 	if (HoldingWeapon == EHoldingWeapon::Spear || HoldingWeapon == EHoldingWeapon::Sickle || bIsAttacking)
@@ -937,6 +944,7 @@ void AAGSDCharacter::StopMove()
 
 void AAGSDCharacter::Jump()
 {
+	if (IsInDialogue()) return;
 	if (bIsAttacking || bIsRolling || Mining) return;
 	if (CharacterState == ECharacterState::Block) return;
  	if (Jumping && !GetCharacterMovement()->IsFalling())
@@ -969,6 +977,7 @@ void AAGSDCharacter::StopJumping()
 
 void AAGSDCharacter::StartRoll()
 {
+	if (IsInDialogue()) return;
 	if (bIsRolling || GetCharacterMovement()->IsFalling()) return;
 	if (CharacterState == ECharacterState::Block) return;
 
@@ -1145,7 +1154,12 @@ void AAGSDCharacter::Look(const FInputActionValue& Value)
 
 void AAGSDCharacter::FaceCameraInput(const FInputActionValue& Value)
 {
-	// 인벤토리, 상자 등 UI가 열려있는 동안에는 무시합니다.
+	// 대화 중이거나 인벤토리, 상자 등 UI가 열려있는 동안에는 무시합니다.
+	if (IsInDialogue())
+	{
+		bIsFaceCameraPressed = false;
+		return;
+	}
 	if (PlayerHUDRef && PlayerHUDRef->IsInventoryOpen())
 	{
 		bIsFaceCameraPressed = false;
@@ -1271,6 +1285,12 @@ void AAGSDCharacter::OnComboWindowEnd()
 
 void AAGSDCharacter::ProcessAttackInputWithButton(ESpearAttackInput PressedInput)
 {
+	// 대화 중이거나 UI 활성 상태이면 공격 입력 완전 차단
+	if (IsInDialogue()) return;
+	if (PlayerHUDRef && PlayerHUDRef->IsInventoryOpen()) return;
+	if (ActiveCloseableUI.IsValid()) return;
+	if (OpenedChest != nullptr) return;
+
 	// 구르기 중이거나 공중 상태인 경우 공격 불가
 	if (bIsRolling || (GetCharacterMovement() && GetCharacterMovement()->IsFalling())) return;
 
@@ -1392,7 +1412,11 @@ void AAGSDCharacter::UseEquippedItem()
 		return;
 	}
 
-	// 인벤토리, 상자 등 UI가 열려있는 동안에는 무기 공격이나 아이템 사용이 나가지 않도록 차단합니다.
+	// 대화 중이거나 인벤토리, 상자 등 UI가 열려있는 동안에는 무기 공격이나 아이템 사용이 나가지 않도록 차단합니다.
+	if (IsInDialogue())
+	{
+		return;
+	}
 	if (PlayerHUDRef && PlayerHUDRef->IsInventoryOpen())
 	{
 		return;
@@ -1445,7 +1469,8 @@ void AAGSDCharacter::UseEquippedItem()
 
 void AAGSDCharacter::Input_SecondaryAttack()
 {
-	// 구르기 중에는 공격 차단
+	// 대화 중이거나 구르기/UI 모드 중에는 공격 차단
+	if (IsInDialogue()) return;
 	if (bIsRolling) return;
 
 	// 인벤토리, 상자 등 UI가 열려있는 동안에는 공격 차단
@@ -1549,6 +1574,7 @@ void AAGSDCharacter::StartParryCombo()
 
 void AAGSDCharacter::StartNewComboWithInput(ESpearAttackInput Input)
 {
+	if (IsInDialogue()) return;
 	if (Mining || bIsRolling) return;
 	ESpearAttackDirection CurrentDir = GetAttackDirection();
 	Mining = true;
@@ -2115,7 +2141,11 @@ void AAGSDCharacter::DoMove(float Right, float Forward)
 
 void AAGSDCharacter::DoLook(float Yaw, float Pitch)
 {
-	// 인벤토리, 상자 등 UI가 열려있는 동안에는 마우스 드래그에 의한 카메라 회전(화면 돌아감)을 무시합니다.
+	// 대화 중이거나 인벤토리, 상자 등 UI가 열려있는 동안에는 마우스 드래그에 의한 카메라 회전(화면 돌아감)을 무시합니다.
+	if (IsInDialogue())
+	{
+		return;
+	}
 	if (PlayerHUDRef && PlayerHUDRef->IsInventoryOpen())
 	{
 		return;
@@ -2177,6 +2207,65 @@ void AAGSDCharacter::SetPet(ABaseFlyingPet* NewPet)
 		Pet->SetOwner(this);
 		Pet->ReturnToPlayer();
 	}
+}
+
+bool AAGSDCharacter::IsInDialogue() const
+{
+	// 1. 자신의 Pet 포인터 확인
+	ABaseFlyingPet* TargetPet = Pet;
+
+	// 2. 만약 Pet이 nullptr이면 월드에서 Pet 태그를 가진 액터 검색 (맵 시작 직후 스폰 타이밍 방어)
+	if (!TargetPet)
+	{
+		if (UWorld* World = GetWorld())
+		{
+			TArray<AActor*> PetActors;
+			UGameplayStatics::GetAllActorsWithTag(World, FName("Pet"), PetActors);
+			for (AActor* Actor : PetActors)
+			{
+				if (ABaseFlyingPet* FoundPet = Cast<ABaseFlyingPet>(Actor))
+				{
+					TargetPet = FoundPet;
+					break;
+				}
+			}
+		}
+	}
+
+	// 3. 펫의 대화 컴포넌트 활성화 여부 검사
+	if (TargetPet)
+	{
+		if (UPetTalkComponent* TalkComp = TargetPet->GetPetTalkComponent())
+		{
+			if (TalkComp->IsConversationActive())
+			{
+				return true;
+			}
+		}
+	}
+
+	// 4. 튜토리얼 서브시스템의 대화 대기 상태 검사
+	if (UGameInstance* GameInst = GetGameInstance())
+	{
+		if (UTutorialSubsystem* TutSub = GameInst->GetSubsystem<UTutorialSubsystem>())
+		{
+			if (TutSub->IsWaitingForDialogue())
+			{
+				return true;
+			}
+		}
+	}
+
+	// 5. [철통 방어] 마우스 커서가 켜져 있는데 인벤토리/상자/기타UI가 열려있지 않다면 -> 대화 UI가 열려있는 상태로 간주
+	if (APlayerController* PlayerController = Cast<APlayerController>(GetController()))
+	{
+		if (PlayerController->bShowMouseCursor && !ActiveCloseableUI.IsValid() && !(PlayerHUDRef && PlayerHUDRef->IsInventoryOpen()) && OpenedChest == nullptr)
+		{
+			return true;
+		}
+	}
+
+	return false;
 }
 
 void AAGSDCharacter::SetMyPet_Implementation(AActor* NewPet)

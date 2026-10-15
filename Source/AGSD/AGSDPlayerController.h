@@ -110,6 +110,73 @@ public:
 	UFUNCTION(Exec, Category = "Cheats")
 	void SetDamage(float NewDamage);
 
+	/** 
+	 * 동반자 펫을 소환합니다. (이미 소환되어 있다면 플레이어 위치로 호출)
+	 * 사용법: SpawnPet 또는 SummonPet
+	 */
+	UFUNCTION(Exec, Category = "Cheats")
+	void SpawnPet();
+
+	UFUNCTION(Exec, Category = "Cheats")
+	void SummonPet() { SpawnPet(); }
+
+	/** 
+	 * 현재 소환된 펫을 소멸시키고 소환 해제합니다.
+	 * 사용법: DestroyPet 또는 DismissPet
+	 */
+	UFUNCTION(Exec, Category = "Cheats")
+	void DestroyPet();
+
+	UFUNCTION(Exec, Category = "Cheats")
+	void DismissPet() { DestroyPet(); }
+
+	/** 
+	 * 현재 진행 중인 퀘스트(튜토리얼 시퀀스) 전체를 즉시 완료 처리합니다.
+	 * 사용법: CompleteQuest 또는 ClearQuest
+	 */
+	UFUNCTION(Exec, Category = "Cheats")
+	void CompleteQuest();
+
+	UFUNCTION(Exec, Category = "Cheats")
+	void ClearQuest() { CompleteQuest(); }
+
+	/** 
+	 * 현재 진행 중인 퀘스트의 현재 단계(스텝)만 즉시 완료하고 다음 단계로 진행합니다.
+	 * 사용법: CompleteQuestStep 또는 ClearStep
+	 */
+	UFUNCTION(Exec, Category = "Cheats")
+	void CompleteQuestStep();
+
+	UFUNCTION(Exec, Category = "Cheats")
+	void ClearStep() { CompleteQuestStep(); }
+
+	/** 
+	 * 현재 진행 중인 퀘스트를 완료 처리하지 않고 즉시 취소/삭제합니다.
+	 * 사용법: CancelQuest
+	 */
+	UFUNCTION(Exec, Category = "Cheats")
+	void CancelQuest();
+
+	/** 
+	 * 완료된 모든 퀘스트 기록 및 진행 중인 퀘스트를 초기화하여 퀘스트를 처음부터 다시 받을 수 있도록 리셋합니다.
+	 * 사용법: ResetQuest 또는 ResetAllQuests
+	 */
+	UFUNCTION(Exec, Category = "Cheats")
+	void ResetQuest();
+
+	UFUNCTION(Exec, Category = "Cheats")
+	void ResetAllQuests() { ResetQuest(); }
+
+	/** 
+	 * 현재 활성 퀘스트 상태와 완료된 퀘스트 목록을 화면 및 로그에 출력합니다.
+	 * 사용법: PrintQuestStatus 또는 QuestStatus
+	 */
+	UFUNCTION(Exec, Category = "Cheats")
+	void PrintQuestStatus();
+
+	UFUNCTION(Exec, Category = "Cheats")
+	void QuestStatus() { PrintQuestStatus(); }
+
 private:
 	/** 플레이어 캐릭터의 인벤토리 컴포넌트를 가져오는 헬퍼 */
 	class UAGSDInventoryComponent* GetPlayerInventoryComponent() const;

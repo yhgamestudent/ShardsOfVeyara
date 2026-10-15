@@ -148,6 +148,22 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "SaveGame")
 	bool AddGameInstanceItemByID(const FString& ItemID, int32 Amount, class UDataTable* ItemDataTable);
 
+	/** 액터의 현재 맵 이름과 액터 이름을 조합하여 NoRegenItem 장부용 고유 키를 반환합니다. */
+	UFUNCTION(BlueprintPure, Category = "WorldState|SaveGame")
+	FString GetActorUniqueKey(const AActor* TargetActor) const;
+
+	/** 액터가 이미 영구 삭제 목록(NoRegenItem)에 등록되어 있는지 확인합니다. */
+	UFUNCTION(BlueprintPure, Category = "WorldState|SaveGame")
+	bool IsActorRegisteredDead(const AActor* TargetActor) const;
+
+	/** 액터가 영구 삭제 목록(NoRegenItem)에 등록되어 있다면 월드에서 즉시 Destroy하고 true를 반환합니다. (BeginPlay 전용) */
+	UFUNCTION(BlueprintCallable, Category = "WorldState|SaveGame")
+	bool CheckAndDestroyIfDead(AActor* TargetActor);
+
+	/** 액터를 영구 삭제 목록(NoRegenItem)에 등록하고, bDestroyActor가 true이면 즉시 액터를 Destroy합니다. */
+	UFUNCTION(BlueprintCallable, Category = "WorldState|SaveGame")
+	bool RegisterDeadActor(AActor* TargetActor, bool bDestroyActor = true);
+
 	// 튜토리얼 마을 진입시 엔딩 플래그 트루면 엔딩 컷씬 재생
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ending")
 	bool bIsEnding = false;

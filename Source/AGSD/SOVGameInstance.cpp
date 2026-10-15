@@ -411,3 +411,68 @@ bool USOVGameInstance::AddGameInstanceItemByID(const FString& ItemID, int32 Amou
 
 	return bAddedAny;
 }
+
+FString USOVGameInstance::GetActorUniqueKey(const AActor* TargetActor) const
+{
+	if (!IsValid(TargetActor))
+	{
+		return FString();
+	}
+
+	FString MapName = TEXT("");
+	if (const UWorld* World = TargetActor->GetWorld())
+	{
+		MapName = World->GetMapName();
+		MapName.RemoveFromStart(World->StreamingLevelsPrefix);
+	}
+
+	return MapName + TEXT("_") + TargetActor->GetName();
+}
+
+bool USOVGameInstance::IsActorRegisteredDead(const AActor* TargetActor) const
+{
+	if (!IsValid(TargetActor))
+	{
+		return false;
+	}
+
+	const FString UniqueKey = GetActorUniqueKey(TargetActor);
+	return NoRegenItem.Contains(UniqueKey) || NoRegenItem.Contains(TargetActor->GetName());
+}
+
+bool USOVGameInstance::CheckAndDestroyIfDead(AActor* TargetActor)
+{
+	if (!IsValid(TargetActor))
+	{
+		return false;
+	}
+
+	if (IsActorRegisteredDead(TargetActor))
+	{
+		UE_LOG(LogTemp, Log, TEXT("CheckAndDestroyIfDead - Actor [%s] is already registered in NoRegenItem. Destroying..."), *TargetActor->GetName());
+		TargetActor->Destroy();
+		return true;
+	}
+
+	return false;
+}
+
+bool USOVGameInstance::RegisterDeadActor(AActor* TargetActor, bool bDestroyActor)
+{
+	if (!IsValid(TargetActor))
+	{
+		return false;
+	}
+
+	const FString UniqueKey = GetActorUniqueKey(TargetActor);
+	NoRegenItem.AddUnique(UniqueKey);
+
+	UE_LOG(LogTemp, Log, TEXT("RegisterDeadActor - Registered Actor [%s] with Key [%s] to NoRegenItem."), *TargetActor->GetName(), *UniqueKey);
+
+	if (bDestroyActor)
+	{
+		TargetActor->Destroy();
+	}
+
+	return true;
+}
