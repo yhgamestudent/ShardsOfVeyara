@@ -16,6 +16,8 @@
  * 
  */
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnShortcutStateChanged, FName, ShortcutTag, bool, bOpened);
+
 UCLASS()
 class AGSD_API USOVGameInstance : public UGameInstance
 {
@@ -164,6 +166,66 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "WorldState|SaveGame")
 	bool RegisterDeadActor(AActor* TargetActor, bool bDestroyActor = true);
 
+	// 숲 맵 숏컷 개방 여부
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldState|SaveGame")
+	bool ForestShortCut = false;
+	
+	// 던전 맵 숏컷 개방 여부
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldState|SaveGame")
+	bool DungeonShortCut = false;
+	
+	// 동굴 맵 숏컷 개방 여부
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldState|SaveGame")
+	bool CaveShortCut = false;
+	
+	// 도시 맵 숏컷 개방 여부
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldState|SaveGame")
+	bool CityShortCut = false;
+
+	/** 숏컷 상태가 변경되었을 때 브로드캐스트되는 이벤트 델리게이트 */
+	UPROPERTY(BlueprintAssignable, Category = "WorldState|Shortcut")
+	FOnShortcutStateChanged OnShortcutStateChanged;
+
+	/** 숲 맵 숏컷 상태를 설정합니다. bAutoSave가 true이면 세이브파일에 즉시 저장합니다. */
+	UFUNCTION(BlueprintCallable, Category = "WorldState|Shortcut")
+	void SetForestShortcut(bool bOpened, bool bAutoSave = true);
+
+	/** 숲 맵 숏컷이 열려있는지 여부를 반환합니다. */
+	UFUNCTION(BlueprintPure, Category = "WorldState|Shortcut")
+	bool IsForestShortcutOpened() const;
+
+	/** 던전 맵 숏컷 상태를 설정합니다. bAutoSave가 true이면 세이브파일에 즉시 저장합니다. */
+	UFUNCTION(BlueprintCallable, Category = "WorldState|Shortcut")
+	void SetDungeonShortcut(bool bOpened, bool bAutoSave = true);
+
+	/** 던전 맵 숏컷이 열려있는지 여부를 반환합니다. */
+	UFUNCTION(BlueprintPure, Category = "WorldState|Shortcut")
+	bool IsDungeonShortcutOpened() const;
+
+	/** 동굴 맵 숏컷 상태를 설정합니다. bAutoSave가 true이면 세이브파일에 즉시 저장합니다. */
+	UFUNCTION(BlueprintCallable, Category = "WorldState|Shortcut")
+	void SetCaveShortcut(bool bOpened, bool bAutoSave = true);
+
+	/** 동굴 맵 숏컷이 열려있는지 여부를 반환합니다. */
+	UFUNCTION(BlueprintPure, Category = "WorldState|Shortcut")
+	bool IsCaveShortcutOpened() const;
+
+	/** 도시 맵 숏컷 상태를 설정합니다. bAutoSave가 true이면 세이브파일에 즉시 저장합니다. */
+	UFUNCTION(BlueprintCallable, Category = "WorldState|Shortcut")
+	void SetCityShortcut(bool bOpened, bool bAutoSave = true);
+
+	/** 도시 맵 숏컷이 열려있는지 여부를 반환합니다. */
+	UFUNCTION(BlueprintPure, Category = "WorldState|Shortcut")
+	bool IsCityShortcutOpened() const;
+
+	/** 태그명("Forest", "Dungeon", "Cave", "City")으로 숏컷 상태를 설정합니다. */
+	UFUNCTION(BlueprintCallable, Category = "WorldState|Shortcut")
+	void SetShortcutState(FName ShortcutTag, bool bOpened, bool bAutoSave = true);
+
+	/** 태그명으로 숏컷 상태를 조회합니다. */
+	UFUNCTION(BlueprintPure, Category = "WorldState|Shortcut")
+	bool IsShortcutOpened(FName ShortcutTag) const;
+	
 	// 튜토리얼 마을 진입시 엔딩 플래그 트루면 엔딩 컷씬 재생
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ending")
 	bool bIsEnding = false;

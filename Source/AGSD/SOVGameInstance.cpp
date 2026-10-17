@@ -37,6 +37,10 @@ void USOVGameInstance::InitializeVariables()
 	TributeLevel = DefaultInstance->TributeLevel;
 	MouseSensitivity = DefaultInstance->MouseSensitivity;
 	bIsEnding = DefaultInstance->bIsEnding;
+	ForestShortCut = DefaultInstance->ForestShortCut;
+	DungeonShortCut = DefaultInstance->DungeonShortCut;
+	CaveShortCut = DefaultInstance->CaveShortCut;
+	CityShortCut = DefaultInstance->CityShortCut;
 
 	// 데이터 맵 및 인벤토리는 비워줌 (필요 시 CDO에서 복사 가능)
 	ChestMap.Empty();
@@ -131,6 +135,10 @@ FSaveData USOVGameInstance::GetSaveData()
 	SaveData.LastSaveTime = FDateTime::Now();
 	SaveData.AlreadyDroppedItems = AlreadyDroppedItems;
 	SaveData.MouseSensitivity = MouseSensitivity;
+	SaveData.ForestShortCut = ForestShortCut;
+	SaveData.DungeonShortCut = DungeonShortCut;
+	SaveData.CaveShortCut = CaveShortCut;
+	SaveData.CityShortCut = CityShortCut;
 	
 	if (UGameplayLogSubsystem* LogSubsystem = GetSubsystem<UGameplayLogSubsystem>())
 	{
@@ -175,6 +183,10 @@ void USOVGameInstance::SetSaveData(FSaveData SaveData)
 	CurrentLevelTributeItems = SaveData.CurrentLevelTributeItems;
 	AlreadyDroppedItems = SaveData.AlreadyDroppedItems;
 	MouseSensitivity = SaveData.MouseSensitivity;
+	ForestShortCut = SaveData.ForestShortCut;
+	DungeonShortCut = SaveData.DungeonShortCut;
+	CaveShortCut = SaveData.CaveShortCut;
+	CityShortCut = SaveData.CityShortCut;
 
 	if (UGameplayLogSubsystem* LogSubsystem = GetSubsystem<UGameplayLogSubsystem>())
 	{
@@ -476,3 +488,121 @@ bool USOVGameInstance::RegisterDeadActor(AActor* TargetActor, bool bDestroyActor
 
 	return true;
 }
+
+void USOVGameInstance::SetForestShortcut(bool bOpened, bool bAutoSave)
+{
+	ForestShortCut = bOpened;
+	OnShortcutStateChanged.Broadcast(FName("Forest"), bOpened);
+	UE_LOG(LogTemp, Log, TEXT("[USOVGameInstance] Forest shortcut state changed to: %s"), bOpened ? TEXT("Opened") : TEXT("Closed"));
+
+	if (bAutoSave)
+	{
+		SaveGame();
+	}
+}
+
+bool USOVGameInstance::IsForestShortcutOpened() const
+{
+	return ForestShortCut;
+}
+
+void USOVGameInstance::SetDungeonShortcut(bool bOpened, bool bAutoSave)
+{
+	DungeonShortCut = bOpened;
+	OnShortcutStateChanged.Broadcast(FName("Dungeon"), bOpened);
+	UE_LOG(LogTemp, Log, TEXT("[USOVGameInstance] Dungeon shortcut state changed to: %s"), bOpened ? TEXT("Opened") : TEXT("Closed"));
+
+	if (bAutoSave)
+	{
+		SaveGame();
+	}
+}
+
+bool USOVGameInstance::IsDungeonShortcutOpened() const
+{
+	return DungeonShortCut;
+}
+
+void USOVGameInstance::SetCaveShortcut(bool bOpened, bool bAutoSave)
+{
+	CaveShortCut = bOpened;
+	OnShortcutStateChanged.Broadcast(FName("Cave"), bOpened);
+	UE_LOG(LogTemp, Log, TEXT("[USOVGameInstance] Cave shortcut state changed to: %s"), bOpened ? TEXT("Opened") : TEXT("Closed"));
+
+	if (bAutoSave)
+	{
+		SaveGame();
+	}
+}
+
+bool USOVGameInstance::IsCaveShortcutOpened() const
+{
+	return CaveShortCut;
+}
+
+void USOVGameInstance::SetCityShortcut(bool bOpened, bool bAutoSave)
+{
+	CityShortCut = bOpened;
+	OnShortcutStateChanged.Broadcast(FName("City"), bOpened);
+	UE_LOG(LogTemp, Log, TEXT("[USOVGameInstance] City shortcut state changed to: %s"), bOpened ? TEXT("Opened") : TEXT("Closed"));
+
+	if (bAutoSave)
+	{
+		SaveGame();
+	}
+}
+
+bool USOVGameInstance::IsCityShortcutOpened() const
+{
+	return CityShortCut;
+}
+
+void USOVGameInstance::SetShortcutState(FName ShortcutTag, bool bOpened, bool bAutoSave)
+{
+	const FString TagStr = ShortcutTag.ToString();
+	if (TagStr.Equals(TEXT("Forest"), ESearchCase::IgnoreCase))
+	{
+		SetForestShortcut(bOpened, bAutoSave);
+	}
+	else if (TagStr.Equals(TEXT("Dungeon"), ESearchCase::IgnoreCase))
+	{
+		SetDungeonShortcut(bOpened, bAutoSave);
+	}
+	else if (TagStr.Equals(TEXT("Cave"), ESearchCase::IgnoreCase))
+	{
+		SetCaveShortcut(bOpened, bAutoSave);
+	}
+	else if (TagStr.Equals(TEXT("City"), ESearchCase::IgnoreCase))
+	{
+		SetCityShortcut(bOpened, bAutoSave);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[USOVGameInstance] Unknown shortcut tag: %s"), *TagStr);
+	}
+}
+
+bool USOVGameInstance::IsShortcutOpened(FName ShortcutTag) const
+{
+	const FString TagStr = ShortcutTag.ToString();
+	if (TagStr.Equals(TEXT("Forest"), ESearchCase::IgnoreCase))
+	{
+		return ForestShortCut;
+	}
+	else if (TagStr.Equals(TEXT("Dungeon"), ESearchCase::IgnoreCase))
+	{
+		return DungeonShortCut;
+	}
+	else if (TagStr.Equals(TEXT("Cave"), ESearchCase::IgnoreCase))
+	{
+		return CaveShortCut;
+	}
+	else if (TagStr.Equals(TEXT("City"), ESearchCase::IgnoreCase))
+	{
+		return CityShortCut;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[USOVGameInstance] Unknown shortcut tag: %s"), *TagStr);
+	return false;
+}
+

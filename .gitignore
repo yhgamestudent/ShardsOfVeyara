@@ -88,8 +88,9 @@ TODO*.md
 *.DotSettings.user
 *.DotSettings
 
-# Local scratch & backups
+# Local scratch & backups & scripts
 scratch/
+Scripts/
 *.bak*
 *.bak[0-9]*
 

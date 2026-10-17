@@ -120,6 +120,22 @@ struct FSaveData : public FTableRowBase
 	UPROPERTY()
 	FRotator SavedPlayerRotation;
 
+	/** 숲 맵 숏컷 개방 여부 */
+	UPROPERTY()
+	bool ForestShortCut;
+
+	/** 던전 맵 숏컷 개방 여부 */
+	UPROPERTY()
+	bool DungeonShortCut;
+
+	/** 동굴 맵 숏컷 개방 여부 */
+	UPROPERTY()
+	bool CaveShortCut;
+
+	/** 도시 맵 숏컷 개방 여부 */
+	UPROPERTY()
+	bool CityShortCut;
+
 	FSaveData()
 	{
 		PlayerSessionID = TEXT("Unknown");
@@ -138,5 +154,9 @@ struct FSaveData : public FTableRowBase
 		ActiveTutorialStepIndex = 0;
 		SavedPlayerLocation = FVector::ZeroVector;
 		SavedPlayerRotation = FRotator::ZeroRotator;
+		ForestShortCut = false;
+		DungeonShortCut = false;
+		CaveShortCut = false;
+		CityShortCut = false;
 	}
 };
