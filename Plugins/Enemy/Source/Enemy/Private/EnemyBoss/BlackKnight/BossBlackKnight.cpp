@@ -538,3 +538,20 @@ void ABossBlackKnight::PostEditChangeProperty(FPropertyChangedEvent& PropertyCha
 	}
 }
 #endif
+
+void ABossBlackKnight::InitializeStatsFromDataTable()
+{
+	Super::InitializeStatsFromDataTable();
+
+	// 데이터테이블이 명시적으로 연결되어 있는 경우에만 대미지 스케일링 적용
+	if (CombatStatHandle.DataTable && !CombatStatHandle.RowName.IsNone())
+	{
+		AttackStruct.NormalAttackDamage = BaseAttackDamage;
+		AttackStruct.RushAttackDamage = BaseAttackDamage * 1.2f;
+		AttackStruct.GuardAttackDamage = BaseAttackDamage;
+		AttackStruct.ChargeAttackDamage = BaseAttackDamage * 1.4f;
+		AttackStruct.ZapAttackDamage = BaseAttackDamage * 0.8f;
+		AttackStruct.ZapDamage = BaseAttackDamage * 0.6f;
+	}
+}
+

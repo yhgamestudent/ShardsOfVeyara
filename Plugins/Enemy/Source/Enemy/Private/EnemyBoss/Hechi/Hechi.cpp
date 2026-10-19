@@ -1010,3 +1010,15 @@ void AHechi::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 	}
 }
 #endif
+
+void AHechi::InitializeStatsFromDataTable()
+{
+	Super::InitializeStatsFromDataTable();
+
+	// 데이터테이블이 명시적으로 연결되어 있는 경우에만 대미지 스케일링 적용
+	if (CombatStatHandle.DataTable && !CombatStatHandle.RowName.IsNone())
+	{
+		AttackStruct.LaserAttackDamage = BaseAttackDamage * 0.67f;
+		AttackStruct.GravityAttackDamage = BaseAttackDamage;
+	}
+}

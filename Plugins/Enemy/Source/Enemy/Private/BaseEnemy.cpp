@@ -72,6 +72,9 @@ void ABaseEnemy::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// 데이터테이블 기반 스탯(공격력, 최대 체력, 공격 주기) 초기화
+	InitializeStatsFromDataTable();
+
 	//Health = MaxHealth; // 시작할 때 체력을 최대 체력으로 설정
 
 	if ( HealthBarWidget ) // 체력바 위젯에서 프로그레스바 설정
@@ -517,4 +520,28 @@ void ABaseEnemy::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEv
 	}
 }
 #endif
+
+void ABaseEnemy::InitializeStatsFromDataTable()
+{
+	// CombatStatHandle이 명시적으로 연결되어 있는 경우에만 데이터테이블 스탯을 읽어와 적용합니다.
+	// 연결되어 있지 않으면 에디터 디테일 패널이나 C++ 코드에 설정된 기존 하드코딩 스탯을 그대로 유지합니다.
+	if (CombatStatHandle.DataTable && !CombatStatHandle.RowName.IsNone())
+	{
+		const FCombatStatRow* StatRow = CombatStatHandle.GetRow<FCombatStatRow>(TEXT("ABaseEnemy::InitializeStatsFromDataTable"));
+		if (StatRow)
+		{
+			MaxHealth = StatRow->MaxHealth;
+			Health = MaxHealth;
+			AttackDamage = StatRow->BaseAttackDamage;
+			AttackDelay = StatRow->AttackInterval;
+
+			// 블랙보드에 공격 딜레이 반영
+			SetAttackDelayToBehaviorTree(AttackDelay);
+
+			UE_LOG(LogTemp, Log, TEXT("[BaseEnemy] %s (%s) Stat Loaded from DataTable -> MaxHealth: %.1f, AttackDamage: %.1f, AttackDelay: %.1f"),
+				*GetName(), *CombatStatHandle.RowName.ToString(), MaxHealth, AttackDamage, AttackDelay);
+		}
+	}
+}
+
 

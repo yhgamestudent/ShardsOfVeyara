@@ -93,3 +93,13 @@ void ABaseExploderEnemy::PostEditChangeProperty(FPropertyChangedEvent& PropertyC
 	}
 }
 #endif
+
+void ABaseExploderEnemy::InitializeStatsFromDataTable()
+{
+	Super::InitializeStatsFromDataTable();
+
+	if (CombatStatHandle.DataTable && !CombatStatHandle.RowName.IsNone())
+	{
+		ExplosionDamage = AttackDamage;
+	}
+}

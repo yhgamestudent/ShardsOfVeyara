@@ -143,3 +143,15 @@ void ABaseGuardEnemy::AttackEnd_WeaponCollision()
 {
 	if ( WeaponCollision ) WeaponCollision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 }
+
+void ABaseGuardEnemy::InitializeStatsFromDataTable()
+{
+	Super::InitializeStatsFromDataTable();
+
+	if (CombatStatHandle.DataTable && !CombatStatHandle.RowName.IsNone())
+	{
+		NormalAttackDamage = AttackDamage;
+		GuardReactionDamage = AttackDamage * 1.5f;
+	}
+}
+

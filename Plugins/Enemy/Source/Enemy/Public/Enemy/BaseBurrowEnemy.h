@@ -30,6 +30,7 @@ public:
 	virtual void Tick(float DeltaTime) override;
 	virtual float TakeDamage(float DamageAmount, 
 		struct FDamageEvent const& DamageEvent, class AController* EventInstigator, AActor* DamageCauser) override;
+	virtual void InitializeStatsFromDataTable() override;
 	
 	UFUNCTION()
 	void OnBeginOverlapAttackCollisionSphere(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
@@ -92,10 +93,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = "자체설정")
 	float FanFireBreathAttackDelay = 10.0f;
 	
-	// 공격 대미지
-	UPROPERTY(EditAnywhere, Category="자체설정")
-	float AttackDamage = 10.f;
-	// 공격 대미지
+	// 공격 대미지 (언버로우)
 	UPROPERTY(EditAnywhere, Category="자체설정")
 	float UnburrowAttackDamage = 10.f;
 	

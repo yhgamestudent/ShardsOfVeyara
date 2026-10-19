@@ -5,6 +5,7 @@
 #include "Interface/ItemDropInterface.h"
 #include "Interface/InteractionInterface.h"
 #include "CSVLogType.h" 
+#include "CombatStatData.h"
 #include "BaseBossEnemy.generated.h"
 
 UCLASS()
@@ -51,6 +52,18 @@ protected:
 		int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 	
 	
+	// Kalivra 밸런싱 데이터테이블(DT_CombatStats) 행 바인딩 (설정 시 MaxHealth, BaseAttackDamage 자동 초기화)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="자체설정|전투스탯")
+	FDataTableRowHandle CombatStatHandle;
+
+	// 기본 공격력 (데이터테이블 DT_CombatStats 연동 또는 기본값)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="자체설정|전투스탯")
+	float BaseAttackDamage = 100.f;
+
+	// 데이터테이블로부터 전투 스탯을 읽어와 초기화합니다
+	UFUNCTION(BlueprintCallable, Category="자체설정|전투스탯")
+	virtual void InitializeStatsFromDataTable();
+
 	// 최대 체력
 	UPROPERTY(EditAnywhere, Category="자체설정")
 	float MaxHealth = 100.f;

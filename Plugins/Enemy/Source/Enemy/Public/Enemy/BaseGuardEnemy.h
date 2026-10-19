@@ -17,12 +17,12 @@ public:
 	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent,
 		class AController* EventInstigator, AActor* DamageCauser) override;
 	
+	virtual void InitializeStatsFromDataTable() override;
+	
 	UPROPERTY(BlueprintReadWrite)
 	bool bIsGuarding = false; // 방어 중인지 여부를 나타내는 변수
 	
 	class UCapsuleComponent* WeaponCollision = nullptr;
-	
-	float AttackDamage = 0.f;
 	
 	// 공격 대미지
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "자체설정")

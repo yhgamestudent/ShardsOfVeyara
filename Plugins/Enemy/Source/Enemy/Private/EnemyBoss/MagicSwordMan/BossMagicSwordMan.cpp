@@ -708,3 +708,17 @@ void ABossMagicSwordMan::PostEditChangeProperty(FPropertyChangedEvent& PropertyC
 	}
 }
 #endif
+
+void ABossMagicSwordMan::InitializeStatsFromDataTable()
+{
+	Super::InitializeStatsFromDataTable();
+
+	// 데이터테이블이 명시적으로 연결되어 있는 경우에만 대미지 스케일링 적용
+	if (CombatStatHandle.DataTable && !CombatStatHandle.RowName.IsNone())
+	{
+		AttackDamage = BaseAttackDamage;
+		AttackStruct.RushStrikeAttackDamage = BaseAttackDamage * 0.75f;
+		AttackStruct.PowerAttackFinishDamage = BaseAttackDamage * 0.75f;
+		AttackStruct.PowerAttackTickDamage = BaseAttackDamage * 0.4f;
+	}
+}

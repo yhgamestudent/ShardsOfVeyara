@@ -173,3 +173,13 @@ void ABaseSlimeEnemy::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 	}
 }
 #endif
+
+void ABaseSlimeEnemy::InitializeStatsFromDataTable()
+{
+	Super::InitializeStatsFromDataTable();
+
+	if (CombatStatHandle.DataTable && !CombatStatHandle.RowName.IsNone())
+	{
+		MeleeAttackDamage = AttackDamage;
+	}
+}

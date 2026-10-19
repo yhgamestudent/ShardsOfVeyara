@@ -79,6 +79,7 @@ protected:
 public:
 	ABaseTransparEnemy();
 	virtual void Tick(float DeltaTime) override;
+	virtual void InitializeStatsFromDataTable() override;
 
 	// 공격시 투명화 해제
 	virtual UAnimMontage* Attack() override;

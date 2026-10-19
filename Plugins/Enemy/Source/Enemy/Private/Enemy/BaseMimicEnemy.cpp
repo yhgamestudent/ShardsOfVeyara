@@ -229,3 +229,13 @@ void ABaseMimicEnemy::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 	}
 }
 #endif
+
+void ABaseMimicEnemy::InitializeStatsFromDataTable()
+{
+	Super::InitializeStatsFromDataTable();
+
+	if (CombatStatHandle.DataTable && !CombatStatHandle.RowName.IsNone())
+	{
+		MeleeAttackDamage = AttackDamage;
+	}
+}

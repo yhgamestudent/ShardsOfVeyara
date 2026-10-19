@@ -4,6 +4,7 @@
 #include "GameFramework/Character.h"
 #include "Interface/ItemDropInterface.h"
 #include "CSVLogType.h" 
+#include "CombatStatData.h"
 #include "BaseEnemy.generated.h"
 
 // 에디터 에너미 폴더 안의 ENUM 안에다가도 추가해줘야함!!!!!!!!!!!!!!!!!!!!!!!!
@@ -100,6 +101,18 @@ public:
 	UPROPERTY(EditAnywhere, Category="자체설정")
 	bool bCheckDeadLogic = false;
 	void TestDeadLogic(); // 테스트용 죽음 로직 함수
+	// Kalivra 밸런싱 데이터테이블(DT_CombatStats) 행 바인딩 (설정 시 MaxHealth, AttackDamage, AttackDelay 자동 초기화)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="자체설정|전투스탯")
+	FDataTableRowHandle CombatStatHandle;
+
+	// 기본 공격력 (데이터테이블 DT_CombatStats 연동 또는 기본값)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="자체설정|전투스탯")
+	float AttackDamage = 20.f;
+
+	// 데이터테이블로부터 전투 스탯을 읽어와 초기화합니다
+	UFUNCTION(BlueprintCallable, Category="자체설정|전투스탯")
+	virtual void InitializeStatsFromDataTable();
+
 	// 최대 체력
 	UPROPERTY(EditAnywhere, Category="자체설정")
 	float MaxHealth = 50.f;

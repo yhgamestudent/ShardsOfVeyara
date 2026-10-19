@@ -20,7 +20,7 @@ enum class ECombatRole : uint8
  * Kalivra 밸런싱 시뮬레이션 및 데이터테이블(DT_CombatStats.csv)과 1:1 매핑되는 전투 스탯 구조체
  */
 USTRUCT(BlueprintType)
-struct AGSD_API FCombatStatRow : public FTableRowBase
+struct ENEMY_API FCombatStatRow : public FTableRowBase
 {
 	GENERATED_BODY()
 

@@ -86,6 +86,7 @@ public:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaTime) override;
 	virtual void Die() override;
+	virtual void InitializeStatsFromDataTable() override;
 	
 	UFUNCTION()
 	void OnBeginOverlapAttackCollisionSphere(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,

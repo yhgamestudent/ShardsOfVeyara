@@ -33,7 +33,10 @@ void ABaseRangedEnemy::ShootProjectile()
 			ABaseEnemyProjectile* SpawnedProjectile =
 				World->SpawnActor<ABaseEnemyProjectile>(ProjectileClass, SpawnLocation, SpawnRotation, SpawnParams);
 			
-			// 엄
+			if (SpawnedProjectile && CombatStatHandle.DataTable && !CombatStatHandle.RowName.IsNone())
+			{
+				SpawnedProjectile->SetDamage(AttackDamage);
+			}
 		}
 	}
 }

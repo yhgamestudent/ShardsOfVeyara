@@ -288,3 +288,13 @@ void ABaseBurrowEnemy::PostEditChangeProperty(FPropertyChangedEvent& PropertyCha
 	}
 }
 #endif
+
+void ABaseBurrowEnemy::InitializeStatsFromDataTable()
+{
+	Super::InitializeStatsFromDataTable();
+
+	if (CombatStatHandle.DataTable && !CombatStatHandle.RowName.IsNone())
+	{
+		UnburrowAttackDamage = AttackDamage;
+	}
+}

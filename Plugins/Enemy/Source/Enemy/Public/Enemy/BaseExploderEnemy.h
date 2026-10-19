@@ -26,6 +26,7 @@ protected:
 
 public:
 	ABaseExploderEnemy();
+	virtual void InitializeStatsFromDataTable() override;
 	
 	UFUNCTION(BlueprintCallable)
 	void Explode();

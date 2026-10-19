@@ -89,3 +89,13 @@ void ABaseMeleeEnemy::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 	}
 }
 #endif
+
+void ABaseMeleeEnemy::InitializeStatsFromDataTable()
+{
+	Super::InitializeStatsFromDataTable();
+
+	if (CombatStatHandle.DataTable && !CombatStatHandle.RowName.IsNone())
+	{
+		MeleeAttackDamage = AttackDamage;
+	}
+}

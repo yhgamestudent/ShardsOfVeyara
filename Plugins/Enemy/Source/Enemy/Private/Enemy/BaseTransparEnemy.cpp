@@ -200,3 +200,13 @@ void ABaseTransparEnemy::PostEditChangeProperty(FPropertyChangedEvent& PropertyC
 	}
 }
 #endif
+
+void ABaseTransparEnemy::InitializeStatsFromDataTable()
+{
+	Super::InitializeStatsFromDataTable();
+
+	if (CombatStatHandle.DataTable && !CombatStatHandle.RowName.IsNone())
+	{
+		MeleeAttackDamage = AttackDamage;
+	}
+}

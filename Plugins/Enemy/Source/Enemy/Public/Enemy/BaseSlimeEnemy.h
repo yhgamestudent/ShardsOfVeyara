@@ -54,6 +54,7 @@ protected:
 public:
 	ABaseSlimeEnemy();
 	virtual void Tick(float DeltaTime) override;
+	virtual void InitializeStatsFromDataTable() override;
 
 	// 이미 공격에 히트된 액터들을 저장하는 배열
 	UPROPERTY()

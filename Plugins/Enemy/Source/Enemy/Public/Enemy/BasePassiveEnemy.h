@@ -31,6 +31,7 @@ public:
 	virtual void Tick(float DeltaTime) override;
 	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent,
 		class AController* EventInstigator, AActor* DamageCauser) override;
+	virtual void InitializeStatsFromDataTable() override;
 	
 	// 이미 공격에 히트된 액터들을 저장하는 배열
 	UPROPERTY()

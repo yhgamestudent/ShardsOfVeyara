@@ -51,6 +51,8 @@ public:
 	virtual void Tick(float DeltaTime) override;
 
 	FORCEINLINE class UProjectileMovementComponent* GetProjectileMovement() const { return ProjectileMovement; }
+	UFUNCTION(BlueprintCallable, Category="자체설정")
+	void SetDamage(float InDamage) { Damage = InDamage; }
 
 #if WITH_EDITOR
 	// 에디터에서 프로퍼티가 변경될 때 호출됩니다.

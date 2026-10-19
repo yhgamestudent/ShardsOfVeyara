@@ -1006,3 +1006,16 @@ void ABossSkeletonMage::EndBattleLog()
 	CommonBossLogData = FCommonBossLogData();
 	BossSkeletonMageLogData = FBossSkeletonMageLogData();
 }
+
+void ABossSkeletonMage::InitializeStatsFromDataTable()
+{
+	Super::InitializeStatsFromDataTable();
+
+	// 데이터테이블이 명시적으로 연결되어 있는 경우에만 대미지 스케일링 적용
+	if (CombatStatHandle.DataTable && !CombatStatHandle.RowName.IsNone())
+	{
+		AttackStruct.GravityAttackDamage = BaseAttackDamage * 0.15f;
+		AttackStruct.SecondPhaseThunderAttackDamage = BaseAttackDamage * 0.05f;
+		AttackStruct.SecondPhaseMeteorAttackDamage = BaseAttackDamage * 0.1f;
+	}
+}
