@@ -283,9 +283,8 @@ void UPetTalkComponent::StartConversation(FName DialogueID)
 			PC->SetIgnoreMoveInput(true);
 			PC->SetIgnoreLookInput(true);
 
-			FInputModeGameAndUI InputMode;
+			FInputModeUIOnly InputMode;
 			InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
-			InputMode.SetHideCursorDuringCapture(false);
 			if (ConversationSubtitleInstance)
 			{
 				InputMode.SetWidgetToFocus(ConversationSubtitleInstance->TakeWidget());
@@ -313,9 +312,8 @@ void UPetTalkComponent::StartConversation(FName DialogueID)
 				{
 					if (IsValid(this) && IsValid(PC) && bIsInputBound)
 					{
-						FInputModeGameAndUI NextInputMode;
+						FInputModeUIOnly NextInputMode;
 						NextInputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
-						NextInputMode.SetHideCursorDuringCapture(false);
 						if (ConversationSubtitleInstance)
 						{
 							NextInputMode.SetWidgetToFocus(ConversationSubtitleInstance->TakeWidget());

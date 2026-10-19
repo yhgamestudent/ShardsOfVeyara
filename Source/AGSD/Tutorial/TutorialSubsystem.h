@@ -34,6 +34,20 @@ public:
 	void StartTutorialSequence(UDataTable* TutorialTable, FName SequenceName);
 
 	/**
+	 * 특정 데이터 테이블 및 스텝 인덱스 기반으로 중단되었던 튜토리얼을 복원하여 재개합니다. (세이브 로드 연동용)
+	 * @param TutorialTable FTutorialStepData 행 구조를 가진 데이터 테이블
+	 * @param SequenceName 시퀀스 식별자
+	 * @param StepIndex 재개할 스텝 번호 (0-based)
+	 * @param InObjectiveCounts 세부 목표별 진행 카운트 복원값
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Tutorial")
+	void ResumeTutorialSequence(UDataTable* TutorialTable, FName SequenceName, int32 StepIndex, const TArray<int32>& InObjectiveCounts);
+
+	/** 현재 진행 중인 활성 튜토리얼 상태 반환 (세이브 연동용) */
+	UFUNCTION(BlueprintPure, Category = "Tutorial")
+	bool GetActiveTutorialState(FName& OutSequenceName, TSoftObjectPtr<UDataTable>& OutTutorialTable, int32& OutStepIndex, TArray<int32>& OutObjectiveCounts) const;
+
+	/**
 	 * 플레이어나 상호작용 오브젝트가 수행한 행동을 보고합니다.
 	 * 현재 스텝의 목표 행동과 일치하면 카운트가 올라가고, 목표 달성 시 다음 스텝으로 진행합니다.
 	 * @param ActionType 수행된 행동 타입
@@ -79,6 +93,19 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Tutorial")
 	void SkipCurrentSequence();
+
+	/**
+	 * 현재 진행 중인 튜토리얼 시퀀스를 완료 처리하지 않고 즉시 취소 및 삭제합니다.
+	 * 화면의 퀘스트 UI와 안내 마커가 완전히 닫히고 펫이 대기 상태로 복귀합니다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Tutorial")
+	void CancelCurrentSequence();
+
+	/**
+	 * 완료된 퀘스트 기록 및 진행 중인 퀘스트를 모두 초기화합니다. (디버그/테스트용)
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Tutorial")
+	void ResetAllQuests();
 
 	/** 현재 스텝 데이터 반환 */
 	UFUNCTION(BlueprintPure, Category = "Tutorial")
@@ -235,6 +262,16 @@ private:
 	FName CurrentSequenceName = NAME_None;
 	bool bIsActive = false;
 
+	/** 현재 시퀀스에서 사용 중인 데이터 테이블 소프트 참조 */
+	UPROPERTY()
+	TSoftObjectPtr<UDataTable> CurrentTutorialTable = nullptr;
+
+	/** 튜토리얼 진행 상태 자동 저장 헬퍼 */
+	void AutoSaveTutorialProgress();
+
+	/** 현재 스텝의 세부 목표(SubObjectives)들이 완료 조건을 만족했는지 검사 (bOrSubObjectives OR/AND 판정) */
+	bool CheckSubObjectivesCompleted(const FTutorialStepData& Step, const TArray<int32>& Counts) const;
+
 	/** 현재 스텝의 대화가 진행 중이어서 퀘스트 부여를 대기하고 있는지 여부 */
 	bool bWaitingForDialogue = false;
 
@@ -261,4 +298,16 @@ private:
 
 	/** 맵 전환 후 안정화 대기 타이머 */
 	FTimerHandle LevelTransitionTimerHandle;
+
+	/** 현재 튜토리얼 시퀀스가 시작된 원래 맵 이름 */
+	FName CurrentSequenceOriginMapName = NAME_None;
+
+	/** 맵 이동 직후 펫이 스폰될 때까지 대화 시작을 재시도하는 함수 */
+	void TryStartPendingDialogue();
+
+	/** 대화 시작 재시도 타이머 */
+	FTimerHandle DialogueRetryTimerHandle;
+
+	/** 대화 시작 재시도 횟수 카운터 */
+	int32 DialogueRetryCount = 0;
 };

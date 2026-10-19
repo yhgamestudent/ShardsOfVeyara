@@ -4,6 +4,63 @@
 #include "Misc/Guid.h"
 #include "HAL/FileManager.h"
 #include "Engine/World.h"
+#include "HttpModule.h"
+#include "Interfaces/IHttpRequest.h"
+#include "Interfaces/IHttpResponse.h"
+#include "Serialization/JsonWriter.h"
+#include "Serialization/JsonSerializer.h"
+#include "Misc/ConfigCacheIni.h"
+#include "HAL/PlatformFileManager.h"
+
+void UGameplayLogSubsystem::Initialize(FSubsystemCollectionBase& Collection)
+{
+	Super::Initialize(Collection);
+	LoadTelemetryCredentials();
+}
+
+void UGameplayLogSubsystem::LoadTelemetryCredentials()
+{
+	// Git에 추적되지 않는 로컬 보안 설정 파일 (Config/LocalTelemetry.ini) 경로 확인
+	FString LocalConfigPath = FPaths::ProjectConfigDir() / TEXT("LocalTelemetry.ini");
+	if (FPlatformFileManager::Get().GetPlatformFile().FileExists(*LocalConfigPath))
+	{
+		FString FileContent;
+		if (FFileHelper::LoadFileToString(FileContent, *LocalConfigPath))
+		{
+			TArray<FString> Lines;
+			FileContent.ParseIntoArrayLines(Lines);
+			for (FString& Line : Lines)
+			{
+				Line = Line.TrimStartAndEnd();
+				if (Line.StartsWith(TEXT(";")) || Line.StartsWith(TEXT("#")))
+				{
+					continue;
+				}
+
+				if (Line.StartsWith(TEXT("GoogleSheetsWebAppURL=")))
+				{
+					FString Value = Line.RightChop(FString(TEXT("GoogleSheetsWebAppURL=")).Len()).TrimStartAndEnd();
+					Value = Value.TrimQuotes();
+					if (!Value.IsEmpty())
+					{
+						GoogleSheetsWebAppURL = Value;
+					}
+				}
+				else if (Line.StartsWith(TEXT("GoogleSheetsAuthToken=")))
+				{
+					FString Value = Line.RightChop(FString(TEXT("GoogleSheetsAuthToken=")).Len()).TrimStartAndEnd();
+					Value = Value.TrimQuotes();
+					if (!Value.IsEmpty())
+					{
+						GoogleSheetsAuthToken = Value;
+					}
+				}
+			}
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("[GameplayLogSubsystem] Loaded telemetry credentials from LocalTelemetry.ini (URL: %s)"), *GoogleSheetsWebAppURL);
+	}
+}
 
 void UGameplayLogSubsystem::InitNewSession()
 {
@@ -1100,6 +1157,20 @@ void UGameplayLogSubsystem::RecordPotionCrafted(const FString& PotionItemID)
 	}
 }
 
+int32 UGameplayLogSubsystem::GetCraftedPotionCount(const FString& PotionItemID) const
+{
+	if (const int32* FoundCount = LogData.CraftedPotionTypeCounts.Find(PotionItemID))
+	{
+		return *FoundCount;
+	}
+	return 0;
+}
+
+bool UGameplayLogSubsystem::IsPotionDiscovered(const FString& PotionItemID) const
+{
+	return GetCraftedPotionCount(PotionItemID) > 0;
+}
+
 void UGameplayLogSubsystem::SetTargetCropTypeCount(int32 Count)
 {
 	if (Count > 0)
@@ -1144,10 +1215,12 @@ void UGameplayLogSubsystem::SetGameCompleted(bool bCompleted)
 // ==========================================
 void UGameplayLogSubsystem::Deinitialize()
 {
-	// 게임 종료 또는 GameInstance 해제 시 자동으로 CSV 내보내기 수행
+	// 게임 종료 또는 GameInstance 해제 시 자동으로 CSV 내보내기 및 구글 시트 원격 업로드 수행
 	ExportLogsToCSVFile(TEXT(""));
+	UploadLogsToGoogleSheets();
 	Super::Deinitialize();
 }
+
 
 // ==========================================
 // 📌 CSV 내보내기 (구글 시트 연동)
@@ -2330,3 +2403,105 @@ bool UGameplayLogSubsystem::ExportLogsToCSVFile(const FString& FilePath)
 	// 파일이 없으면 UTF-8 with BOM(ForceUTF8)으로 신규 생성 (엑셀 한글 깨짐 방지)
 	return FFileHelper::SaveStringToFile(CSVContent, *SavePath, FFileHelper::EEncodingOptions::ForceUTF8);
 }
+
+void UGameplayLogSubsystem::UploadLogsToGoogleSheets(const FString& InWebAppURL, const FString& InAuthToken)
+{
+#if UE_BUILD_SHIPPING
+	// 출시(Shipping) 빌드에서는 원격 업로드 기능이 완전 비활성화되어 외부 통신이 원천 차단됩니다.
+	OnLogUploadCompleted.Broadcast(false, TEXT("Log upload is disabled in Shipping build."));
+	return;
+#else
+	if (!bEnableRemoteUpload)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[GameplayLogSubsystem] Remote upload is disabled by configuration."));
+		OnLogUploadCompleted.Broadcast(false, TEXT("Remote upload is disabled by configuration."));
+		return;
+	}
+
+	if (GoogleSheetsWebAppURL.IsEmpty() || GoogleSheetsAuthToken.IsEmpty())
+	{
+		LoadTelemetryCredentials();
+	}
+
+	FString TargetURL = InWebAppURL.IsEmpty() ? GoogleSheetsWebAppURL : InWebAppURL;
+	TargetURL = TargetURL.TrimStartAndEnd();
+	if (TargetURL.IsEmpty())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[GameplayLogSubsystem] Google Sheets WebApp URL is empty. Please set it in Config/LocalTelemetry.ini or via parameter."));
+		OnLogUploadCompleted.Broadcast(false, TEXT("Google Sheets WebApp URL is empty."));
+		return;
+	}
+
+	FString TargetToken = InAuthToken.IsEmpty() ? GoogleSheetsAuthToken : InAuthToken;
+	TargetToken = TargetToken.TrimStartAndEnd();
+
+	FString CSVContent = GenerateCSVString();
+	if (CSVContent.IsEmpty())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[GameplayLogSubsystem] Generated CSV content is empty."));
+		OnLogUploadCompleted.Broadcast(false, TEXT("Log CSV content is empty."));
+		return;
+	}
+
+	// JSON Payload 구성: {"authToken": "...", "playerSessionId": "...", "csvData": "..."}
+	TSharedPtr<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetStringField(TEXT("authToken"), TargetToken);
+	RootObject->SetStringField(TEXT("playerSessionId"), LogData.PlayerSessionID);
+	RootObject->SetStringField(TEXT("csvData"), CSVContent);
+
+	FString RequestBody;
+	TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&RequestBody);
+	FJsonSerializer::Serialize(RootObject.ToSharedRef(), JsonWriter);
+
+	// HTTP POST 요청 생성
+	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> HttpRequest = FHttpModule::Get().CreateRequest();
+	HttpRequest->SetURL(TargetURL);
+	HttpRequest->SetVerb(TEXT("POST"));
+	HttpRequest->SetHeader(TEXT("Content-Type"), TEXT("application/json; charset=utf-8"));
+	HttpRequest->SetContentAsString(RequestBody);
+	HttpRequest->SetTimeout(20.0f);
+
+	TWeakObjectPtr<UGameplayLogSubsystem> WeakThis(this);
+	HttpRequest->OnProcessRequestComplete().BindLambda(
+		[WeakThis](FHttpRequestPtr Request, FHttpResponsePtr Response, bool bConnectedSuccessfully)
+		{
+			if (bConnectedSuccessfully && Response.IsValid())
+			{
+				int32 ResponseCode = Response->GetResponseCode();
+				// 200 OK 또는 리다이렉트 응답 코드
+				if (ResponseCode >= 200 && ResponseCode < 400)
+				{
+					FString ResponseStr = Response->GetContentAsString();
+					UE_LOG(LogTemp, Log, TEXT("[GameplayLogSubsystem] Log uploaded successfully! Response: %s"), *ResponseStr);
+					if (WeakThis.IsValid())
+					{
+						WeakThis->OnLogUploadCompleted.Broadcast(true, ResponseStr);
+					}
+					return;
+				}
+				else
+				{
+					FString ErrMsg = FString::Printf(TEXT("HTTP error code: %d, Response: %s"), ResponseCode, *Response->GetContentAsString());
+					UE_LOG(LogTemp, Warning, TEXT("[GameplayLogSubsystem] Log upload failed: %s"), *ErrMsg);
+					if (WeakThis.IsValid())
+					{
+						WeakThis->OnLogUploadCompleted.Broadcast(false, ErrMsg);
+					}
+					return;
+				}
+			}
+
+			FString FailureMsg = TEXT("Failed to connect to Google Sheets server or connection timed out.");
+			UE_LOG(LogTemp, Warning, TEXT("[GameplayLogSubsystem] %s"), *FailureMsg);
+			if (WeakThis.IsValid())
+			{
+				WeakThis->OnLogUploadCompleted.Broadcast(false, FailureMsg);
+			}
+		}
+	);
+
+	UE_LOG(LogTemp, Log, TEXT("[GameplayLogSubsystem] Sending gameplay logs to Google Sheets (Target: %s, Session: %s)..."), *TargetURL, *LogData.PlayerSessionID);
+	HttpRequest->ProcessRequest();
+#endif
+}
+

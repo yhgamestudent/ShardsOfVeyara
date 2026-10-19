@@ -126,6 +126,14 @@ void AAlchemyTable::EndAlchemy()
     
 	// 3. 카메라를 다시 캐릭터에게로 (부드럽게 복구)
 	PC->SetViewTargetWithBlend(Player, BlendTime);
+	if (Player && Player->GetAudioListenerComponent())
+	{
+		PC->SetAudioListenerOverride(Player->GetAudioListenerComponent(), FVector::ZeroVector, FRotator::ZeroRotator);
+	}
+	else
+	{
+		PC->ClearAudioListenerOverride();
+	}
 
 	// 4. 입력 모드를 다시 게임 전용으로 변경
 	FInputModeGameOnly InputMode;
@@ -185,6 +193,10 @@ void AAlchemyTable::Interact_Implementation(AAGSDCharacter* player)
 		}
 		
 		PlayerController->SetViewTargetWithBlend(this, BlendTime);
+		if (CameraComp)
+		{
+			PlayerController->SetAudioListenerOverride(CameraComp, FVector::ZeroVector, FRotator::ZeroRotator);
+		}
 
 		// 위젯이 아직 없다면 여기서 생성
 		if (!AlchemyWidget && AlchemyWidgetClass)

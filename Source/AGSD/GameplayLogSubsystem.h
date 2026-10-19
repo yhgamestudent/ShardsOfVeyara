@@ -5,6 +5,9 @@
 #include "Struct_GameplayLogData.h"
 #include "GameplayLogSubsystem.generated.h"
 
+// 로그 업로드 완료 델리게이트 (성공 여부, 응답 메시지)
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnLogUploadCompleted, bool, bSuccess, const FString&, ResponseMessage);
+
 
 /**
  * 게임 플레이 중 발생하는 각종 이벤트 로그를 중앙에서 관리하는 서브시스템입니다.
@@ -15,6 +18,7 @@ class AGSD_API UGameplayLogSubsystem : public UGameInstanceSubsystem
 	GENERATED_BODY()
 
 public:
+	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 
 	// 세이브 및 로드에 사용될 실제 로그 데이터 구조체
@@ -334,6 +338,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
 	void RecordPotionCrafted(const FString& PotionItemID);
 
+	// 특정 포션의 제작 횟수 조회
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
+	int32 GetCraftedPotionCount(const FString& PotionItemID) const;
+
+	// 특정 포션의 해금/발견 여부 조회
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
+	bool IsPotionDiscovered(const FString& PotionItemID) const;
+
 	// 데이터 테이블 기반 동적 기준치 및 봉헌 레벨 동기화
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Milestone")
 	void SetTargetCropTypeCount(int32 Count);
@@ -362,6 +374,30 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Export")
 	bool ExportLogsToCSVFile(const FString& FilePath);
+
+	// 구글 스프레드시트(Apps Script Web App)로 로그 자동 전송 (Shipping 빌드에서는 자동 차단)
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Export")
+	void UploadLogsToGoogleSheets(const FString& InWebAppURL = TEXT(""), const FString& InAuthToken = TEXT(""));
+
+	// 로그 업로드 완료 시 브로드캐스트되는 델리게이트
+	UPROPERTY(BlueprintAssignable, Category = "GameplayLog|Export")
+	FOnLogUploadCompleted OnLogUploadCompleted;
+
+	// 원격 로그 전송 활성화 플래그 (체크 해제 시 전송 비활성화)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Config")
+	bool bEnableRemoteUpload = true;
+
+	// 기본 구글 앱스 스크립트 웹 앱 배포 URL (보안을 위해 Git에 커밋되지 않는 Config/LocalTelemetry.ini에서 로드)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Config")
+	FString GoogleSheetsWebAppURL;
+
+	// 웹 앱 인증용 비밀 토큰 (보안을 위해 Git에 커밋되지 않는 Config/LocalTelemetry.ini에서 로드)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Config")
+	FString GoogleSheetsAuthToken;
+
+	// 로컬 설정 파일(Config/LocalTelemetry.ini)에서 보안 URL 및 토큰 읽기
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Config")
+	void LoadTelemetryCredentials();
 
 protected:
 	// 실시간 보스전 활성 상태 (레벨 스트리밍 환경에서 보스 전투 시작 ~ 처치/사망 구간 트래킹)

@@ -88,8 +88,21 @@ TODO*.md
 *.DotSettings.user
 *.DotSettings
 
-# Local scratch & backups
+# Local scratch & backups & scripts
 scratch/
+Scripts/
 *.bak*
 *.bak[0-9]*
+
+# Local Telemetry & Credentials (Never commit to Git)
+Config/LocalTelemetry.ini
+Config/*Local*.ini
+!Config/LocalTelemetry.example.ini
+
+# Internal Combat Balance CSVs (Never commit to Git)
+*SpearComboData*.csv
+*CombatStats*.csv
+DT_*.csv
+
+
 

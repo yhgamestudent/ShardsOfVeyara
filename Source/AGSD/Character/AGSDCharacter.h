@@ -107,6 +107,10 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Input")
 	class UInputAction* SprintAction;
 
+	/** Roll Input Action */
+	UPROPERTY(EditAnywhere, Category="Input")
+	class UInputAction* RollAction;
+
 	/** Move Input Action */
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* MoveAction;
@@ -260,6 +264,7 @@ public:
 	AAGSDCharacter();	
 
 	FORCEINLINE FStruct_ItemData GetHoldingItemData() const { return HoldingItemData; }
+	FORCEINLINE USceneComponent* GetAudioListenerComponent() const { return AudioListenerComponent; }
 
 	// G 키 입력 및 외부 상호작용 위임 함수
 	void TryInteract();
@@ -670,6 +675,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Pet")
 	FORCEINLINE class ABaseFlyingPet* GetPet() const { return Pet; }
+
+	UFUNCTION(BlueprintPure, Category = "Pet")
+	bool IsInDialogue() const;
 
 	UFUNCTION(BlueprintCallable, Category = "Pet")
 	void SetPet(class ABaseFlyingPet* NewPet);

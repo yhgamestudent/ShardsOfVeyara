@@ -31,7 +31,10 @@ public class AGSD : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[] 
 		{
-			"Niagara"
+			"Niagara",
+			"HTTP",
+			"Json",
+			"JsonUtilities"
         });
 
         // 에디터 빌드일 때만 추가되도록 조건문을 사용합니다.
