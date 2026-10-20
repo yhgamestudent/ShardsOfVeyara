@@ -1133,13 +1133,23 @@ void AAGSDCharacter::UpdateSprintSpeed()
 		}
 	}
 
-	if (bIsSprinting && !bIsMovingBackward)
+	const bool bIsInLowGravityArea = (GetCharacterMovement()->GravityScale < 0.5f);
+
+	if (bIsInLowGravityArea)
 	{
-		GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
+		// 중력 왜곡 등 외부 환경에 의해 감속된 상태에서는 감속치(예: 200.f) 유지 (Shift 달리기 무단 덮어쓰기 방지)
+		GetCharacterMovement()->MaxWalkSpeed = FMath::Min(GetCharacterMovement()->MaxWalkSpeed, 200.f);
 	}
 	else
 	{
-		GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+		if (bIsSprinting && !bIsMovingBackward)
+		{
+			GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
+		}
+		else
+		{
+			GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+		}
 	}
 }
 
@@ -1576,6 +1586,9 @@ void AAGSDCharacter::StartNewComboWithInput(ESpearAttackInput Input)
 {
 	if (IsInDialogue()) return;
 	if (Mining || bIsRolling) return;
+	// 공중 체공 중(점프 또는 넉백 피격으로 비행 중)에는 지상 평타 입력 무시
+	if (GetCharacterMovement() && GetCharacterMovement()->IsFalling()) return;
+
 	ESpearAttackDirection CurrentDir = GetAttackDirection();
 	Mining = true;
 	
@@ -2388,16 +2401,26 @@ void AAGSDCharacter::HandleEnemyDeadAndDropItem_Implementation(AActor* DeadActor
 
 void AAGSDCharacter::StopAnimMontage(UAnimMontage* AnimMontage)
 {
+	// 0. 블렌드아웃(0.25초) 대기 없이 모든 몽타주와 루트 모션을 즉시 0초 만에 강제 정지
+	if (UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr)
+	{
+		AnimInstance->StopAllMontages(0.0f);
+	}
+
 	Super::StopAnimMontage(AnimMontage);
 	
-	//ResetAttackState();
-	bIsAttacking = false;
-	bIsRecovering = false;
-	bCanCombo = false;
+	// 1. 선입력 버퍼를 먼저 비워 ResetAttackState() 내의 즉시 공격 트리거 방지
 	bHasBufferedInput = false;
-	CurrentStageIndex = -1;
-	CurrentComboData = nullptr;
-	Mining = false;
+
+	// 2. 공격 상태 및 콤보 데이터 완전 초기화
+	ResetAttackState();
+	ResetCombo();
+
+	// 3. 넉백 피격 시 모션워핑 타겟을 즉시 해제하여 전진 보정 방지
+	if (MotionWarpingComponent)
+	{
+		MotionWarpingComponent->RemoveWarpTarget(FName("WarpTarget"));
+	}
 }
 
 //--------------

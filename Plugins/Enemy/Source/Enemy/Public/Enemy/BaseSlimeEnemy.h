@@ -23,7 +23,7 @@ protected:
 
 	// 분열 시 생성할 슬라임 간격
 	UPROPERTY(EditAnywhere, Category="자체설정")
-	float SplitSpawnRadius = 100.f;
+	float SplitSpawnRadius = 180.f;
 
 	// 분열시 슬라임 체력 배율
 	UPROPERTY(EditAnywhere, Category="자체설정")

@@ -125,6 +125,18 @@ public:
 	// 소환할 적 클래스들의 배열. 0 미니언 1 로그 2 워리어
 	UPROPERTY(EditDefaultsOnly, Category = "자체설정")
 	TArray<TSubclassOf<class ABaseEnemy>> SummonableEnemyClasses;
+
+	// 소환수 미니언에게 적용할 데이터테이블 행 이름 (기본값: Boss_SkeletonMage_Minion)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Stats")
+	FName SummonMinionStatRowName = TEXT("Boss_SkeletonMage_Minion");
+
+	// 소환수 로그에게 적용할 데이터테이블 행 이름 (기본값: Boss_SkeletonMage_Rogue)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Stats")
+	FName SummonRogueStatRowName = TEXT("Boss_SkeletonMage_Rogue");
+
+	// 소환수 워리어에게 적용할 데이터테이블 행 이름 (기본값: Boss_SkeletonMage_Warrior)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Stats")
+	FName SummonWarriorStatRowName = TEXT("Boss_SkeletonMage_Warrior");
 	// 소환될 위치들을 저장할 배열
 	TArray<FVector> SummonLocations;
 	UPROPERTY(EditDefaultsOnly, Category = "자체설정")
@@ -170,10 +182,10 @@ public:
 	void CreateMagicShield();
 	// 수평으로 밀어내는 힘
 	UPROPERTY(EditDefaultsOnly, Category = "자체설정")
-	float PushForce = 1600.f;
+	float PushForce = 2200.f;
 	// 위로 띄우는 힘
 	UPROPERTY(EditDefaultsOnly, Category = "자체설정")
-	float PushUpwardForce = 350.f; 
+	float PushUpwardForce = 450.f; 
 	// 쉴드 이펙트
 	UPROPERTY(EditDefaultsOnly, Category = "자체설정")
 	class UNiagaraSystem* MagicShieldEffect;

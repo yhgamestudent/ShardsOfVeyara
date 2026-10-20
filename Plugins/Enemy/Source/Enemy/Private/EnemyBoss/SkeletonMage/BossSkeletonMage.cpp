@@ -92,17 +92,32 @@ void ABossSkeletonMage::Tick(float DeltaTime)
 					}
 					
 					// 1. 밀어낼 방향 계산 (보스 -> 플레이어)
-					FVector PushDirection = PlayerCharacter->GetActorLocation() - GetActorLocation();
-					PushDirection.Z = 0; // 수평 방향으로만 밀도록 Z값을 0으로 설정
-					PushDirection.Normalize();
+					const FVector BossLoc = GetActorLocation();
+					const FVector PlayerLoc = PlayerCharacter->GetActorLocation();
+					FVector PushDirection = PlayerLoc - BossLoc;
+					const float Dist2D = PushDirection.Size2D();
+					PushDirection.Z = 0.f; // 수평 방향으로만 밀도록 Z값을 0으로 설정
+					
+					bool bDirValid = PushDirection.Normalize();
+					if (!bDirValid || Dist2D < 10.f)
+					{
+						// 보스와 플레이어가 너무 가까워 방향이 0인 경우 보스의 정면으로 밀어냄
+						PushDirection = GetActorForwardVector();
+						PushDirection.Z = 0.f;
+						PushDirection.Normalize();
+					}
 
 					// 2. 밀어낼 속도 계산 (방향 * 힘 + 위로 띄우는 힘)
 					const FVector LaunchVelocity = PushDirection * PushForce + FVector(0.f, 0.f, PushUpwardForce);
 
-					// 3. 플레이어 캐릭터를 밀어냄
+					// 3. 지면 마찰력(Ground Friction)에 의한 감속 간섭을 차단하기 위해 공중 모드로 즉시 전환 후 발사
+					if (UCharacterMovementComponent* MoveComp = PlayerCharacter->GetCharacterMovement())
+					{
+						MoveComp->SetMovementMode(MOVE_Falling);
+					}
+
 					// bXYOverride와 bZOverride를 true로 설정하여 현재 속도를 무시하고 새로운 속도를 적용합니다.
 					PlayerCharacter->LaunchCharacter(LaunchVelocity, true, true);
-					
 				}
 				// --- 플레이어 밀치기 효과 끝 ---
 
@@ -383,6 +398,33 @@ void ABossSkeletonMage::SummonEnemy()
 			if ( SpawnedEnemy )
 			{
 				SpawnedEnemy->EnemyLogID = FString::Printf(TEXT("%s_SummonedEnemy"), *BossLogId);
+
+				// 소환수 클래스에 알맞은 전용 데이터테이블 행 결정
+				FName TargetRowName = SummonMinionStatRowName;
+				if (EnemyClassToSummon)
+				{
+					const FString ClassName = EnemyClassToSummon->GetName();
+					if (ClassName.Contains(TEXT("Rogue")))
+					{
+						TargetRowName = SummonRogueStatRowName;
+					}
+					else if (ClassName.Contains(TEXT("Warrior")))
+					{
+						TargetRowName = SummonWarriorStatRowName;
+					}
+					else
+					{
+						TargetRowName = SummonMinionStatRowName;
+					}
+				}
+
+				// 스켈레톤 메이지 소환수 전용 데이터테이블 행 바인딩 및 스탯 초기화
+				if (!TargetRowName.IsNone() && CombatStatHandle.DataTable)
+				{
+					SpawnedEnemy->CombatStatHandle.DataTable = CombatStatHandle.DataTable;
+					SpawnedEnemy->CombatStatHandle.RowName = TargetRowName;
+					SpawnedEnemy->InitializeStatsFromDataTable();
+				}
 			}
 		}
 	}
