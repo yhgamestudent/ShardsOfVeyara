@@ -310,6 +310,10 @@ public:
 	// 등 뒤 무기 거치 상태를 동적으로 갱신하는 함수
 	void UpdateBackWeapon();
 
+	/** 상호작용(잡초 뽑기, 요리 등) 중 손에 든 무기/도구를 임시로 숨기거나 복원 */
+	UFUNCTION(BlueprintCallable, Category = "HoldingState")
+	void SetHoldingActorHidden(bool bNewHidden);
+
 	// ── 플레이어 UI 및 HUD ──
 
 	/** 생성할 PlayerHUD 위젯 클래스 */
@@ -707,6 +711,13 @@ public:
 	virtual FOnLockOnStateChanged& GetLockOnStateChangedDelegate() override { return OnLockOnStateChanged; }
 	
 	virtual void StopAnimMontage(UAnimMontage* AnimMontage = nullptr) override;
+
+	/** 피격 넉백 등 루트 모션을 즉시 강제 중단해야 하는 특수 상황 전용 정지 함수 */
+	UFUNCTION(BlueprintCallable, Category = "Animation")
+	void StopAnimMontageImmediate(float BlendOutTime = 0.0f);
+
+	/** 피격 넉백 시 공격 모션 및 루트모션이 넉백 궤적을 방해하지 않도록 오버라이드 */
+	virtual void LaunchCharacter(FVector LaunchVelocity, bool bXYOverride, bool bZOverride) override;
 	
 	UFUNCTION()
 	void HandleLockOn(bool bLockOn);

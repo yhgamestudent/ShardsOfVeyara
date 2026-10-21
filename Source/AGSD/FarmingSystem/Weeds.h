@@ -25,6 +25,7 @@ protected:
 	void SnapWeedsToGround();
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	//오버랩 시작 시 작동할 함수
 	UFUNCTION()

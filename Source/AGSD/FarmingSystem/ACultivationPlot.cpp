@@ -218,6 +218,16 @@ void AACultivationPlot::Interact_Implementation(AAGSDCharacter* player)
 	}
 }
 
+FString AACultivationPlot::GetPlotSaveKey() const
+{
+	FString MapName = GetWorld() ? GetWorld()->GetMapName() : TEXT("");
+	if (GetWorld())
+	{
+		MapName.RemoveFromStart(GetWorld()->StreamingLevelsPrefix);
+	}
+	return FString::Printf(TEXT("%s_%s"), *MapName, *GetName());
+}
+
 // Called when the game starts or when spawned
 void AACultivationPlot::BeginPlay()
 {
@@ -232,8 +242,8 @@ void AACultivationPlot::BeginPlay()
 	if (!GI) return;
 	
 	FPlotSaveData LoadedData;
-	// 아까 만든 구조체 데이터를 통째로 넘겨서 저장합니다.
-	if (!GI->GetPlotData(GetName(), LoadedData)) return;
+	// 맵별 고유 키(MapName_ActorName)를 사용하여 튜토리얼 맵과 거점 맵 간 연동 방지
+	if (!GI->GetPlotData(GetPlotSaveKey(), LoadedData)) return;
 
 	SeedName = LoadedData.SeedName;
 	CurrentGrowStageIndex = LoadedData.CurrentGrowStageIndex;
@@ -275,7 +285,7 @@ void AACultivationPlot::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	Super::EndPlay(EndPlayReason);
 	
 	FPlotSaveData SaveData;
-	SaveData.PlotName = GetName();
+	SaveData.PlotName = GetPlotSaveKey();
 	SaveData.SeedName = SeedName;
 	SaveData.CurrentGrowStageIndex = CurrentGrowStageIndex;
 	SaveData.GrowthTimeCounter = GrowthTimeCounter;

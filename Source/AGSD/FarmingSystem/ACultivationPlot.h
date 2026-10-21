@@ -25,6 +25,9 @@ protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 
+	/** 맵별 고유 세이브 키 반환 (튜토리얼 맵과 거점 맵 간 밭 데이터 연동 방지) */
+	virtual FString GetPlotSaveKey() const;
+
 	UPROPERTY(EditAnywhere, Category = "Farming")
 	TSubclassOf<ACrop> CropClassToPlant;
 

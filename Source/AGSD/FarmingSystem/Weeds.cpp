@@ -77,6 +77,17 @@ void AWeeds::BeginPlay()
 	SnapWeedsToGround();
 }
 
+void AWeeds::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// 액터가 파괴되거나 몽타주가 도중 취소되는 등 비정상 종료 시 무기가 계속 숨겨지는 현상 방지
+	if (Player && bIsActionActive)
+	{
+		Player->SetHoldingActorHidden(false);
+	}
+
+	Super::EndPlay(EndPlayReason);
+}
+
 void AWeeds::OnBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp,
 	int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
@@ -111,8 +122,14 @@ void AWeeds::OnMontageEnded(UAnimMontage* AnimMontage, bool bArg)
 {
 	bIsActionActive = false;
 
-	Player->Mining = false;
-	Player->Weeding = false;
+	if (Player)
+	{
+		Player->Mining = false;
+		Player->Weeding = false;
+
+		// 몽타주 종료 시 손에 든 무기/도구 복원
+		Player->SetHoldingActorHidden(false);
+	}
 	
 	// 2. 이동(WASD) 입력 다시 받기
 	if (PC)
@@ -155,6 +172,9 @@ void AWeeds::Interact_Implementation(AAGSDCharacter* player)
 	Player->Mining = true;
 	Player->Weeding = true;
 	
+	// 잡초 뽑기 몽타주 재생 중 손에 든 무기/도구(포크 등)를 임시로 숨김
+	Player->SetHoldingActorHidden(true);
+
 	if (OnWeeding.IsBound())
 	{
 		OnWeeding.Broadcast();

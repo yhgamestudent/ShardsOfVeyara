@@ -2401,26 +2401,52 @@ void AAGSDCharacter::HandleEnemyDeadAndDropItem_Implementation(AActor* DeadActor
 
 void AAGSDCharacter::StopAnimMontage(UAnimMontage* AnimMontage)
 {
-	// 0. 블렌드아웃(0.25초) 대기 없이 모든 몽타주와 루트 모션을 즉시 0초 만에 강제 정지
-	if (UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr)
-	{
-		AnimInstance->StopAllMontages(0.0f);
-	}
-
+	// 언리얼 엔진 기본 블렌드아웃(몽타주 설정 시간, 약 0.25초)을 적용하여 걷기/달리기/구르기와 자연스럽게 보간
 	Super::StopAnimMontage(AnimMontage);
 	
-	// 1. 선입력 버퍼를 먼저 비워 ResetAttackState() 내의 즉시 공격 트리거 방지
+	// 1. 선입력 버퍼를 비워 ResetAttackState() 내의 즉시 공격 트리거 방지
 	bHasBufferedInput = false;
 
-	// 2. 공격 상태 및 콤보 데이터 완전 초기화
+	// 2. 공격 상태 및 콤보 데이터 초기화
 	ResetAttackState();
 	ResetCombo();
 
-	// 3. 넉백 피격 시 모션워핑 타겟을 즉시 해제하여 전진 보정 방지
+	// 3. 모션워핑 타겟 해제하여 의도치 않은 전진 보정 방지
 	if (MotionWarpingComponent)
 	{
 		MotionWarpingComponent->RemoveWarpTarget(FName("WarpTarget"));
 	}
+}
+
+void AAGSDCharacter::StopAnimMontageImmediate(float BlendOutTime)
+{
+	// 피격 넉백 상황 전용: 블렌드아웃 대기 없이 모든 몽타주와 루트 모션을 즉시 강제 정지
+	if (UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr)
+	{
+		AnimInstance->StopAllMontages(BlendOutTime);
+	}
+
+	Super::StopAnimMontage(nullptr);
+	
+	bHasBufferedInput = false;
+	ResetAttackState();
+	ResetCombo();
+
+	if (MotionWarpingComponent)
+	{
+		MotionWarpingComponent->RemoveWarpTarget(FName("WarpTarget"));
+	}
+}
+
+void AAGSDCharacter::LaunchCharacter(FVector LaunchVelocity, bool bXYOverride, bool bZOverride)
+{
+	// 피격 넉백으로 캐릭터가 튕겨 나갈 때, 공격 루트 모션이나 모션 워핑이 넉백 궤적을 덮어쓰지 않도록 즉시 정지
+	if (LaunchVelocity.SizeSquared() > 0.f)
+	{
+		StopAnimMontageImmediate(0.0f);
+	}
+
+	Super::LaunchCharacter(LaunchVelocity, bXYOverride, bZOverride);
 }
 
 //--------------
@@ -2493,6 +2519,14 @@ void AAGSDCharacter::ExecuteTutorialSkipLevelTransition()
 	{
 		// 설정되지 않았을 경우 기본값
 		UGameplayStatics::OpenLevel(this, FName("Farm_Sky_Island"));
+	}
+}
+
+void AAGSDCharacter::SetHoldingActorHidden(bool bNewHidden)
+{
+	if (IsValid(HoldingActor))
+	{
+		HoldingActor->SetActorHiddenInGame(bNewHidden);
 	}
 }
 
