@@ -52,6 +52,18 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "HealthBar")
 	bool bIsHovered = false;
 
+	/** 원형 형태를 유지할 수 있는 최소 퍼센트 임계값 (실측값: 0.032 / 3.2%) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HealthBar|Visual")
+	float MinCapsulePercent = 0.032f;
+
+	/** 최소 퍼센트(0.032) 이하 구간에서 투명도를 부드럽게 페이드아웃할지 여부 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HealthBar|Visual")
+	bool bFadeOpacityBelowMinPercent = true;
+
+	/** 체력 게이지(빨간색 Fill)의 기본 색상 및 불투명도 (NativeConstruct에서 프로그레스바 초기 설정값으로 자동 캐싱) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HealthBar|Visual")
+	FLinearColor BaseFillColor = FLinearColor(1.0f, 0.0f, 0.0f, 1.0f);
+
 public:
 	/** 체력 수치 갱신 및 프로그레스 바 / 텍스트 동기화 */
 	UFUNCTION(BlueprintCallable, Category = "HealthBar")

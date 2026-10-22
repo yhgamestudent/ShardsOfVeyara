@@ -47,7 +47,8 @@ graph LR
 #### ① 인카운터 및 드롭 테이블 ([DT_MapEncounterData.csv](file:///c:/Users/user/Documents/GitHub/ShardsOfVeyara/DataTable/DT_MapEncounterData.csv))
 * **진행 경로**: 6시 시작섬 ➡️ 버섯(1) ➡️ 벌(1) ➡️ 쥐(1) ➡️ 뱀(1) ➡️ 슬라임(1) ➡️ **[기믹] 보스방 앞 펫 풀피 힐** ➡️ 스켈레톤 메이지.
 * **총 골드**: 8개.
-* **드롭**: `ForestEnemy` (토마토 씨앗 50%, 옥수수 씨앗 50%, 차원결정 50%) / `SkeletonMage` (차원의 구슬 0 확정 1개, 결정 5~10개).
+* **드롭**: `ForestEnemy` (토마토 씨앗 40%, 옥수수 씨앗 40%, 차원결정 50%) / `ForestKeyEnemy` (부유 마력 결정 100% 확정 1개) / `SkeletonMage` (차원결정 5~10개).
+* **구슬 조각 보상**: 보스 드롭에서 제외하고, `APortalSpawner`가 보스 격퇴 후 보스룸 중앙에 `BP_DimensionMarble_0`을 연출 스폰.
 
 #### ② 보스 스탯 조정 ([DT_CombatStats.csv](file:///c:/Users/user/Documents/GitHub/ShardsOfVeyara/DataTable/DT_CombatStats.csv))
 * **스켈레톤 메이지 (`Boss_Dungeon_SkeletonMage`)**:
@@ -55,15 +56,20 @@ graph LR
   * **공격력(ATK)**: `105.0` (메테오 1.7배 = 178 가드불가, 장판 1.3배 = 136)
   * **방어력(DEF)**: `15.0` / **공격 주기**: `1.6초`
 
-#### ③ 🌟 신규 기믹: 차원 결정(Dimension Crystal) 기반 보스섬 숏컷 발판
-* **배경 및 목적**: 고난도 공중 플랫포밍(점프 패드, 외나무다리 등)으로 인한 낙사 스트레스 해소 및 보스 재도전 쾌속 지원.
+#### ③ 🌟 신규 기믹 1: 부유 마력 결정(Levitation Crystal) 기반 고장난 부유 플랫폼 수리 숏컷
+* **배경 및 목적**: 고난도 공중 플랫포밍(점프 패드, 외나무다리 등)으로 인한 낙사 스트레스 해소 및 보스 재도전 쾌속 지원. 단순 열쇠가 아닌 '고장난 부유 플랫폼 수리' 컨셉 적용.
 * **메커니즘**:
-  1. 보스 성채 중앙 하늘섬 입구에 비활성화된 차원 비석 및 직통 발판 배치.
-  2. 필드 몬스터 처치로 획득한 **`차원 결정 (BP_DimensionCrystal) 3개`** 주입 시 영구 활성화.
-  3. 6시 시작섬에서 보스섬으로 5초 만에 안전 직통 연결.
-* **효과**: 몬스터 스킵 유저는 결정 부족으로 숏컷 불가 (사냥 필수화) / 2회차 보스 재도전 시 점프맵 건너뛰기 가능.
+  1. 보스 성채 중앙 하늘섬 입구에 멈춰있는 고장난 부유 플랫폼 배치.
+  2. 우회/도망치기 쉬운 잡몹(벌/슬라임 등)을 무시하고 직진하는 런스루 방지를 위해, 길목을 지키는 특정 정예 몬스터 3마리(`ForestKeyEnemy`) 지정.
+  3. 지정 몬스터 처치 시 100% 확정 드롭되는 **`부유 마력 결정 (BP_LevitationCrystal) 3개`**를 모아 플랫폼에 주입 시 영구 수리/가동.
+  4. 6시 시작섬에서 보스섬으로 5초 만에 안전 직통 연결.
+* **효과**: 몬스터 스킵 유저는 결정 부족으로 숏컷 개방 불가 (사냥 필수화) / 2회차 보스 재도전 시 점프맵 건너뛰기 가능.
 
-#### ④ 몬테카를로 1,000회 시뮬레이션 실측치
+#### ④ 🌟 신규 기믹 2: 하늘섬 낙하 데미지 페널티 시스템 (`ApplyFallPenalty`)
+* **메커니즘**: 공중 발판/다리에서 추락 시 리스폰되면서 **80 HP의 낙하 데미지 차감 + 최소 1 HP 보장(즉사 방지) + 체력바 UI 즉각 동기화 + 피격 연출**.
+* **효과**: 무성의한 낙하 돌파를 억제하고 플랫포밍 긴장감과 집중도 극대화.
+
+#### ⑤ 몬테카를로 1,000회 시뮬레이션 실측치
 * **[무준비 직행] 봉헌 0단계 / 포션 0개**:
   * 초보자 완주율: **3.1%** (보스방 사망률 **96.9%** 💀)
 * **[정석 준비] 봉헌 3단계 (ATK 100) / 하급 포션 4개**:
@@ -133,3 +139,23 @@ graph LR
 | **2단계** | **던전 (Dungeon)** | **블랙 나이트**<br/>(HP 4,800 / ATK 105) | 당근, 비트, 결정<br/>(미로 상자 골드 20) | **봉헌 4~6단계**<br/>(ATK 100 ➡️ 130 달성) | 없음 (가드/패링 강요) | 중급 회복/활력 포션 |
 | **3단계** | **동굴 (Cave)** | **보스 웜**<br/>(HP 5,500 / ATK 110 예정) | **밀 (Wheat)**, 호박, 결정 | 봉헌 7~10단계 | **극열 화염 DoT**<br/>(초당 3% HP 손실) | **내화 비약**<br/>(`밀 x 2 + 당근 x 2`) |
 | **4단계** | **현대 도시 (City)** | **마법검사**<br/>(HP 7,800 / ATK 120 예정) | **쌀 (Rice)**, 수박, 결정 | 봉헌 11~14단계 | **글로벌 전자기장 EMP**<br/>(5초마다 0.8초 스턴) | **전자기 절연수**<br/>(`쌀 x 2 + 비트 x 2`) |
+
+---
+
+## 5. 공통 시스템 & UX/클리어 연출 개선 내역
+
+### 5.1 체력바(HealthBar) UI 원형 캡슐 찌그러짐 방지 & Fill 투명도 분리 ([HealthBar.h](file:///c:/Users/user/Documents/GitHub/ShardsOfVeyara/Source/AGSD/HealthBar.h), [HealthBar.cpp](file:///c:/Users/user/Documents/GitHub/ShardsOfVeyara/Source/AGSD/HealthBar.cpp))
+* **배경**: 프로그레스바 Scale 방식 사용 시 `0.032(3.2%)` 이하 빈사 구간에서 원형 게이지가 타원형으로 납작하게 찌그러지는 현상 발생. 또한 전체 위젯 Opacity 조절 시 배경 슬롯 이미지까지 흐려지거나 사라지는 문제.
+* **해결책**:
+  1. **원형 크기 고정 (Clamp)**: `MinCapsulePercent = 0.032f`로 최저 크기를 고정하여 원형 형태 영구 유지.
+  2. **배경 틀(Background) 100% 보존**: 위젯 전체 `SetRenderOpacity`를 제거하고, 배경 슬롯은 항상 선명하게 유지.
+  3. **게이지(Fill Image) 알파 분리 제어**: `HealthProgressBar->SetFillColorAndOpacity()`의 알파(`A`)만 조작하여, `0.032` 미만에서 빨간색 게이지만 부드럽게 페이드아웃 및 0 HP 시 깔끔하게 숨김.
+
+### 5.2 보스 보상 중앙 스폰 및 포털 개방 시퀀서 ([PortalSpawner.h](file:///c:/Users/user/Documents/GitHub/ShardsOfVeyara/Source/AGSD/PortalSpawner.h), [PortalSpawner.cpp](file:///c:/Users/user/Documents/GitHub/ShardsOfVeyara/Source/AGSD/PortalSpawner.cpp))
+* **배경**: 보스 처치 시 차원의 구슬 조각이 시체 밑에 떨어지거나 인벤토리에 자동 투입되는 밋밋한 연출 대신, 젤다/소울라이크 스타일의 보스룸 클리어 연출 확립.
+* **해결책**:
+  1. **중앙 스폰 포인트 (`RewardSpawnPoint`)**: 에디터에서 보스룸 한가운데 위치를 지정할 수 있는 타겟 컴포넌트 추가.
+  2. **보스 격퇴 연출 (`SpawnRewardItem`)**: 보스 사망 시 연출 딜레이(`RewardSpawnDelay`, 1.5초) 후 보스룸 중앙에 구슬 조각(`BP_DimensionMarble_X`)을 스폰 (나이아가라 파티클 & 사운드 동시 재생).
+  3. **F키 획득 연동 중앙 포털 개방 (`TriggerSpawnPortal`)**: 플레이어가 구슬을 F키로 획득하면 인벤토리 이벤트(`OnItemAdded`)를 감지하여 **구슬이 있던 바로 그 자리에 탈출 포털 소환**.
+  4. **드롭 분리 및 1회성 보장**: `DT_EnemyItemDrop.csv` 보스 드롭에서 구슬을 분리하여 중복 획득 방지 및 던전 재도전 시 안전성 확보.
+

@@ -8,6 +8,9 @@
 #include "SOVGameInstance.h"
 #include "Inventory/AGSDInventoryComponent.h"
 #include "Struct_InventorySlotData.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraSystem.h"
+#include "TimerManager.h"
 
 APortalSpawner::APortalSpawner()
 {
@@ -22,6 +25,11 @@ APortalSpawner::APortalSpawner()
 	SpawnAreaBox->SetCollisionProfileName(TEXT("NoCollision"));
 	SpawnAreaBox->SetGenerateOverlapEvents(false);
 	SpawnAreaBox->bHiddenInGame = true;
+
+	// 보스 처치 후 구슬 조각 등 보상 아이템이 스폰될 중앙 타겟 위치 컴포넌트 생성
+	RewardSpawnPoint = CreateDefaultSubobject<USceneComponent>(TEXT("RewardSpawnPoint"));
+	RewardSpawnPoint->SetupAttachment(RootComponent);
+	RewardSpawnPoint->SetRelativeLocation(FVector::ZeroVector);
 }
 
 void APortalSpawner::BeginPlay()
@@ -44,7 +52,32 @@ void APortalSpawner::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		BoundInventoryComp = nullptr;
 	}
 
+	// 모든 타이머 안전하게 해제
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(RewardSpawnTimerHandle);
+		World->GetTimerManager().ClearTimer(RewardDescentTimerHandle);
+		World->GetTimerManager().ClearTimer(PortalActivationTimerHandle);
+	}
+
 	Super::EndPlay(EndPlayReason);
+}
+
+FString APortalSpawner::GetUniqueRewardKey() const
+{
+	if (!RequiredItemID.IsEmpty())
+	{
+		return TEXT("BossReward_") + RequiredItemID;
+	}
+	if (RewardItemClass)
+	{
+		return TEXT("BossReward_") + RewardItemClass->GetName();
+	}
+	if (TargetBoss)
+	{
+		return TEXT("BossReward_") + TargetBoss->GetClass()->GetName();
+	}
+	return TEXT("BossReward_Default");
 }
 
 void APortalSpawner::OnBossDestroyed(AActor* DestroyedActor)
@@ -97,11 +130,143 @@ void APortalSpawner::OnBossDestroyed(AActor* DestroyedActor)
 		{
 			// 인벤토리 컴포넌트가 없을 경우 즉시 스폰
 			TriggerSpawnPortal();
+			return;
 		}
 	}
 	else
 	{
 		TriggerSpawnPortal();
+		return;
+	}
+
+	// 4. 보스룸 중앙(RewardSpawnPoint)에 보상 구슬 스폰 (설정된 딜레이 적용)
+	if (RewardItemClass && !bRewardSpawned)
+	{
+		if (RewardSpawnDelay > 0.0f && GetWorld())
+		{
+			GetWorld()->GetTimerManager().SetTimer(RewardSpawnTimerHandle, this, &APortalSpawner::SpawnRewardItem, RewardSpawnDelay, false);
+		}
+		else
+		{
+			SpawnRewardItem();
+		}
+	}
+}
+
+void APortalSpawner::SpawnRewardItem()
+{
+	if (bRewardSpawned || !RewardItemClass || !GetWorld()) return;
+
+	bRewardSpawned = true;
+
+	// 1회성 드롭 기록 등록
+	if (bCheckAlreadyDropped)
+	{
+		if (UGameInstance* GameInst = GetGameInstance())
+		{
+			if (USOVGameInstance* GI = Cast<USOVGameInstance>(GameInst))
+			{
+				const FString UniqueKey = GetUniqueRewardKey();
+				if (!GI->AlreadyDroppedItems.Contains(UniqueKey))
+				{
+					GI->AlreadyDroppedItems.Add(UniqueKey);
+				}
+			}
+		}
+	}
+
+	FVector DesiredLoc = RewardSpawnPoint ? RewardSpawnPoint->GetComponentLocation() : GetActorLocation();
+	FRotator DesiredRot = RewardSpawnPoint ? RewardSpawnPoint->GetComponentRotation() : FRotator::ZeroRotator;
+
+	// 1. 최종 목표 위치 계산 (바닥 트레이스 기준 + RewardTargetFloatHeight 부유 오프셋)
+	FVector GroundLoc = CalculateClampedSpawnLocation(DesiredLoc);
+	RewardTargetLocation = GroundLoc + FVector(0.f, 0.f, RewardTargetFloatHeight);
+
+	// 2. 상공 시작 위치 계산 (목표 위치보다 RewardSpawnHeightOffset만큼 높은 곳)
+	RewardStartLocation = RewardTargetLocation + FVector(0.f, 0.f, RewardSpawnHeightOffset);
+
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.Owner = this;
+	SpawnParams.Instigator = GetInstigator();
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+
+	// 상공에서 구슬 스폰
+	AActor* SpawnedReward = GetWorld()->SpawnActor<AActor>(RewardItemClass, RewardStartLocation, DesiredRot, SpawnParams);
+	if (SpawnedReward)
+	{
+		SpawnedRewardActor = SpawnedReward;
+
+		// 3. 중력 및 물리 시뮬레이션 전면 비활성화 (공중 부유 및 자유 하강 보장)
+		TArray<UPrimitiveComponent*> PrimComponents;
+		SpawnedReward->GetComponents<UPrimitiveComponent>(PrimComponents);
+		for (UPrimitiveComponent* PrimComp : PrimComponents)
+		{
+			if (PrimComp)
+			{
+				PrimComp->SetSimulatePhysics(false);
+				PrimComp->SetEnableGravity(false);
+			}
+		}
+
+		// 4. 천천히 하강하는 애니메이션 타이머 시작 (60Hz / 0.016초 주기)
+		DescentElapsedTime = 0.0f;
+		GetWorld()->GetTimerManager().SetTimer(
+			RewardDescentTimerHandle,
+			this,
+			&APortalSpawner::UpdateRewardDescent,
+			0.016f,
+			true
+		);
+	}
+
+	// 나이아가라 이펙트 재생 (상공 스폰 위치에서 화려하게 개화)
+	if (RewardSpawnEffect)
+	{
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), RewardSpawnEffect, RewardStartLocation, DesiredRot);
+	}
+
+	// 효과음 재생
+	if (RewardSpawnSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, RewardSpawnSound, RewardStartLocation);
+	}
+}
+
+void APortalSpawner::UpdateRewardDescent()
+{
+	if (!SpawnedRewardActor.IsValid())
+	{
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().ClearTimer(RewardDescentTimerHandle);
+		}
+		return;
+	}
+
+	const float DeltaSec = 0.016f;
+	DescentElapsedTime += DeltaSec;
+
+	const float Duration = FMath::Max(RewardDescentDuration, 0.1f);
+	const float Alpha = FMath::Clamp(DescentElapsedTime / Duration, 0.0f, 1.0f);
+
+	// InterpEaseOut 곡선을 적용하여 위에서 부드럽게 출발하고 목표 지점에 다다를수록 천천히 감속 착지
+	const float SmoothAlpha = FMath::InterpEaseOut(0.0f, 1.0f, Alpha, 2.0f);
+	const FVector CurrentLoc = FMath::Lerp(RewardStartLocation, RewardTargetLocation, SmoothAlpha);
+	SpawnedRewardActor->SetActorLocation(CurrentLoc);
+
+	// 공중에서 신비롭게 자전 회전
+	if (RewardDescentRotationSpeed > 0.0f)
+	{
+		SpawnedRewardActor->AddActorWorldRotation(FRotator(0.f, RewardDescentRotationSpeed * DeltaSec, 0.f));
+	}
+
+	// 하강 완료 시 타이머 종료
+	if (Alpha >= 1.0f)
+	{
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().ClearTimer(RewardDescentTimerHandle);
+		}
 	}
 }
 
@@ -136,7 +301,13 @@ bool APortalSpawner::IsItemAlreadyDroppedOrAcquired() const
 	{
 		if (USOVGameInstance* GI = Cast<USOVGameInstance>(GameInst))
 		{
-			// 1) TargetBoss가 지정된 경우, 해당 보스 엔티티의 드롭 기록 확인 (가장 정확한 1회성 드롭 판정)
+			const FString UniqueKey = GetUniqueRewardKey();
+			if (GI->AlreadyDroppedItems.Contains(UniqueKey))
+			{
+				return true;
+			}
+
+			// 1) TargetBoss가 지정된 경우, 해당 보스 엔티티의 드롭 기록 확인
 			if (TargetBoss)
 			{
 				const FString BossClassName = TargetBoss->GetClass()->GetName();
@@ -150,7 +321,7 @@ bool APortalSpawner::IsItemAlreadyDroppedOrAcquired() const
 				}
 			}
 			// 2) RequiredItemID가 명시적으로 지정된 경우 해당 아이템의 드롭 기록 확인
-			else if (!RequiredItemID.IsEmpty())
+			if (!RequiredItemID.IsEmpty())
 			{
 				for (const FString& DroppedKey : GI->AlreadyDroppedItems)
 				{
@@ -195,24 +366,66 @@ void APortalSpawner::TriggerSpawnPortal()
 	bPortalSpawned = true;
 
 	APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(this, 0);
-	if (!PlayerPawn) return;
 
-	FVector PlayerLocation = PlayerPawn->GetActorLocation();
-	FVector PlayerForward = PlayerPawn->GetActorForwardVector();
-	FVector PlayerRight = PlayerPawn->GetActorRightVector();
-
-	// 1. 플레이어와 최소 300 반경 안전 거리를 유지하는 유효 위치를 탐색합니다.
-	FVector FinalLocation = FindSafeSpawnLocation(PlayerLocation, PlayerForward, PlayerRight);
-
-	// 2. 포털의 회전 방향을 계산합니다.
+	FVector FinalLocation;
 	FRotator FinalRotation = GetActorRotation();
-	if (bFacePlayer)
+
+	// 1. 보상 아이템 위치(중앙)에 포털 소환 모드인 경우
+	if (bSpawnPortalAtRewardLocation && RewardSpawnPoint)
 	{
-		FVector DirectionToPlayer = PlayerLocation - FinalLocation;
-		DirectionToPlayer.Z = 0.f; // 수평(Yaw) 회전만 적용
-		if (!DirectionToPlayer.IsNearlyZero())
+		if (PlayerPawn)
 		{
-			FinalRotation = DirectionToPlayer.Rotation();
+			const FVector PlayerLocation = PlayerPawn->GetActorLocation();
+			const FVector PlayerForward = PlayerPawn->GetActorForwardVector();
+			const FVector PlayerRight = PlayerPawn->GetActorRightVector();
+
+			// 플레이어가 구슬을 먹은 위치 기준으로 전방 약 300 유닛 떨어진 안전 지점 계산
+			const float SafeDistance = FMath::Max(SpawnOffsetDistance, MinPlayerDistance);
+			const FVector DesiredPortalLoc = PlayerLocation + (PlayerForward * SafeDistance);
+			FinalLocation = CalculateClampedSpawnLocation(DesiredPortalLoc);
+
+			// 만약 전방 위치가 벽이나 장애물로 인해 플레이어와 너무 가깝다면(MinPlayerDistance 미만) 8방향 안전 위치 탐색으로 보정
+			if (FVector::Dist2D(FinalLocation, PlayerLocation) < MinPlayerDistance)
+			{
+				FinalLocation = FindSafeSpawnLocation(PlayerLocation, PlayerForward, PlayerRight);
+			}
+
+			// 소환된 포털이 플레이어를 정면으로 바라보도록 회전 정렬
+			if (bFacePlayer)
+			{
+				FVector DirectionToPlayer = PlayerLocation - FinalLocation;
+				DirectionToPlayer.Z = 0.f;
+				if (!DirectionToPlayer.IsNearlyZero())
+				{
+					FinalRotation = DirectionToPlayer.Rotation();
+				}
+			}
+		}
+		else
+		{
+			FinalLocation = CalculateClampedSpawnLocation(RewardSpawnPoint->GetComponentLocation());
+			FinalRotation = RewardSpawnPoint->GetComponentRotation();
+		}
+	}
+	else
+	{
+		// 2. 플레이어 전방 8방향 안전 위치 탐색 모드
+		if (!PlayerPawn) return;
+
+		FVector PlayerLocation = PlayerPawn->GetActorLocation();
+		FVector PlayerForward = PlayerPawn->GetActorForwardVector();
+		FVector PlayerRight = PlayerPawn->GetActorRightVector();
+
+		FinalLocation = FindSafeSpawnLocation(PlayerLocation, PlayerForward, PlayerRight);
+
+		if (bFacePlayer)
+		{
+			FVector DirectionToPlayer = PlayerLocation - FinalLocation;
+			DirectionToPlayer.Z = 0.f; // 수평(Yaw) 회전만 적용
+			if (!DirectionToPlayer.IsNearlyZero())
+			{
+				FinalRotation = DirectionToPlayer.Rotation();
+			}
 		}
 	}
 
@@ -355,5 +568,52 @@ void APortalSpawner::SpawnPortal(const FVector& BaseLocation, const FRotator& Ba
 	// 바닥에서 아주 살짝 띄워서 소환 (겹침 방지)
 	FVector SpawnLoc = BaseLocation + FVector(0.f, 0.f, 5.f);
 
-	GetWorld()->SpawnActor<AActor>(PortalClass, SpawnLoc, BaseRotation, SpawnParams);
+	AActor* NewPortal = GetWorld()->SpawnActor<AActor>(PortalClass, SpawnLoc, BaseRotation, SpawnParams);
+	if (NewPortal)
+	{
+		SpawnedPortalActor = NewPortal;
+
+		// 1. 스폰 직후 즉시 텔레포트 오버랩 차단 (스폰 초기 납치 방지 Grace Period)
+		TArray<UPrimitiveComponent*> PrimComponents;
+		NewPortal->GetComponents<UPrimitiveComponent>(PrimComponents);
+		for (UPrimitiveComponent* PrimComp : PrimComponents)
+		{
+			if (PrimComp)
+			{
+				PrimComp->SetGenerateOverlapEvents(false);
+			}
+		}
+
+		// 2. 안전 딜레이(PortalActivationDelay, 기본 1.5초) 후 오버랩 활성화
+		if (PortalActivationDelay > 0.0f)
+		{
+			GetWorld()->GetTimerManager().SetTimer(
+				PortalActivationTimerHandle,
+				this,
+				&APortalSpawner::ActivatePortalOverlap,
+				PortalActivationDelay,
+				false
+			);
+		}
+		else
+		{
+			ActivatePortalOverlap();
+		}
+	}
+}
+
+void APortalSpawner::ActivatePortalOverlap()
+{
+	if (SpawnedPortalActor.IsValid())
+	{
+		TArray<UPrimitiveComponent*> PrimComponents;
+		SpawnedPortalActor->GetComponents<UPrimitiveComponent>(PrimComponents);
+		for (UPrimitiveComponent* PrimComp : PrimComponents)
+		{
+			if (PrimComp)
+			{
+				PrimComp->SetGenerateOverlapEvents(true);
+			}
+		}
+	}
 }

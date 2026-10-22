@@ -110,6 +110,21 @@ void ABaseFlyingPet::BeginPlay()
 	);
 }
 
+void ABaseFlyingPet::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// 액터 소멸 시 플레이어에 부착했던 감지 스피어들을 안전하게 분리
+	if (EnemyDetectSphere)
+	{
+		EnemyDetectSphere->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+	}
+	if (ItemDetectSphere)
+	{
+		ItemDetectSphere->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+	}
+
+	Super::EndPlay(EndPlayReason);
+}
+
 void ABaseFlyingPet::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
@@ -131,6 +146,16 @@ void ABaseFlyingPet::PollInit(float DeltaTime)
        
 		if (MasterCharacter) 
 		{
+			// 적/아이템 감지 스피어를 플레이어 캐릭터 중심에 부착하여 실시간 플레이어 기준 반경으로 탐지
+			if (EnemyDetectSphere && MasterCharacter->GetRootComponent())
+			{
+				EnemyDetectSphere->AttachToComponent(MasterCharacter->GetRootComponent(), FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+			}
+			if (ItemDetectSphere && MasterCharacter->GetRootComponent())
+			{
+				ItemDetectSphere->AttachToComponent(MasterCharacter->GetRootComponent(), FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+			}
+
 			// ✅ 인터페이스를 통해 함수 호출
 			if (MasterCharacter->GetClass()->ImplementsInterface(UPetConversationInterface::StaticClass()))
 			{
@@ -795,7 +820,10 @@ void ABaseFlyingPet::CheckSurroundingEnemy()
 					bBossBattleMode = true;
 					EnemyDetectSphere->SetSphereRadius(30000.f);
 					
-					HealCharacter(); // 보스전 시작 시 캐릭터 힐링
+					if (bEnableBossHeal)
+					{
+						HealCharacter(); // 보스전 시작 시 캐릭터 힐링
+					}
 					
 					UE_LOG(LogTemp, Warning, TEXT("BossBattleMode Detected"));
 				}
@@ -844,6 +872,8 @@ void ABaseFlyingPet::CheckSurroundingEnemy()
 
 void ABaseFlyingPet::HealCharacter()
 {
+	if (!bEnableBossHeal) return;
+
 	AActor* HealTarget = MasterCharacter ? Cast<AActor>(MasterCharacter) : TargetActor;
 	if (HealTarget)
 	{

@@ -65,6 +65,8 @@ public:
 	FORCEINLINE UStaticMeshComponent* GetMeshComponent() const { return Mesh; };
 	FORCEINLINE void SetAmount(int32 InAmount) { Amount = InAmount; }
 	FORCEINLINE void SetItemID(const FString& InItemID) { ItemID = InItemID; }
+	FORCEINLINE FString GetItemID() const { return ItemID; }
+	FORCEINLINE int32 GetAmount() const { return Amount; }
 private:
 	//콜리전 박스
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = CultivationPlot, meta = (AllowPrivateAccess = "true"))

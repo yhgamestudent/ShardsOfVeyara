@@ -39,6 +39,7 @@ class PET_API ABaseFlyingPet : public APawn, public IPetConversationInterface
 	
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	// 캐릭터 초기화 여부를 나타내는 변수
 	bool bTargetInitalize = false;
 	void PollInit(float DeltaTime); // 틱에서 하는 초기화
@@ -204,6 +205,9 @@ protected:
 	
 	// 캐릭터 힐 시켜주는 함수
 	void HealCharacter();
+	// 보스전 진입 시 캐릭터 힐 활성화 여부 (기본: false로 완전 비활성화)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "자체설정")
+	bool bEnableBossHeal = false;
 	// 캐릭터한테 줄 힐 양
 	UPROPERTY(EditDefaultsOnly, Category = "자체설정")
 	float HealAmount = 500.f;

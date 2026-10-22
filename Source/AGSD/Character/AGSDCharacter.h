@@ -419,6 +419,10 @@ public:
 	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, class AController* EventInstigator, AActor* DamageCauser) override;
 	virtual void FellOutOfWorld(const UDamageType& dmgType) override;
 
+	/** 하늘섬 등에서 낙하하여 체크포인트로 복귀할 때 체력 페널티를 적용합니다. 최소 HP 1을 보장하여 즉사를 방지합니다. */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Health")
+	float ApplyFallPenalty(float FallDamage = 80.0f);
+
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
 	void RecordFallRespawn();
 

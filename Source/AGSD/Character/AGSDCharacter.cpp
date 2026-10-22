@@ -1087,8 +1087,39 @@ void AAGSDCharacter::SprintEnd()
 
 void AAGSDCharacter::FellOutOfWorld(const UDamageType& dmgType)
 {
-	RecordFallRespawn();
+	ApplyFallPenalty(80.0f);
 	Super::FellOutOfWorld(dmgType);
+}
+
+float AAGSDCharacter::ApplyFallPenalty(float FallDamage)
+{
+	if (FallDamage <= 0.0f)
+	{
+		return 0.0f;
+	}
+
+	const float OldHealth = Health;
+
+	// 1. 최소 HP 1 유지 (낙하로 인한 즉사 방지 안전망)
+	Health = FMath::Clamp(Health - FallDamage, 1.0f, MaxHealth);
+	const float ActualDamageApplied = OldHealth - Health;
+
+	// 2. HUD 체력바 UI 실시간 갱신
+	if (HealthBar)
+	{
+		HealthBar->UpdateHealth(Health, MaxHealth);
+	}
+
+	// 3. 피격 반응 (가드 체크 및 콤보 리셋)
+	OnHitReceived();
+
+	// 4. 낙하 통계 로깅 자동 기록
+	RecordFallRespawn();
+
+	UE_LOG(LogTemp, Log, TEXT("[AGSDCharacter] Fall Penalty Applied: -%.1f HP (Before: %.1f -> After: %.1f)"),
+		ActualDamageApplied, OldHealth, Health);
+
+	return ActualDamageApplied;
 }
 
 void AAGSDCharacter::RecordFallRespawn()
@@ -2378,22 +2409,57 @@ void AAGSDCharacter::HandleEnemyDeadAndDropItem_Implementation(AActor* DeadActor
 				FinalDropAmount = FMath::RandRange(ItemInfo.DropAmountMin, ItemInfo.DropAmountMax);
 			}
 
-			// 5. 결정된 개수(FinalDropAmount)만큼 실제로 스폰시키기
-			for (int32 i = 0; i < FinalDropAmount; ++i)
+			if (FinalDropAmount <= 0) continue;
+
+			TSubclassOf<AActor> ItemClassToSpawn = ItemInfo.DropItemClass;
+			int32 RemainingToSpawn = FinalDropAmount;
+
+			// 5. 자동 루팅(Auto-Loot) 시도: 드롭 아이템이 APickUpItem 파생 클래스인 경우 플레이어 인벤토리에 즉시 자동 투입
+			if (InventoryComponent && ItemClassToSpawn && ItemClassToSpawn->IsChildOf(APickUpItem::StaticClass()))
 			{
-				TSubclassOf<AActor> ItemClassToSpawn = ItemInfo.DropItemClass;
-				
-				// 적의 현재 위치
-				FVector SpawnLocation = DeadActor->GetActorLocation();
+				if (const APickUpItem* DefaultItem = ItemClassToSpawn->GetDefaultObject<APickUpItem>())
+				{
+					FString TargetItemID = DefaultItem->GetItemID();
+					if (!TargetItemID.IsEmpty())
+					{
+						int32 OutRemainingQty = 0;
+						FStruct_ItemData OutItemData;
+						bool bAdded = InventoryComponent->AddItemByID(TargetItemID, FinalDropAmount, OutRemainingQty, OutItemData);
+						if (bAdded)
+						{
+							int32 AcquiredQty = FinalDropAmount - OutRemainingQty;
+							RemainingToSpawn = OutRemainingQty; // 가방이 가득 찬 경우 못 들어간 잔여 수량만 월드 스폰
 
-				// 캐릭터 발 밑 근처에서 약간의 랜덤 위치 오프셋을 주면 아이템들이 겹치지 않아 보기 좋습니다.
-				FVector RandomOffset = FVector(FMath::RandRange(-20.f, 20.f), FMath::RandRange(-20.f, 20.f), 0.f);
-				SpawnLocation += RandomOffset;
+							// 플레이어 HUD에 아이템 획득 알림 팝업 출력
+							if (PlayerHUDRef)
+							{
+								PlayerHUDRef->AddItemNotification(OutItemData, AcquiredQty);
+							}
 
-				FActorSpawnParameters SpawnParams;
-				SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+							// 아이템 획득 TextLog 기록
+							UTextLog::WriteTextLogByStringAndFloat(TEXT("아이템 획득"), OutItemData.ItemName.ToString(), static_cast<float>(AcquiredQty));
+						}
+					}
+				}
+			}
 
-				GetWorld()->SpawnActor<AActor>(ItemClassToSpawn, SpawnLocation, FRotator::ZeroRotator, SpawnParams);
+			// 6. 인벤토리가 가득 찼거나 비-PickUpItem 액터인 경우, 남은 수량(RemainingToSpawn)만큼 월드 바닥에 스폰 (Fallback 안전망)
+			if (RemainingToSpawn > 0)
+			{
+				for (int32 i = 0; i < RemainingToSpawn; ++i)
+				{
+					// 적의 현재 위치
+					FVector SpawnLocation = DeadActor->GetActorLocation();
+
+					// 캐릭터 발 밑 근처에서 약간의 랜덤 위치 오프셋을 주면 아이템들이 겹치지 않아 보기 좋습니다.
+					FVector RandomOffset = FVector(FMath::RandRange(-20.f, 20.f), FMath::RandRange(-20.f, 20.f), 0.f);
+					SpawnLocation += RandomOffset;
+
+					FActorSpawnParameters SpawnParams;
+					SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+
+					GetWorld()->SpawnActor<AActor>(ItemClassToSpawn, SpawnLocation, FRotator::ZeroRotator, SpawnParams);
+				}
 			}
 		}
 	}
