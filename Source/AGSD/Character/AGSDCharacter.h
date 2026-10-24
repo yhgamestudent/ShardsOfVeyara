@@ -22,6 +22,8 @@
 #include "ECharacterState.h"
 #include "TutorialTypes.h"
 #include "CombatStatData.h"
+#include "CombatLogParticipantInterface.h"
+#include "EnemyProjectile/BaseEnemyProjectile.h"
 #include "AGSDCharacter.generated.h"
 
 class UAGSDComboGuideComponent;
@@ -76,6 +78,7 @@ DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
 UCLASS(abstract)
 class AGSD_API AAGSDCharacter : public ACharacter, public IPetConversationInterface, public IPlayerDeadInterface
 	, public IItemDropInterface, public IInteractionInterface, public IInteractionOwnerInterface
+	, public ICombatLogParticipantInterface
 {
 	GENERATED_BODY()
 
@@ -479,6 +482,16 @@ public:
 
 	FORCEINLINE float getPlayerMaxhealth() const { return MaxHealth;}
 
+	/** 전투 로그용 플레이어 현재 전투/행동 상태 문자열 반환 (JustGuarding, Guarding, Rolling, Attacking, AttackRecovery, Moving, Idle) */
+	UFUNCTION(BlueprintPure, Category = "Combat|Log")
+	FString GetCurrentCombatStateString() const;
+
+	// ICombatLogParticipantInterface 구현
+	virtual float GetParticipantHealth() const override { return Health; }
+	virtual float GetParticipantMaxHealth() const override { return MaxHealth; }
+	virtual FString GetParticipantCombatState() const override { return GetCurrentCombatStateString(); }
+	virtual void InterruptCombatAction(bool bInterruptAttack, bool bInterruptGuard) override;
+
 	void SetCanCombo(bool b);
 	void SetCanRollCancel(bool b);
 	FORCEINLINE bool CanRollCancel() const { return bCanRollCancel; }
@@ -531,6 +544,18 @@ protected:
 	float RollCooldown = 0.9f;
 
 	FTimerHandle RollTimerHandle;
+
+	/** 구르기 회피 무적 지속 시간 (60fps 기준 40프레임 = 약 0.667초) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerState|Movement|Roll", meta = (ToolTip = "구르기 시작 시 무적이 유지되는 시간 (초)"))
+	float RollInvincibleDuration = 40.0f / 60.0f;
+
+	/** 현재 구르기 무적 상태 여부 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PlayerState|Movement|Roll")
+	bool bIsRollInvincible = false;
+
+	FTimerHandle RollInvincibleTimerHandle;
+
+	void EndRollInvincible();
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PlayerState|Movement|Roll")
 	float InputRollDirection = 0.0f;
@@ -892,5 +917,75 @@ protected:
 
 	// 노티파이 도중 충돌을 무시한 타겟 액터 캐싱
 	TWeakObjectPtr<AActor> IgnoredTargetActorOnNotify = nullptr;
-	
+
+public:
+	// ─── [로스트아크식 3단계 피격 리액션 시스템] ───
+	/** 피격 상대 각도 (-180.0 ~ +180.0도, 전방: 0, 후방: +-180, 좌: -90, 우: +90) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|HitReaction")
+	float HitDirectionAngle = 0.0f;
+
+	/** 최근 피격 대미지 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|HitReaction")
+	float LastHitDamage = 0.0f;
+
+	/** 피격 연출 강도 (0.0 = 약피격 움찔, 1.0 = 강피격 비틀거림, 2D 블렌드스페이스 Y축용) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|HitReaction", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float HitIntensityValue = 0.0f;
+
+	/** 애님그래프 Blend Poses by bool 연동용 피격 플래그 (0.833초간 On, 회피 키로 캔슬 가능) */
+	/** 애님그래프 Blend Poses by bool 연동용 피격 플래그 (0.833초간 On, 회피 키로 캔슬 가능) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|HitReaction")
+	bool bIsHitReacting = false;
+
+	/** 통합 피격 리액션 지속 시간 (기본값: 0.833초) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|HitReaction")
+	float HitReactDuration = 0.833f;
+
+	/** 넉다운(다운/무릎 꿇기) 활성화 플래그 (애님그래프 스테이트 머신 진입 조건) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|HitReaction")
+	bool bIsKnockdown = false;
+
+	/** 현재 적용된 넉다운 타입 (None = 없음, Kneel = 무릎 꿇기, AirborneFloor = 에어본 후 바닥 엎어짐) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|HitReaction")
+	EKnockdownType CurrentKnockdownType = EKnockdownType::None;
+
+	/** 넉다운 기상 트리거 (스킬별 넉다운 시간 만료 시 true로 변경되어 기상 End 상태로 전이) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|HitReaction")
+	bool bKnockdownStandUp = false;
+
+	/** 무기 착용 여부 (애님그래프에서 무기용 vs 맨손용 모션 분기 시 사용) */
+	UFUNCTION(BlueprintPure, Category = "Combat|Equipment")
+	bool HasEquippedWeapon() const { return (HoldingWeapon == EHoldingWeapon::Spear || HoldingWeapon == EHoldingWeapon::Sickle); }
+
+	/** 피격 처리 메인 진입점 */
+	void ProcessHitReaction(float DamageAmount, AActor* DamageCauser, struct FDamageEvent const& DamageEvent);
+	void ResetHitReact();
+	void TriggerKnockdownStandUp();
+
+	/** 넉다운 기상 완료 처리 (애님 노티파이 또는 안전 타이머에서 호출) */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Knockdown")
+	void FinishKnockdown();
+
+	void ApplyHitStun(float Duration);
+	void ClearHitStun();
+
+	// ─── [디버그/테스트용 무적 치트 (God Mode)] ───
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Combat|Debug")
+	bool bIsGodMode = false;
+
+	/** 콘솔창(~)에서 'God' 또는 'ToggleGodMode' 입력 시 On/Off 토글 */
+	UFUNCTION(Exec, BlueprintCallable, Category = "Combat|Debug")
+	void ToggleGodMode();
+
+	UFUNCTION(Exec, Category = "Combat|Debug")
+	void God() { ToggleGodMode(); }
+
+protected:
+	/** 넉다운 기본 유지 시간 (스킬에서 설정되지 않았을 때의 기본값, 초) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|HitReaction")
+	float KnockdownDuration = 1.2f;
+
+	FTimerHandle HitStunTimerHandle;
+	FTimerHandle HitReactTimerHandle;
+	FTimerHandle KnockdownTimerHandle;
 };

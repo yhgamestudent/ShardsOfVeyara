@@ -9,6 +9,9 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
+#include "CombatTimelineLogger.h"
+#include "CombatLogParticipantInterface.h"
+#include "EnemyBoss/BaseBossEnemy.h"
 
 ABaseEnemyProjectile::ABaseEnemyProjectile()
 {
@@ -166,6 +169,50 @@ void ABaseEnemyProjectile::OnOverlapBegin(UPrimitiveComponent* OverlappedCompone
 		}
 		
 		UE_LOG(LogTemp, Warning, TEXT("Projectile hit Player: %s"), *OtherActor->GetName());
+
+		bHasHitPlayer = true;
+
+		// ─── [고정밀 전투 타임라인 로깅: 투사체 적중/가드 판정] ───
+		// 발사자 검사: 보스가 발사한 투사체인지, 소환수/일반 에너미가 발사한 투사체인지 판별
+		const bool bIsBossProjectile = GetOwner() && GetOwner()->IsA(ABaseBossEnemy::StaticClass());
+		const FString EffectiveActionName = bIsBossProjectile ? ActionName : (ActionName.StartsWith(TEXT("Minion_")) ? ActionName : FString::Printf(TEXT("Minion_%s"), *ActionName));
+		const FString EffectiveActionID = !ActionID.IsEmpty() ? ActionID : EffectiveActionName;
+
+		float PlayerHP = 0.0f;
+		float PlayerMaxHP = 0.0f;
+		FString PlayerState = TEXT("Idle");
+		if (const ICombatLogParticipantInterface* Participant = Cast<ICombatLogParticipantInterface>(OtherActor))
+		{
+			PlayerHP = Participant->GetParticipantHealth();
+			PlayerMaxHP = Participant->GetParticipantMaxHealth();
+			PlayerState = Participant->GetParticipantCombatState();
+		}
+
+		float BossHP = 0.0f;
+		float BossMaxHP = 0.0f;
+		if (const ICombatLogParticipantInterface* BossParticipant = Cast<ICombatLogParticipantInterface>(GetOwner()))
+		{
+			BossHP = BossParticipant->GetParticipantHealth();
+			BossMaxHP = BossParticipant->GetParticipantMaxHealth();
+		}
+
+		const float Dist = FVector::Dist(GetActorLocation(), OtherActor->GetActorLocation());
+		const float CurrentTime = GetWorld()->GetTimeSeconds();
+
+		if (PlayerState == TEXT("JustGuarding"))
+		{
+			UCombatTimelineLogger::LogHitJustGuard(EffectiveActionID, EffectiveActionName, CurrentTime, Dist, BossHP, BossMaxHP, PlayerHP, PlayerMaxHP);
+		}
+		else if (PlayerState == TEXT("Guarding"))
+		{
+			UCombatTimelineLogger::LogHitGuarded(EffectiveActionID, EffectiveActionName, Damage, CurrentTime, Dist, BossHP, BossMaxHP, PlayerHP, PlayerMaxHP);
+		}
+		else
+		{
+			const float EstimatedAfterHP = FMath::Max(0.0f, PlayerHP - Damage);
+			UCombatTimelineLogger::LogHitSuccess(EffectiveActionID, EffectiveActionName, Damage, CurrentTime, Dist, PlayerState, BossHP, BossMaxHP, EstimatedAfterHP, PlayerMaxHP);
+		}
+
 		UGameplayStatics::ApplyDamage(
 		   OtherActor,
 		   Damage, // 헤더 파일에 선언된 대미지 변수
@@ -197,6 +244,25 @@ void ABaseEnemyProjectile::OnOverlapBegin(UPrimitiveComponent* OverlappedCompone
 
 	// 트레일 이펙트가 사라질 시간을 주기 위해 2초 후에 액터를 파괴합니다.
 	SetLifeSpan(2.0f);
+}
+
+void ABaseEnemyProjectile::Destroyed()
+{
+	if (!bHasHitPlayer && !ActionID.IsEmpty())
+	{
+		float Dist = 0.0f;
+		if (ACharacter* PlayerChar = UGameplayStatics::GetPlayerCharacter(GetWorld(), 0))
+		{
+			Dist = FVector::Dist(GetActorLocation(), PlayerChar->GetActorLocation());
+		}
+
+		const bool bIsBossProjectile = GetOwner() && GetOwner()->IsA(ABaseBossEnemy::StaticClass());
+		const FString EffectiveActionName = bIsBossProjectile ? ActionName : (ActionName.StartsWith(TEXT("Minion_")) ? ActionName : FString::Printf(TEXT("Minion_%s"), *ActionName));
+
+		UCombatTimelineLogger::LogHitMissed(ActionID, EffectiveActionName, GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f, Dist, TEXT("Hit Obstacle or Expired"));
+	}
+
+	Super::Destroyed();
 }
 
 #if WITH_EDITOR

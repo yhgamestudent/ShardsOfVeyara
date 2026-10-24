@@ -1,6 +1,8 @@
 #include "EnemyBoss/SkeletonMage/BossSkeletonMage.h"
 #include "BaseEnemy.h"
 #include "CSVLog.h"
+#include "CombatTimelineLogger.h"
+#include "CombatLogParticipantInterface.h"
 #include "NavigationSystem.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "Components/SphereComponent.h"
@@ -77,6 +79,10 @@ void ABossSkeletonMage::Tick(float DeltaTime)
 				
 				bIsAttacking = false; // 공격 상태를 종료합니다.
 
+				CurrentSkillHitIntensity = AttackStruct.PushTargetHitIntensity;
+				CurrentSkillKnockdownType = AttackStruct.PushTargetKnockdownType;
+				CurrentSkillKnockdownDuration = AttackStruct.PushTargetKnockdownDuration;
+
 				// --- 플레이어 밀치기 효과 시작 ---
 				ACharacter* PlayerCharacter = Cast<ACharacter>(OverlappingActor);
 				if (PlayerCharacter)
@@ -118,6 +124,37 @@ void ABossSkeletonMage::Tick(float DeltaTime)
 
 					// bXYOverride와 bZOverride를 true로 설정하여 현재 속도를 무시하고 새로운 속도를 적용합니다.
 					PlayerCharacter->LaunchCharacter(LaunchVelocity, true, true);
+
+					// ─── [PushTarget 타임라인 로깅 (Release 및 Hit)] ───
+					float PlayerHP = 0.0f;
+					float PlayerMaxHP = 0.0f;
+					FString TargetCombatState = TEXT("Attacking");
+					float Dist = 0.0f;
+					QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, Dist);
+
+					UCombatTimelineLogger::LogSkillRelease(
+						CurrentPushTargetActionID,
+						GetWorld()->GetTimeSeconds(),
+						Dist,
+						TargetCombatState,
+						Health,
+						MaxHealth,
+						PlayerHP,
+						PlayerMaxHP,
+						TEXT("Shockwave Hit Player")
+					);
+					UCombatTimelineLogger::LogHitSuccess(
+						CurrentPushTargetActionID,
+						TEXT("PushTarget"),
+						0.0f,
+						GetWorld()->GetTimeSeconds(),
+						Dist,
+						TargetCombatState,
+						Health,
+						MaxHealth,
+						PlayerHP,
+						PlayerMaxHP
+					);
 				}
 				// --- 플레이어 밀치기 효과 끝 ---
 
@@ -186,6 +223,24 @@ float ABossSkeletonMage::TakeDamage(float DamageAmount, struct FDamageEvent cons
 		if (CurrentHealthRatio <= SecondPhaseHealthThreshold)
 		{
 			bIsSecondPhaseStarted = true; // 중복 실행 방지 플래그 설정
+
+			// ─── [2페이즈 전환 타임라인 기록] ───
+			float PlayerHP = 0.0f;
+			float PlayerMaxHP = 0.0f;
+			FString TargetCombatState = TEXT("Idle");
+			float Dist = 0.0f;
+			QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, Dist);
+
+			UCombatTimelineLogger::LogPhaseTransition(
+				TEXT("Phase2_Start"),
+				GetWorld()->GetTimeSeconds(),
+				Health,
+				MaxHealth,
+				PlayerHP,
+				PlayerMaxHP,
+				TEXT("Health dropped below 50% Threshold")
+			);
+
 			StartSecondPhase();          // 특수 패턴 함수 실행
 		}
 	}
@@ -202,6 +257,24 @@ void ABossSkeletonMage::PlayTeleportMontage(const FVector& Destination)
 	TeleportDestination = Destination;
 	
 	BossSkeletonMageLogData.TeleportCount++;
+
+	// ─── [텔레포트 선딜레이 시작 로깅] ───
+	float PlayerHP = 0.0f;
+	float PlayerMaxHP = 0.0f;
+	FString TargetCombatState = TEXT("Idle");
+	float Dist = 0.0f;
+	QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, Dist);
+
+	CurrentTeleportActionID = UCombatTimelineLogger::LogSkillWindup(
+		TEXT("Teleport"),
+		GetWorld()->GetTimeSeconds(),
+		Dist,
+		TargetCombatState,
+		Health,
+		MaxHealth,
+		PlayerHP,
+		PlayerMaxHP
+	);
 	
 	if ( TeleportMontage )
 	{
@@ -217,8 +290,33 @@ void ABossSkeletonMage::TeleportMoveToNextPoint()
 {
 	if (TeleportDestination != FVector::ZeroVector)
 	{
-		//SpawnTeleportEffectAtLocation(GetActorLocation()); // 현재 위치에 이펙트 생성
-		
+		// ─── [텔레포트 이동 완료 (Release / Recovery) 로깅] ───
+		float PlayerHP = 0.0f;
+		float PlayerMaxHP = 0.0f;
+		FString TargetCombatState = TEXT("Idle");
+		float Dist = 0.0f;
+		QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, Dist);
+
+		UCombatTimelineLogger::LogSkillRelease(
+			CurrentTeleportActionID,
+			GetWorld()->GetTimeSeconds(),
+			Dist,
+			TargetCombatState,
+			Health,
+			MaxHealth,
+			PlayerHP,
+			PlayerMaxHP,
+			TEXT("Teleport to Target Point")
+		);
+		UCombatTimelineLogger::LogSkillRecovery(
+			CurrentTeleportActionID,
+			GetWorld()->GetTimeSeconds(),
+			Health,
+			MaxHealth,
+			PlayerHP,
+			PlayerMaxHP
+		);
+
 		// --- 수정된 부분: 캡슐 절반 높이만큼 위로 오프셋을 주어 바닥 위에 정상적으로 서도록 함 ---
 		float SafeZOffset = GetCapsuleComponent() ? GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 0.f;
 		FVector AdjustedDestination = TeleportDestination + FVector(0.f, 0.f, SafeZOffset);
@@ -288,6 +386,24 @@ void ABossSkeletonMage::PlayFireBallMontage()
 	BlackboardComp->SetValueAsFloat("AttackDelay", AttackStruct.FireBallDelay); // 행동 딜레이 설정
 	
 	BossSkeletonMageLogData.FireBallCount++;
+
+	// ─── [파이어볼 선딜레이 시작 로깅] ───
+	float PlayerHP = 0.0f;
+	float PlayerMaxHP = 0.0f;
+	FString TargetCombatState = TEXT("Idle");
+	float Dist = 0.0f;
+	QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, Dist);
+
+	CurrentFireBallActionID = UCombatTimelineLogger::LogSkillWindup(
+		TEXT("FireBall"),
+		GetWorld()->GetTimeSeconds(),
+		Dist,
+		TargetCombatState,
+		Health,
+		MaxHealth,
+		PlayerHP,
+		PlayerMaxHP
+	);
 	
 	if ( FireBallMontage )
 	{
@@ -304,6 +420,25 @@ void ABossSkeletonMage::ShootFireBall()
 		return;
 	}
 
+	// ─── [파이어볼 발사/Release 로깅] ───
+	float PlayerHP = 0.0f;
+	float PlayerMaxHP = 0.0f;
+	FString TargetCombatState = TEXT("Idle");
+	float Dist = 0.0f;
+	QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, Dist);
+
+	UCombatTimelineLogger::LogSkillRelease(
+		CurrentFireBallActionID,
+		GetWorld()->GetTimeSeconds(),
+		Dist,
+		TargetCombatState,
+		Health,
+		MaxHealth,
+		PlayerHP,
+		PlayerMaxHP,
+		TEXT("FireBall Projectile Fired")
+	);
+
 	// FireBallSpawnPoint의 월드 위치와 회전값을 가져옵니다.
 	const FVector SpawnLocation = FireBallSpawnPoint->GetComponentLocation();
 
@@ -317,8 +452,15 @@ void ABossSkeletonMage::ShootFireBall()
 	SpawnParams.Instigator = GetInstigator();
 	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-	// 월드에 발사체를 스폰합니다.
-	GetWorld()->SpawnActor<ABaseEnemyProjectile>(FireBallClass, SpawnLocation, SpawnRotation, SpawnParams);
+	// 월드에 발사체를 스폰하고 ActionID를 주입합니다.
+	if (ABaseEnemyProjectile* SpawnedProj = GetWorld()->SpawnActor<ABaseEnemyProjectile>(FireBallClass, SpawnLocation, SpawnRotation, SpawnParams))
+	{
+		SpawnedProj->ActionID = CurrentFireBallActionID;
+		SpawnedProj->ActionName = TEXT("FireBall");
+		SpawnedProj->HitIntensity = AttackStruct.FireBallHitIntensity;
+		SpawnedProj->KnockdownType = AttackStruct.FireBallKnockdownType;
+		SpawnedProj->KnockdownDuration = AttackStruct.FireBallKnockdownDuration;
+	}
 }
 
 void ABossSkeletonMage::StartSummoning(const FVector& Location1, const FVector& Location2)
@@ -334,6 +476,24 @@ void ABossSkeletonMage::StartSummoning(const FVector& Location1, const FVector& 
 	SummonLocations.Add(Location2);
 	
 	BossSkeletonMageLogData.SummonCount++;
+
+	// ─── [소환 패턴 선딜레이 시작 로깅] ───
+	float PlayerHP = 0.0f;
+	float PlayerMaxHP = 0.0f;
+	FString TargetCombatState = TEXT("Idle");
+	float Dist = 0.0f;
+	QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, Dist);
+
+	CurrentSummonActionID = UCombatTimelineLogger::LogSkillWindup(
+		TEXT("Summon"),
+		GetWorld()->GetTimeSeconds(),
+		Dist,
+		TargetCombatState,
+		Health,
+		MaxHealth,
+		PlayerHP,
+		PlayerMaxHP
+	);
 	
 	if ( SummonEnemyMontage )
 	{
@@ -350,6 +510,33 @@ void ABossSkeletonMage::SummonEnemy()
 	
 	UWorld* World = GetWorld();
 	if (!World) return;
+
+	// ─── [소환 실행 (Release / Recovery) 로깅] ───
+	float PlayerHP = 0.0f;
+	float PlayerMaxHP = 0.0f;
+	FString TargetCombatState = TEXT("Idle");
+	float Dist = 0.0f;
+	QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, Dist);
+
+	UCombatTimelineLogger::LogSkillRelease(
+		CurrentSummonActionID,
+		GetWorld()->GetTimeSeconds(),
+		Dist,
+		TargetCombatState,
+		Health,
+		MaxHealth,
+		PlayerHP,
+		PlayerMaxHP,
+		TEXT("Minions Spawned")
+	);
+	UCombatTimelineLogger::LogSkillRecovery(
+		CurrentSummonActionID,
+		GetWorld()->GetTimeSeconds(),
+		Health,
+		MaxHealth,
+		PlayerHP,
+		PlayerMaxHP
+	);
 
 	FActorSpawnParameters SpawnParams;
 	SpawnParams.Owner = this;
@@ -473,6 +660,24 @@ void ABossSkeletonMage::PlayGroundAreaAttackMontage()
 	BlackboardComp->SetValueAsFloat("AttackDelay", AttackStruct.GroundAttackDelay); // 행동 딜레이 설정
 
 	BossSkeletonMageLogData.GroundAttackCount++;
+
+	// ─── [장판 공격 선딜레이 시작 로깅] ───
+	float PlayerHP = 0.0f;
+	float PlayerMaxHP = 0.0f;
+	FString TargetCombatState = TEXT("Idle");
+	float Dist = 0.0f;
+	QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, Dist);
+
+	CurrentGroundAttackActionID = UCombatTimelineLogger::LogSkillWindup(
+		TEXT("GroundAttack"),
+		GetWorld()->GetTimeSeconds(),
+		Dist,
+		TargetCombatState,
+		Health,
+		MaxHealth,
+		PlayerHP,
+		PlayerMaxHP
+	);
 	
 	GroundTargetingComponent = UNiagaraFunctionLibrary::SpawnSystemAtLocation(
 		GetWorld(),
@@ -529,7 +734,24 @@ void ABossSkeletonMage::GroundAreaAttack()
 		GroundTargetingComponent = nullptr;
 	}
 	
-	//UE_LOG(LogTemp, Warning, TEXT("a"));
+	// ─── [장판 공격 발사/전개 Release 로깅] ───
+	float PlayerHP = 0.0f;
+	float PlayerMaxHP = 0.0f;
+	FString TargetCombatState = TEXT("Idle");
+	float Dist = 0.0f;
+	QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, Dist);
+
+	UCombatTimelineLogger::LogSkillRelease(
+		CurrentGroundAttackActionID,
+		GetWorld()->GetTimeSeconds(),
+		Dist,
+		TargetCombatState,
+		Health,
+		MaxHealth,
+		PlayerHP,
+		PlayerMaxHP,
+		TEXT("Ground Circle Deployed")
+	);
 
 	const FVector CharacterLocation = TargetCharacter->GetActorLocation();
 	FVector SpawnLocation = CharacterLocation; // 기본 스폰 위치
@@ -571,11 +793,14 @@ void ABossSkeletonMage::GroundAreaAttack()
 	// 월드에 장판 프로젝타일을 스폰합니다.
 	AGroundAttackProjectile* SpawnedProjectile = GetWorld()->SpawnActor<AGroundAttackProjectile>(GroundAttackClass, SpawnLocation, SpawnRotation, SpawnParams);
 
-	// 스폰된 액터가 유효하고, 유지 시간이 0보다 크면 LifeSpan을 설정합니다.
+	// 스폰된 액터가 유효하고, 유지 시간이 0보다 크면 LifeSpan 및 ActionID를 설정합니다.
 	if (SpawnedProjectile)
 	{
-		//SpawnedProjectile->SetLifeSpan(GroundAttackDuration);
+		SpawnedProjectile->ActionID = CurrentGroundAttackActionID;
 		SpawnedProjectile->DurationTime = AttackStruct.GroundAttackDuration; // 장판 유지 시간 설정
+		SpawnedProjectile->HitIntensity = AttackStruct.GroundAttackHitIntensity;
+		SpawnedProjectile->KnockdownType = AttackStruct.GroundAttackKnockdownType;
+		SpawnedProjectile->KnockdownDuration = AttackStruct.GroundAttackKnockdownDuration;
 	}
 	if ( GroundAttackEffect ) 
 	{
@@ -593,7 +818,29 @@ void ABossSkeletonMage::PlayPushTargetMontage()
 	BlackboardComp->SetValueAsFloat("AttackDelay", AttackStruct.PushTargetDelay); // 행동 딜레이 설정
 	
 	BossSkeletonMageLogData.PushTargetCount++;
+
+	// ─── [PushTarget 선딜레이 시작 로깅] ───
+	float PlayerHP = 0.0f;
+	float PlayerMaxHP = 0.0f;
+	FString TargetCombatState = TEXT("Idle");
+	float Dist = 0.0f;
+	QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, Dist);
+
+	CurrentPushTargetActionID = UCombatTimelineLogger::LogSkillWindup(
+		TEXT("PushTarget"),
+		GetWorld()->GetTimeSeconds(),
+		Dist,
+		TargetCombatState,
+		Health,
+		MaxHealth,
+		PlayerHP,
+		PlayerMaxHP
+	);
 	
+	CurrentSkillHitIntensity = AttackStruct.PushTargetHitIntensity;
+	CurrentSkillKnockdownType = AttackStruct.PushTargetKnockdownType;
+	CurrentSkillKnockdownDuration = AttackStruct.PushTargetKnockdownDuration;
+
 	if ( PushTargetMontage )
 	{
 		PlayAnimMontage(PushTargetMontage);
@@ -618,6 +865,24 @@ void ABossSkeletonMage::GravityAttack()
 	BlackboardComp->SetValueAsFloat("AttackDelay", AttackStruct.GravityAttackDelay);
 	
 	BossSkeletonMageLogData.GravityAttackCount++;
+
+	// ─── [GravityAttack 선딜레이 시작 로깅] ───
+	float PlayerHP = 0.0f;
+	float PlayerMaxHP = 0.0f;
+	FString TargetCombatState = TEXT("Idle");
+	float Dist = 0.0f;
+	QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, Dist);
+
+	CurrentGravityAttackActionID = UCombatTimelineLogger::LogSkillWindup(
+		TEXT("GravityAttack"),
+		GetWorld()->GetTimeSeconds(),
+		Dist,
+		TargetCombatState,
+		Health,
+		MaxHealth,
+		PlayerHP,
+		PlayerMaxHP
+	);
 	
 	if ( GravityAttackMontage )
 	{
@@ -628,6 +893,25 @@ void ABossSkeletonMage::GravityAttack()
 void ABossSkeletonMage::StartGravityAttack()
 {
 	if (!TargetCharacter || !GravityGroundEffect) return;
+
+	// ─── [GravityAttack 공중 부양 Release 로깅] ───
+	float PlayerHP = 0.0f;
+	float PlayerMaxHP = 0.0f;
+	FString TargetCombatState = TEXT("Idle");
+	float Dist = 0.0f;
+	QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, Dist);
+
+	UCombatTimelineLogger::LogSkillRelease(
+		CurrentGravityAttackActionID,
+		GetWorld()->GetTimeSeconds(),
+		Dist,
+		TargetCombatState,
+		Health,
+		MaxHealth,
+		PlayerHP,
+		PlayerMaxHP,
+		TEXT("Player Lifted into Air")
+	);
 
 	UCharacterMovementComponent* MoveComp = TargetCharacter->GetCharacterMovement();
 	if (MoveComp)
@@ -702,6 +986,8 @@ void ABossSkeletonMage::EndGravityAttack()
 	FCollisionQueryParams OverlapParams;
 	OverlapParams.AddIgnoredActor(this);
 
+	TSet<ACharacter*> AffectedCharacters;
+
 	// 2. 공격 종료 시 캡슐 범위 내에 있는 캐릭터들 체크
 	if (GetWorld()->OverlapMultiByChannel(OverlapResults, GravityAttackCenter, FQuat::Identity, ECC_Pawn, GravityCapsule, OverlapParams))
 	{
@@ -710,33 +996,81 @@ void ABossSkeletonMage::EndGravityAttack()
 			ACharacter* OverlappedChar = Cast<ACharacter>(Result.GetActor());
 			if (OverlappedChar && OverlappedChar->ActorHasTag(TEXT("Player")))
 			{
-				UCharacterMovementComponent* MoveComp = OverlappedChar->GetCharacterMovement();
-				if (MoveComp)
-				{
-					// 1. 원래 상태로 복구
-					MoveComp->GravityScale = DefaultGravityScale;
-					MoveComp->AirControl = DefaultAirControl;
-					MoveComp->MaxWalkSpeed = DefaultMaxWalkSpeed;
-
-					// 2. 바닥으로 빠르게 발사 (Z축 하향 속도 부여)
-					// -1500.f 정도면 매우 빠르게 바닥으로 내리꽂힙니다.
-					FVector SlamVelocity = FVector(0.f, 0.f, -4000.f); 
-					OverlappedChar->LaunchCharacter(SlamVelocity, false, true);
-                
-					// 대미지 주기
-					UGameplayStatics::ApplyDamage(OverlappedChar, 
-						AttackStruct.GravityAttackDamage, GetController(), this, UDamageType::StaticClass());
-					
-					CommonBossLogData.TotalDamageDealt += AttackStruct.GravityAttackDamage;
-					BossSkeletonMageLogData.GravityAttackDamage += AttackStruct.GravityAttackDamage;
-
-					BossSkeletonMageLogData.GravityAttackDamage += AttackStruct.GravityAttackDamage;
-				}
+				AffectedCharacters.Add(OverlappedChar);
 			}
 		}
 	}
+
+	// 3. 캡슐 오차 누락 방지: TargetCharacter가 무중력 상태(GravityScale < 1.0f)였거나 공중에 떠 있다면 반드시 포함!
+	if (TargetCharacter)
+	{
+		UCharacterMovementComponent* MoveComp = TargetCharacter->GetCharacterMovement();
+		if (MoveComp && (MoveComp->GravityScale < 1.0f || MoveComp->IsFalling()))
+		{
+			AffectedCharacters.Add(TargetCharacter);
+		}
+	}
+
+	// 4. 대상 캐릭터들에게 슬램(하향 내리찍기) 및 넉다운 대미지 적용
+	for (ACharacter* CharToSlam : AffectedCharacters)
+	{
+		if (!CharToSlam) continue;
+
+		UCharacterMovementComponent* MoveComp = CharToSlam->GetCharacterMovement();
+		if (MoveComp)
+		{
+			// 1. 대미지 주기 및 넉다운 피격 설정 (피격 처리를 먼저 완료)
+			CurrentSkillHitIntensity = AttackStruct.GravityAttackHitIntensity;
+			CurrentSkillKnockdownType = AttackStruct.GravityAttackKnockdownType;
+			CurrentSkillKnockdownDuration = AttackStruct.GravityAttackKnockdownDuration;
+			UGameplayStatics::ApplyDamage(CharToSlam, 
+				AttackStruct.GravityAttackDamage, GetController(), this, UDamageType::StaticClass());
+
+			// 2. 원래 중력 상태 복구 및 낙하(Falling) 모드 강제 보장
+			MoveComp->GravityScale = DefaultGravityScale;
+			MoveComp->AirControl = DefaultAirControl;
+			MoveComp->MaxWalkSpeed = DefaultMaxWalkSpeed;
+			MoveComp->SetMovementMode(MOVE_Falling);
+
+			// 3. 바닥으로 강력하게 수직 발사 (물리 속도 강제 주입 + LaunchCharacter Z-Override)
+			const FVector SlamVelocity = FVector(0.f, 0.f, -4000.f);
+			MoveComp->Velocity.Z = -4000.f;
+			CharToSlam->LaunchCharacter(SlamVelocity, false, true);
+			
+			CommonBossLogData.TotalDamageDealt += AttackStruct.GravityAttackDamage;
+			BossSkeletonMageLogData.GravityAttackDamage += AttackStruct.GravityAttackDamage;
+
+			// ─── [GravityAttack 바닥 충돌 Hit 및 Recovery 로깅] ───
+			float PlayerHP = 0.0f;
+			float PlayerMaxHP = 0.0f;
+			FString TargetCombatState = TEXT("InAir");
+			float Dist = 0.0f;
+			QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, Dist);
+
+			UCombatTimelineLogger::LogHitSuccess(
+				CurrentGravityAttackActionID,
+				TEXT("GravityAttack"),
+				AttackStruct.GravityAttackDamage,
+				GetWorld()->GetTimeSeconds(),
+				Dist,
+				TargetCombatState,
+				Health,
+				MaxHealth,
+				PlayerHP,
+				PlayerMaxHP
+			);
+			UCombatTimelineLogger::LogSkillRecovery(
+				CurrentGravityAttackActionID,
+				GetWorld()->GetTimeSeconds(),
+				Health,
+				MaxHealth,
+				PlayerHP,
+				PlayerMaxHP
+			);
+		}
+	}
 	
-	// 3. (혹시 범위 밖에 나갔더라도) 타겟팅된 메인 플레이어는 확실하게 복구
+	// 5. (혹시 그 외의 경우라도) 타겟팅된 메인 플레이어 중력은 확실하게 복구
 	if (TargetCharacter)
 	{
 		UCharacterMovementComponent* MoveComp = TargetCharacter->GetCharacterMovement();
@@ -772,6 +1106,13 @@ void ABossSkeletonMage::HandleGravityAttack(float DeltaTime)
 				if (OverlappedChar && OverlappedChar->ActorHasTag(TEXT("Player")))
 				{
 					bIsPlayerInArea = true;
+
+					// 구르기 중(bIsRolling)이 아닐 때만 공격 몽타주 종료 및 막기(가드) 상태 즉시 해제
+					if (ICombatLogParticipantInterface* Participant = Cast<ICombatLogParticipantInterface>(OverlappedChar))
+					{
+						Participant->InterruptCombatAction(true, true);
+					}
+
 					UCharacterMovementComponent* MoveComp = OverlappedChar->GetCharacterMovement();
 					if (MoveComp)
 					{
@@ -925,12 +1266,51 @@ void ABossSkeletonMage::SummonThunderToPlayer()
     // 위치를 약간 띄워(Z+5.0) 바닥에 묻히지 않게 합니다.
     UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), ThunderTargetingEffect, SpawnLocation + FVector(0.f, 0.f, 5.f));
 
+    // [Combat Timeline Logger] 번개 윈드업 기록
+    float PlayerHP = 0.0f;
+    float PlayerMaxHP = 0.0f;
+    FString TargetCombatState = TEXT("Idle");
+    float Dist = 0.0f;
+    QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, Dist);
+
+    const FString ThunderActionID = UCombatTimelineLogger::LogSkillWindup(
+        TEXT("Phase2_Thunder"),
+        GetWorld()->GetTimeSeconds(),
+        Dist,
+        TargetCombatState,
+        Health,
+        MaxHealth,
+        PlayerHP,
+        PlayerMaxHP
+    );
+    CurrentPhase2ThunderActionID = ThunderActionID;
+
     // 3. 딜레이 이후 실제 번개 이펙트 및 대미지 로직 실행 (상황에 맞게 시간 조절)
     float LightningDelay = 1.0f; 
     
     FTimerHandle ThunderTimerHandle;
-    GetWorldTimerManager().SetTimer(ThunderTimerHandle, [this, SpawnLocation]()
+    GetWorldTimerManager().SetTimer(ThunderTimerHandle, [this, SpawnLocation, ThunderActionID]()
     {
+        float CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+        float CurPlayerHP = 0.0f;
+        float CurPlayerMaxHP = 0.0f;
+        FString CurPlayerState = TEXT("Idle");
+        float CurDist = 0.0f;
+        QueryTargetPlayerData(CurPlayerHP, CurPlayerMaxHP, CurPlayerState, CurDist);
+
+        // [Combat Timeline Logger] 번개 방출 기록
+        UCombatTimelineLogger::LogSkillRelease(
+            ThunderActionID,
+            CurrentTime,
+            CurDist,
+            CurPlayerState,
+            Health,
+            MaxHealth,
+            CurPlayerHP,
+            CurPlayerMaxHP,
+            TEXT("Lightning Strike")
+        );
+
         // A. 실제 번개 이펙트 소환
         UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), ThunderImpactEffect, SpawnLocation);
 
@@ -944,8 +1324,9 @@ void ABossSkeletonMage::SummonThunderToPlayer()
         FCollisionQueryParams QueryParams;
         QueryParams.AddIgnoredActor(this);
 
-    	if ( ThunderSound )UGameplayStatics::PlaySound2D(GetWorld(), ThunderSound);
+    	if ( ThunderSound ) UGameplayStatics::PlaySound2D(GetWorld(), ThunderSound);
     	
+        bool bHitPlayer = false;
         if (GetWorld()->OverlapMultiByChannel(OverlapResults, SpawnLocation, FQuat::Identity, ECC_Pawn, Sphere, QueryParams))
         {
 	        for (auto& Result : OverlapResults)
@@ -953,13 +1334,43 @@ void ABossSkeletonMage::SummonThunderToPlayer()
 				AActor* HitActor = Result.GetActor();
 				if (HitActor && HitActor->ActorHasTag(TEXT("Player")))
 				{
-					// 대미지 수치는 AttackStruct나 별도 변수에서 가져오시면 됩니다.
+					CurrentSkillHitIntensity = AttackStruct.SecondPhaseThunderHitIntensity;
+					CurrentSkillKnockdownType = AttackStruct.SecondPhaseThunderKnockdownType;
+					CurrentSkillKnockdownDuration = AttackStruct.SecondPhaseThunderKnockdownDuration;
 					UGameplayStatics::ApplyDamage(HitActor, AttackStruct.SecondPhaseThunderAttackDamage, GetController(), this, UDamageType::StaticClass());
 					
 					BossSkeletonMageLogData.SecondPhaseThunderAttackDamage += AttackStruct.SecondPhaseThunderAttackDamage;
 					CommonBossLogData.TotalDamageDealt += AttackStruct.SecondPhaseThunderAttackDamage;
+
+					// [Combat Timeline Logger] 적중 기록
+					float EstimatedAfterHP = FMath::Max(0.0f, CurPlayerHP - AttackStruct.SecondPhaseThunderAttackDamage);
+					UCombatTimelineLogger::LogHitSuccess(
+						ThunderActionID,
+						TEXT("Phase2_Thunder"),
+						AttackStruct.SecondPhaseThunderAttackDamage,
+						CurrentTime,
+						CurDist,
+						CurPlayerState,
+						Health,
+						MaxHealth,
+						EstimatedAfterHP,
+						CurPlayerMaxHP
+					);
+					bHitPlayer = true;
 				}
 			}
+        }
+
+        if (!bHitPlayer)
+        {
+            // [Combat Timeline Logger] 빗나감 기록
+            UCombatTimelineLogger::LogHitMissed(
+                ThunderActionID,
+                TEXT("Phase2_Thunder"),
+                CurrentTime,
+                CurDist,
+                TEXT("Player Escaped Strike Area")
+            );
         }
     }, LightningDelay, false);
     
@@ -992,6 +1403,25 @@ void ABossSkeletonMage::StartSummonRandomMeteor()
 	{
         FVector SpawnLocation = RandomNavLocation.Location;
 		
+        // [Combat Timeline Logger] 메테오 윈드업 기록
+        float PlayerHP = 0.0f;
+        float PlayerMaxHP = 0.0f;
+        FString TargetCombatState = TEXT("Idle");
+        float Dist = 0.0f;
+        QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, Dist);
+
+        const FString MeteorActionID = UCombatTimelineLogger::LogSkillWindup(
+            TEXT("Phase2_Meteor"),
+            GetWorld()->GetTimeSeconds(),
+            Dist,
+            TargetCombatState,
+            Health,
+            MaxHealth,
+            PlayerHP,
+            PlayerMaxHP
+        );
+        CurrentPhase2MeteorActionID = MeteorActionID;
+
         // 이펙트 알림
         if (MeteorEffect)
         {
@@ -1009,8 +1439,28 @@ void ABossSkeletonMage::StartSummonRandomMeteor()
         // 실제 대미지 판정 (0.9초 뒤 낙하)
         float FallDelay = 0.9f;
         FTimerHandle IndividualMeteorTimer;
-        GetWorldTimerManager().SetTimer(IndividualMeteorTimer, [this, SpawnLocation]()
+        GetWorldTimerManager().SetTimer(IndividualMeteorTimer, [this, SpawnLocation, MeteorActionID]()
         {
+            float CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+            float CurPlayerHP = 0.0f;
+            float CurPlayerMaxHP = 0.0f;
+            FString CurPlayerState = TEXT("Idle");
+            float CurDist = 0.0f;
+            QueryTargetPlayerData(CurPlayerHP, CurPlayerMaxHP, CurPlayerState, CurDist);
+
+            // [Combat Timeline Logger] 메테오 방출 기록
+            UCombatTimelineLogger::LogSkillRelease(
+                MeteorActionID,
+                CurrentTime,
+                CurDist,
+                CurPlayerState,
+                Health,
+                MaxHealth,
+                CurPlayerHP,
+                CurPlayerMaxHP,
+                TEXT("Meteor Impact")
+            );
+
             float DamageRadius = 200.f;
             if (MeteorSound) UGameplayStatics::PlaySound2D(GetWorld(), MeteorSound);
             
@@ -1019,6 +1469,7 @@ void ABossSkeletonMage::StartSummonRandomMeteor()
             FCollisionQueryParams QueryParams;
             QueryParams.AddIgnoredActor(this);
 
+            bool bHitPlayer = false;
             if (GetWorld()->OverlapMultiByChannel(OverlapResults, SpawnLocation, FQuat::Identity, ECC_Pawn, Sphere, QueryParams))
             {
                 for (auto& Result : OverlapResults)
@@ -1026,12 +1477,43 @@ void ABossSkeletonMage::StartSummonRandomMeteor()
                     AActor* HitActor = Result.GetActor();
                     if (HitActor && HitActor->ActorHasTag(TEXT("Player")))
                     {
+                        CurrentSkillHitIntensity = AttackStruct.SecondPhaseMeteorHitIntensity;
+                        CurrentSkillKnockdownType = AttackStruct.SecondPhaseMeteorKnockdownType;
+                        CurrentSkillKnockdownDuration = AttackStruct.SecondPhaseMeteorKnockdownDuration;
                         UGameplayStatics::ApplyDamage(HitActor, AttackStruct.SecondPhaseMeteorAttackDamage, GetController(), this, UDamageType::StaticClass());
 
                         BossSkeletonMageLogData.SecondPhaseMeteorAttackDamage += AttackStruct.SecondPhaseMeteorAttackDamage;
 						CommonBossLogData.TotalDamageDealt += AttackStruct.SecondPhaseMeteorAttackDamage;
+
+						// [Combat Timeline Logger] 적중 기록
+						float EstimatedAfterHP = FMath::Max(0.0f, CurPlayerHP - AttackStruct.SecondPhaseMeteorAttackDamage);
+						UCombatTimelineLogger::LogHitSuccess(
+							MeteorActionID,
+							TEXT("Phase2_Meteor"),
+							AttackStruct.SecondPhaseMeteorAttackDamage,
+							CurrentTime,
+							CurDist,
+							CurPlayerState,
+							Health,
+							MaxHealth,
+							EstimatedAfterHP,
+							CurPlayerMaxHP
+						);
+						bHitPlayer = true;
                     }
                 }
+            }
+
+            if (!bHitPlayer)
+            {
+                // [Combat Timeline Logger] 빗나감 기록
+                UCombatTimelineLogger::LogHitMissed(
+                    MeteorActionID,
+                    TEXT("Phase2_Meteor"),
+                    CurrentTime,
+                    CurDist,
+                    TEXT("Player Escaped Meteor Area")
+                );
             }
         }, FallDelay, false);
     }

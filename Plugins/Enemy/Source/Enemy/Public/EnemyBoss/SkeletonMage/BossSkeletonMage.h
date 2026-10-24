@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "EnemyBoss/BaseBossEnemy.h"
+#include "EnemyProjectile/BaseEnemyProjectile.h"
 #include "BossSkeletonMage.generated.h"
 
 USTRUCT(BlueprintType)
@@ -58,6 +59,56 @@ struct FBossSkeletonMageAttackStruct
 	float SecondPhaseThunderAttackDamage = 5.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
 	float SecondPhaseMeteorAttackDamage = 10.0f;
+
+	// ─── [스킬별 피격 연출 강도 (0.0 = 움찔, 1.0 = 비틀거림)] ───
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|HitReaction", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float FireBallHitIntensity = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|HitReaction", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float GroundAttackHitIntensity = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|HitReaction", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float GravityAttackHitIntensity = 0.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|HitReaction", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float PushTargetHitIntensity = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|HitReaction", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float SecondPhaseThunderHitIntensity = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|HitReaction", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float SecondPhaseMeteorHitIntensity = 1.0f;
+
+	// ─── [스킬별 넉다운 설정 (Kneel 무릎 꿇기 vs AirborneFloor 에어본 후 바닥 엎어짐)] ───
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|Knockdown")
+	EKnockdownType FireBallKnockdownType = EKnockdownType::None;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|Knockdown")
+	float FireBallKnockdownDuration = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|Knockdown")
+	EKnockdownType GroundAttackKnockdownType = EKnockdownType::Kneel;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|Knockdown")
+	float GroundAttackKnockdownDuration = 1.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|Knockdown")
+	EKnockdownType GravityAttackKnockdownType = EKnockdownType::AirborneFloor;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|Knockdown")
+	float GravityAttackKnockdownDuration = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|Knockdown")
+	EKnockdownType PushTargetKnockdownType = EKnockdownType::AirborneFloor;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|Knockdown")
+	float PushTargetKnockdownDuration = 1.2f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|Knockdown")
+	EKnockdownType SecondPhaseThunderKnockdownType = EKnockdownType::None;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|Knockdown")
+	float SecondPhaseThunderKnockdownDuration = 0.8f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|Knockdown")
+	EKnockdownType SecondPhaseMeteorKnockdownType = EKnockdownType::AirborneFloor;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|Knockdown")
+	float SecondPhaseMeteorKnockdownDuration = 2.0f;
 };
 
 UCLASS()
@@ -84,6 +135,28 @@ public:
 	
 	UPROPERTY(BlueprintReadOnly)
 	FBossSkeletonMageLogData BossSkeletonMageLogData;
+
+	// 타임라인 로깅용 현재 활성 ActionID 추적 변수
+	FString CurrentFireBallActionID;
+	FString CurrentTeleportActionID;
+	FString CurrentSummonActionID;
+	FString CurrentGroundAttackActionID;
+	FString CurrentPushTargetActionID;
+	FString CurrentGravityAttackActionID;
+	FString CurrentPhase2ThunderActionID;
+	FString CurrentPhase2MeteorActionID;
+
+	/** 현재 발동 중인 스킬의 피격 연출 강도 (0.0 ~ 1.0) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "자체설정|HitReaction")
+	float CurrentSkillHitIntensity = 1.0f;
+
+	/** 현재 발동 중인 스킬의 넉다운 타입 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "자체설정|HitReaction")
+	EKnockdownType CurrentSkillKnockdownType = EKnockdownType::None;
+
+	/** 현재 발동 중인 스킬의 넉다운 지속 시간 (초) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "자체설정|HitReaction")
+	float CurrentSkillKnockdownDuration = 1.2f;
 	
 	UPROPERTY(EditDefaultsOnly, Category = "자체설정")
 	class UAnimMontage* TeleportMontage;
@@ -257,5 +330,5 @@ public:
 	
 	UFUNCTION( BlueprintCallable )
 	void StartSummonRandomMeteor();
-	
 };
+

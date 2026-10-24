@@ -2,6 +2,8 @@
 
 #include "EnemyBoss/SkeletonMage/BossSkeletonMage.h"
 #include "Kismet/GameplayStatics.h"
+#include "CombatTimelineLogger.h"
+#include "CombatLogParticipantInterface.h"
 
 
 AGroundAttackProjectile::AGroundAttackProjectile()
@@ -140,6 +142,44 @@ void AGroundAttackProjectile::HandleDamage()
 					BossOwner->CommonBossLogData.TotalDamageDealt += Damage; // 공통 로그 데이터에도 누적
 				}
 
+				bHasHitPlayer = true;
+
+				// ─── [고정밀 전투 타임라인 로깅: 장판 적중/가드 판정] ───
+				float PlayerHP = 0.0f;
+				float PlayerMaxHP = 0.0f;
+				FString PlayerState = TEXT("Idle");
+				if (const ICombatLogParticipantInterface* Participant = Cast<ICombatLogParticipantInterface>(OtherActor))
+				{
+					PlayerHP = Participant->GetParticipantHealth();
+					PlayerMaxHP = Participant->GetParticipantMaxHealth();
+					PlayerState = Participant->GetParticipantCombatState();
+				}
+
+				float BossHP = 0.0f;
+				float BossMaxHP = 0.0f;
+				if (const ICombatLogParticipantInterface* BossParticipant = Cast<ICombatLogParticipantInterface>(GetOwner()))
+				{
+					BossHP = BossParticipant->GetParticipantHealth();
+					BossMaxHP = BossParticipant->GetParticipantMaxHealth();
+				}
+
+				const float Dist = FVector::Dist(GetActorLocation(), OtherActor->GetActorLocation());
+				const float CurrentTime = GetWorld()->GetTimeSeconds();
+
+				if (PlayerState == TEXT("JustGuarding"))
+				{
+					UCombatTimelineLogger::LogHitJustGuard(ActionID, TEXT("GroundAttack"), CurrentTime, Dist, BossHP, BossMaxHP, PlayerHP, PlayerMaxHP);
+				}
+				else if (PlayerState == TEXT("Guarding"))
+				{
+					UCombatTimelineLogger::LogHitGuarded(ActionID, TEXT("GroundAttack"), Damage, CurrentTime, Dist, BossHP, BossMaxHP, PlayerHP, PlayerMaxHP);
+				}
+				else
+				{
+					const float EstimatedAfterHP = FMath::Max(0.0f, PlayerHP - Damage);
+					UCombatTimelineLogger::LogHitSuccess(ActionID, TEXT("GroundAttack"), Damage, CurrentTime, Dist, PlayerState, BossHP, BossMaxHP, EstimatedAfterHP, PlayerMaxHP);
+				}
+
 				// 4. 대미지 적용
 				UGameplayStatics::ApplyDamage(
 					OtherActor,
@@ -155,5 +195,20 @@ void AGroundAttackProjectile::HandleDamage()
 			}
 		}
 	}
+}
+
+void AGroundAttackProjectile::Destroyed()
+{
+	if (!bHasHitPlayer && !ActionID.IsEmpty())
+	{
+		float Dist = 0.0f;
+		if (ACharacter* PlayerChar = UGameplayStatics::GetPlayerCharacter(GetWorld(), 0))
+		{
+			Dist = FVector::Dist(GetActorLocation(), PlayerChar->GetActorLocation());
+		}
+		UCombatTimelineLogger::LogHitMissed(ActionID, TEXT("GroundAttack"), GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f, Dist, TEXT("Player Escaped Area"));
+	}
+
+	Super::Destroyed();
 }
 

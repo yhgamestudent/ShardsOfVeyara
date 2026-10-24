@@ -43,6 +43,10 @@
 #include "Interface/ItemDropInterface.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "EnemyBoss/BaseBossEnemy.h"
+#include "EnemyProjectile/BaseEnemyProjectile.h"
+#include "EnemyProjectile/GroundAttackProjectile.h"
+#include "EnemyBoss/SkeletonMage/BossSkeletonMage.h"
 #include "Components/WidgetComponent.h"
 #include "Blueprint/UserWidget.h"
 #if WITH_EDITOR
@@ -637,7 +641,12 @@ void AAGSDCharacter::Die()
 float AAGSDCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent,
                                  class AController* EventInstigator, AActor* DamageCauser)
 {
-	if (DamageAmount > 0.f && !bCanBeDamage) return 0.f;
+	// [회피 무적]: 구르기 중(bIsRolling)이거나 일반 무적 상태 시 피해 및 피격 리액션 완전 무효화 (구르기 끊김 원천 차단)
+	if (DamageAmount > 0.f && (bIsRolling || bIsRollInvincible || !bCanBeDamage))
+	{
+		UE_LOG(LogTemp, Log, TEXT("[Roll] Dodged attack! (bIsRolling=%d, bIsRollInvincible=%d, bCanBeDamage=%d)"), bIsRolling ? 1 : 0, bIsRollInvincible ? 1 : 0, bCanBeDamage ? 1 : 0);
+		return 0.f;
+	}
 	float DamageToApply = Super::TakeDamage(DamageAmount, DamageEvent, EventInstigator, DamageCauser);
 	
 	if ( DamageToApply < 0.f )
@@ -681,8 +690,15 @@ float AAGSDCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& 
 
 	if ( DamageToApply > 0.f )
 	{
-		Health = FMath::Clamp(Health - DamageToApply, 0.f, MaxHealth);
-		if (HealthBar) HealthBar->UpdateHealth(Health, MaxHealth);
+		if (bIsGodMode)
+		{
+			UE_LOG(LogTemp, Log, TEXT("[GodMode] Damage %f ignored! Health preserved at %f"), DamageToApply, Health);
+		}
+		else
+		{
+			Health = FMath::Clamp(Health - DamageToApply, 0.f, MaxHealth);
+			if (HealthBar) HealthBar->UpdateHealth(Health, MaxHealth);
+		}
 
 		if (UWorld* World = GetWorld())
 		{
@@ -697,6 +713,12 @@ float AAGSDCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& 
 					LogSubsystem->UpdateLatestHealthPercent((MaxHealth > 0.f) ? (Health / MaxHealth * 100.f) : 0.f);
 				}
 			}
+		}
+
+		if (Health > 0.f)
+		{
+			// ─── [로스트아크식 3단계 피격 리액션 처리] ───
+			ProcessHitReaction(DamageToApply, DamageCauser, DamageEvent);
 		}
 
 		if ( Health <= 0.f )
@@ -729,7 +751,86 @@ float AAGSDCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& 
 		}
 	}
 	
+	// 저스트 가드 성공 플래그 리셋 (피격 판정 완료 후 최종 리셋)
+	if (GuardComponent && GuardComponent->IsJustGuardSuccessful())
+	{
+		GuardComponent->ResetJustGuardSuccess();
+	}
+
 	return DamageToApply;
+}
+
+FString AAGSDCharacter::GetCurrentCombatStateString() const
+{
+	if (bIsHitReacting || bIsKnockdown)
+	{
+		if (bIsKnockdown)
+		{
+			if (CurrentKnockdownType == EKnockdownType::AirborneFloor)
+			{
+				return TEXT("AirborneFloorKnockdown");
+			}
+			return TEXT("KneelKnockdown");
+		}
+		return (HitIntensityValue >= 0.5f) ? TEXT("HeavyHit") : TEXT("LightHit");
+	}
+
+	if (GuardComponent)
+	{
+		if (GuardComponent->IsJustGuardActive() || GuardComponent->IsJustGuardSuccessful())
+		{
+			return TEXT("JustGuarding");
+		}
+		if (GuardComponent->IsGuardActive())
+		{
+			return TEXT("Guarding");
+		}
+	}
+
+	if (bIsRolling)
+	{
+		return TEXT("Rolling");
+	}
+
+	if (bIsAttacking)
+	{
+		return TEXT("Attacking");
+	}
+
+	if (bIsRecovering)
+	{
+		return TEXT("AttackRecovery");
+	}
+
+	if (GetCharacterMovement() && GetCharacterMovement()->Velocity.SizeSquared() > 100.f)
+	{
+		return TEXT("Moving");
+	}
+
+	return TEXT("Idle");
+}
+
+void AAGSDCharacter::InterruptCombatAction(bool bInterruptAttack, bool bInterruptGuard)
+{
+	// 구르기 중(bIsRolling)일 때는 회피 모션과 무적을 절대 캔슬하지 않고 보존!
+	if (bIsRolling)
+	{
+		return;
+	}
+
+	// 1. 공격 중이면 공격 몽타주 종료 및 콤보/선입력 초기화
+	if (bInterruptAttack && (bIsAttacking || bIsRecovering))
+	{
+		bHasBufferedInput = false;
+		StopAnimMontage();
+		ResetAttackState();
+	}
+
+	// 2. 가드(막기) 상태이면 가드 해제 및 모션 종료
+	if (bInterruptGuard && CharacterState == ECharacterState::Block && GuardComponent)
+	{
+		GuardComponent->StopBlock();
+	}
 }
 
 void AAGSDCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -921,8 +1022,8 @@ void AAGSDCharacter::Move(const FInputActionValue& Value)
 		}
 	}
 
-	// 움직이면 안될 때
-	if (Mining)	return;
+	// 움직이면 안될 때 (채광 중이거나, 넉다운 또는 피격 경직 중일 때 이동 차단)
+	if (Mining || bIsKnockdown || bIsHitReacting)	return;
 	
 	UpdateSprintSpeed();
 
@@ -945,7 +1046,7 @@ void AAGSDCharacter::StopMove()
 void AAGSDCharacter::Jump()
 {
 	if (IsInDialogue()) return;
-	if (bIsAttacking || bIsRolling || Mining) return;
+	if (bIsAttacking || bIsRolling || Mining || bIsKnockdown || bIsHitReacting) return;
 	if (CharacterState == ECharacterState::Block) return;
  	if (Jumping && !GetCharacterMovement()->IsFalling())
 	{
@@ -980,6 +1081,18 @@ void AAGSDCharacter::StartRoll()
 	if (IsInDialogue()) return;
 	if (bIsRolling || GetCharacterMovement()->IsFalling()) return;
 	if (CharacterState == ECharacterState::Block) return;
+
+	// 피격 중일 때: 넉다운(Knockdown) 상태가 아니면 회피 키(Ctrl)로 즉시 캔슬하고 탈출 (Roll Cancel)
+	if (bIsHitReacting || bIsKnockdown)
+	{
+		if (bIsKnockdown)
+		{
+			// 넉다운 등 바닥에 넘어진 상태면 구르기 불허
+			return;
+		}
+		ResetHitReact();
+		ClearHitStun();
+	}
 
 	// 공격 중인 경우: 오직 RollCancel(bCanRollCancel) 노티파이 구간일 때만 공격을 캔슬하고 구르기 실행
 	if (bIsAttacking)
@@ -1026,6 +1139,12 @@ void AAGSDCharacter::StartRoll()
 
 	bHasBufferedInput = false;
 	bIsRolling = true;
+	bIsRollInvincible = true;
+
+	GetWorldTimerManager().ClearTimer(RollInvincibleTimerHandle);
+	GetWorldTimerManager().SetTimer(RollInvincibleTimerHandle, this, &AAGSDCharacter::EndRollInvincible, RollInvincibleDuration, false);
+	UE_LOG(LogTemp, Log, TEXT("[Roll] Roll started: 40-frame (%.3fs) Invincibility activated"), RollInvincibleDuration);
+
 	ReportTutorialAction(ETutorialActionType::Roll);
 	UTextLog::WriteTextLogByKeyword(TEXT("구르기"));
 
@@ -1046,9 +1165,17 @@ void AAGSDCharacter::StartRoll()
 	GetWorldTimerManager().SetTimer(RollTimerHandle, this, &AAGSDCharacter::StopRoll, RollCooldown, false);
 }
 
+void AAGSDCharacter::EndRollInvincible()
+{
+	bIsRollInvincible = false;
+	UE_LOG(LogTemp, Log, TEXT("[Roll] Roll Invincibility ended (40 frames elapsed)"));
+}
+
 void AAGSDCharacter::StopRoll()
 {
 	bIsRolling = false;
+	bIsRollInvincible = false;
+	GetWorldTimerManager().ClearTimer(RollInvincibleTimerHandle);
 
 	// 구르기 종료 시 이동키(WASD)를 누르고 있다면 루트 모션 종료로 속도가 0으로 죽지 않도록 바톤 터치
 	FVector InputDir = GetLastMovementInputVector();
@@ -1335,6 +1462,9 @@ void AAGSDCharacter::ProcessAttackInputWithButton(ESpearAttackInput PressedInput
 	// 구르기 중이거나 공중 상태인 경우 공격 불가
 	if (bIsRolling || (GetCharacterMovement() && GetCharacterMovement()->IsFalling())) return;
 
+	// 피격 경직(Heavy/Knockdown) 중에는 신규 공격 입력 차단
+	if (bIsHitReacting || bIsKnockdown) return;
+
 	// 이미 콤보 결정 대기 중인 경우
 	if (bIsWaitingForComboDecision)
 	{
@@ -1591,7 +1721,7 @@ void AAGSDCharacter::StartParryCombo()
 	if (GuardComponent)
 	{
 		GuardComponent->StopBlock();
-		GuardComponent->ResetJustGuardSuccess();
+		// 주의: GuardComponent->ResetJustGuardSuccess()는 ProcessHitReaction 면역 검사가 끝난 뒤 TakeDamage 종료 시점에 리셋
 	}
 	else if (CharacterState == ECharacterState::Block)
 	{
@@ -2110,6 +2240,9 @@ void AAGSDCharacter::UpdateMotionWarpTarget()
 
 void AAGSDCharacter::DoMove(float Right, float Forward)
 {
+	// 넉다운 또는 피격 경직 중일 때는 물리적 이동 입력 완전 무시
+	if (bIsKnockdown || bIsHitReacting) return;
+
 	if (GetController() != nullptr)
 	{
 		FVector ForwardDirection;
@@ -3679,3 +3812,242 @@ void AAGSDCharacter::ReportTutorialAction(ETutorialActionType ActionType, int32 
 		}
 	}
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// [로스트아크식 3단계 피격 리액션 시스템 구현]
+// ─────────────────────────────────────────────────────────────────────────────
+
+void AAGSDCharacter::ProcessHitReaction(float DamageAmount, AActor* DamageCauser, struct FDamageEvent const& DamageEvent)
+{
+	// 1. 공격자가 보스인지 판별 (보스 본체 또는 보스가 소유한 투사체 등)
+	const bool bIsFromBoss = DamageCauser && (
+		DamageCauser->IsA(ABaseBossEnemy::StaticClass()) || 
+		(DamageCauser->GetOwner() && DamageCauser->GetOwner()->IsA(ABaseBossEnemy::StaticClass()))
+	);
+
+	// 2. 잡몹(보스가 아닌 일반 몬스터)의 공격은 피격 모션을 출력하지 않음 (상시 슈퍼아머)
+	if (!bIsFromBoss)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[HitReaction] Minion damage (%.1f from %s) - Hit reaction skipped (Super Armor)"), 
+			DamageAmount, DamageCauser ? *DamageCauser->GetName() : TEXT("Unknown"));
+		return;
+	}
+
+	// 3. 구르기(회피) 중에는 피격 리액션을 실행하지 않음 (구르기 모션 끊김 방지)
+	if (bIsRolling)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[HitReaction] Attack received during Roll - Hit reaction skipped"));
+		return;
+	}
+
+	// ⭐️ 3-1. 저스트 가드(패링) 성공 및 반격 콤보 중: 넉다운 및 모든 피격 리액션 100% 완전 면역!
+	const bool bIsParrying = (GuardComponent && (GuardComponent->IsJustGuardActive() || GuardComponent->IsJustGuardSuccessful())) ||
+	                         (CurrentComboData && CurrentComboData->DirectionRequirement == ESpearAttackDirection::Parry);
+	if (bIsParrying)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[HitReaction] Just Guard (Parry) SUCCESS! - Completely immune to Knockdown & Hit"));
+		return;
+	}
+
+	// 4. 피격 상대 각도 계산 (-180.0 ~ +180.0도)
+	if (DamageCauser)
+	{
+		const FVector ToCauser = (DamageCauser->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
+		const FVector Forward = GetActorForwardVector().GetSafeNormal2D();
+		const FVector Right = GetActorRightVector().GetSafeNormal2D();
+
+		const float DotFwd = FVector::DotProduct(Forward, ToCauser);
+		const float DotRight = FVector::DotProduct(Right, ToCauser);
+
+		HitDirectionAngle = FMath::RadiansToDegrees(FMath::Atan2(DotRight, DotFwd));
+	}
+
+	// 5. 피격 대미지 갱신
+	LastHitDamage = DamageAmount;
+
+	// 6. 스킬 및 투사체로부터 연출 강도(HitIntensity) 및 넉다운 설정(KnockdownType, KnockdownDuration) 추출
+	float ResolvedIntensity = -1.0f;
+	EKnockdownType TargetKnockdownType = (DamageAmount >= 120.0f) ? EKnockdownType::AirborneFloor : EKnockdownType::None;
+	float TargetKnockdownDuration = KnockdownDuration; // 기본값 (1.2초)
+
+	if (ABaseEnemyProjectile* Proj = Cast<ABaseEnemyProjectile>(DamageCauser))
+	{
+		ResolvedIntensity = Proj->HitIntensity;
+		if (Proj->KnockdownType != EKnockdownType::None)
+		{
+			TargetKnockdownType = Proj->KnockdownType;
+			TargetKnockdownDuration = Proj->KnockdownDuration;
+		}
+	}
+	else if (AGroundAttackProjectile* GroundProj = Cast<AGroundAttackProjectile>(DamageCauser))
+	{
+		ResolvedIntensity = GroundProj->HitIntensity;
+		if (GroundProj->KnockdownType != EKnockdownType::None)
+		{
+			TargetKnockdownType = GroundProj->KnockdownType;
+			TargetKnockdownDuration = GroundProj->KnockdownDuration;
+		}
+	}
+	else if (ABossSkeletonMage* BossMage = Cast<ABossSkeletonMage>(DamageCauser))
+	{
+		ResolvedIntensity = BossMage->CurrentSkillHitIntensity;
+		if (BossMage->CurrentSkillKnockdownType != EKnockdownType::None)
+		{
+			TargetKnockdownType = BossMage->CurrentSkillKnockdownType;
+			TargetKnockdownDuration = BossMage->CurrentSkillKnockdownDuration;
+		}
+	}
+	else if (DamageCauser && DamageCauser->GetOwner() && DamageCauser->GetOwner()->IsA(ABossSkeletonMage::StaticClass()))
+	{
+		if (ABossSkeletonMage* OwnerBoss = Cast<ABossSkeletonMage>(DamageCauser->GetOwner()))
+		{
+			ResolvedIntensity = OwnerBoss->CurrentSkillHitIntensity;
+			if (OwnerBoss->CurrentSkillKnockdownType != EKnockdownType::None)
+			{
+				TargetKnockdownType = OwnerBoss->CurrentSkillKnockdownType;
+				TargetKnockdownDuration = OwnerBoss->CurrentSkillKnockdownDuration;
+			}
+		}
+	}
+
+	// ⭐️ 6-1. 단순 가드(막기) 상태 판정:
+	// - 넉다운 강공격을 맞으면 가드가 깨지며(StopBlock) 넉다운 발생
+	// - 일반 공격을 맞으면 가드로 든든하게 막아내며 피격 리액션 스킵
+	if (CharacterState == ECharacterState::Block)
+	{
+		if (TargetKnockdownType != EKnockdownType::None)
+		{
+			if (GuardComponent)
+			{
+				GuardComponent->StopBlock(); // 가드 강제 해제 (가드 브레이크)
+			}
+			UE_LOG(LogTemp, Log, TEXT("[HitReaction] Guard Broken by Heavy/Knockdown attack!"));
+		}
+		else
+		{
+			UE_LOG(LogTemp, Log, TEXT("[HitReaction] Normal attack blocked by Guard - Hit reaction skipped"));
+			return;
+		}
+	}
+
+	// 7. 넉다운 분기 처리 (무릎 꿇기 vs 에어본 후 바닥 엎어짐)
+	if (TargetKnockdownType != EKnockdownType::None)
+	{
+		CurrentKnockdownType = TargetKnockdownType;
+		bIsKnockdown = true;
+		bKnockdownStandUp = false;
+
+		// ⭐️ 핵심: 넉다운 상태에서는 일반 피격 리액션(bIsHitReacting)을 꺼서
+		// 애님그래프 메인의 Blend Poses(bIsHitReacting)가 MainState(Knockdown)를 가로채지 못하도록 보장!
+		bIsHitReacting = false;
+		GetWorldTimerManager().ClearTimer(HitReactTimerHandle);
+
+		StopAnimMontage();
+		bIsAttacking = false;
+		bIsRecovering = false;
+		bCanCombo = false;
+		bHasBufferedInput = false;
+
+		// 애님그래프 스테이트 머신(Locomotion -> Knockdown) 기상 타이머 가동
+		GetWorldTimerManager().ClearTimer(KnockdownTimerHandle);
+		GetWorldTimerManager().SetTimer(KnockdownTimerHandle, this, &AAGSDCharacter::TriggerKnockdownStandUp, TargetKnockdownDuration, false);
+
+		// 조작 제한 적용 (다운 시간 + 기상 시간 충분히 확보, FinishKnockdown 호출 시 즉시 해제)
+		ApplyHitStun(TargetKnockdownDuration + 5.0f);
+		UE_LOG(LogTemp, Log, TEXT("[HitReaction] State Machine KNOCKDOWN Triggered! Type: %d, Duration: %.2fs (WeaponEquipped: %d)"),
+			static_cast<int32>(TargetKnockdownType), TargetKnockdownDuration, HasEquippedWeapon() ? 1 : 0);
+		return;
+	}
+
+	// 8. 일반 피격 연출 강도 결정
+	if (ResolvedIntensity < 0.0f)
+	{
+		ResolvedIntensity = (DamageAmount >= 15.0f) ? 1.0f : 0.0f;
+	}
+
+	HitIntensityValue = FMath::Clamp(ResolvedIntensity, 0.0f, 1.0f);
+
+	// [연타 스턴 락 방지]: 이미 피격 중이면 타이머를 연장하지 않고 기존 타이머 유지
+	if (bIsHitReacting)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[HitReaction] Already HitReacting: Anti-stun-lock active (Timer preserved)"));
+		return;
+	}
+
+	// [보스 공격 강제 캔슬]: 공격 중(bIsAttacking)이라도 보스 공격에 맞으면 즉시 캔슬하고 비틀거림!
+	StopAnimMontage();
+	bIsAttacking = false;
+	bIsRecovering = false;
+	bCanCombo = false;
+	bHasBufferedInput = false;
+
+	bIsHitReacting = true;
+
+	GetWorldTimerManager().ClearTimer(HitReactTimerHandle);
+	GetWorldTimerManager().SetTimer(HitReactTimerHandle, this, &AAGSDCharacter::ResetHitReact, HitReactDuration, false);
+
+	UE_LOG(LogTemp, Log, TEXT("[HitReaction] 2D BS Hit Triggered! Angle: %.1f, Intensity: %.1f (Damage: %.1f, Duration: %.3fs)"),
+		HitDirectionAngle, HitIntensityValue, LastHitDamage, HitReactDuration);
+}
+
+void AAGSDCharacter::ResetHitReact()
+{
+	bIsHitReacting = false;
+	bIsKnockdown = false;
+	bKnockdownStandUp = false;
+	CurrentKnockdownType = EKnockdownType::None;
+	GetWorldTimerManager().ClearTimer(HitReactTimerHandle);
+	GetWorldTimerManager().ClearTimer(KnockdownTimerHandle);
+	UE_LOG(LogTemp, Log, TEXT("[HitReaction] Hit reaction reset"));
+}
+
+void AAGSDCharacter::TriggerKnockdownStandUp()
+{
+	bKnockdownStandUp = true;
+	UE_LOG(LogTemp, Log, TEXT("[HitReaction] Knockdown duration finished -> Stand up triggered (bKnockdownStandUp = true)"));
+
+	// 기상 애니메이션 끝의 FinishKnockdown 애님 노티파이를 대기 (노티파이 누락 대비 5.0초 세이프티 타이머 설정)
+	GetWorldTimerManager().ClearTimer(KnockdownTimerHandle);
+	GetWorldTimerManager().SetTimer(KnockdownTimerHandle, this, &AAGSDCharacter::FinishKnockdown, 5.0f, false);
+}
+
+void AAGSDCharacter::FinishKnockdown()
+{
+	bIsKnockdown = false;
+	bKnockdownStandUp = false;
+	CurrentKnockdownType = EKnockdownType::None;
+	GetWorldTimerManager().ClearTimer(KnockdownTimerHandle);
+	ClearHitStun();
+	ResetHitReact();
+	UE_LOG(LogTemp, Log, TEXT("[HitReaction] Knockdown stand up complete -> Restored locomotion state"));
+}
+
+void AAGSDCharacter::ApplyHitStun(float Duration)
+{
+	// 넉다운 상태 중에는 일반 피격 리액션(bIsHitReacting)을 켜지 않음
+	if (!bIsKnockdown)
+	{
+		bIsHitReacting = true;
+	}
+	GetWorldTimerManager().ClearTimer(HitStunTimerHandle);
+	GetWorldTimerManager().SetTimer(HitStunTimerHandle, this, &AAGSDCharacter::ClearHitStun, Duration, false);
+}
+
+void AAGSDCharacter::ClearHitStun()
+{
+	bIsHitReacting = false;
+	ResetHitReact();
+	GetWorldTimerManager().ClearTimer(HitStunTimerHandle);
+}
+
+void AAGSDCharacter::ToggleGodMode()
+{
+	bIsGodMode = !bIsGodMode;
+	const FString StatusStr = bIsGodMode ? TEXT("ON (무적 활성화)") : TEXT("OFF (무적 해제)");
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 3.5f, bIsGodMode ? FColor::Green : FColor::Red, FString::Printf(TEXT("[치트] God Mode: %s"), *StatusStr));
+	}
+	UE_LOG(LogTemp, Warning, TEXT("[Cheat] God Mode is now: %s"), *StatusStr);
+}
+

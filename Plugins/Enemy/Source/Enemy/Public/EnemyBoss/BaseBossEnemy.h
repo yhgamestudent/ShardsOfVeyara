@@ -6,12 +6,22 @@
 #include "Interface/InteractionInterface.h"
 #include "CSVLogType.h" 
 #include "CombatStatData.h"
+#include "CombatLogParticipantInterface.h"
 #include "BaseBossEnemy.generated.h"
 
 UCLASS()
-class ENEMY_API ABaseBossEnemy : public ACharacter, public IItemDropInterface, public IInteractionInterface
+class ENEMY_API ABaseBossEnemy : public ACharacter, public IItemDropInterface, public IInteractionInterface, public ICombatLogParticipantInterface
 {
 	GENERATED_BODY()
+
+public:
+	// ICombatLogParticipantInterface 구현
+	virtual float GetParticipantHealth() const override { return Health; }
+	virtual float GetParticipantMaxHealth() const override { return MaxHealth; }
+	virtual FString GetParticipantCombatState() const override { return TEXT("Boss"); }
+
+	/** 플레이어(TargetCharacter)의 체력 및 상태 쿼리 헬퍼 */
+	void QueryTargetPlayerData(float& OutPlayerHP, float& OutPlayerMaxHP, FString& OutPlayerState, float& OutDistance) const;
 
 public:
 	UPROPERTY(EditAnywhere, Category="자체설정")

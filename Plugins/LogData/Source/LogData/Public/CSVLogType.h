@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "CoreMinimal.h"
 #include "CSVLogType.generated.h"
@@ -283,4 +283,159 @@ struct FHechiLogData
 	{
 		return FCommonBossLogData::GetCSVHeader();
 	}
+};
+
+UENUM(BlueprintType)
+enum class ECombatEventType : uint8
+{
+	None				UMETA(DisplayName = "None"),
+	BattleStart			UMETA(DisplayName = "BattleStart"),
+	SkillWindup			UMETA(DisplayName = "SkillWindup"),
+	SkillRelease		UMETA(DisplayName = "SkillRelease"),
+	SkillRecovery		UMETA(DisplayName = "SkillRecovery"),
+	HitSuccess			UMETA(DisplayName = "HitSuccess"),
+	HitMissed			UMETA(DisplayName = "HitMissed"),
+	HitGuarded			UMETA(DisplayName = "HitGuarded"),
+	HitJustGuard		UMETA(DisplayName = "HitJustGuard"),
+	HitEvaded			UMETA(DisplayName = "HitEvaded"),
+	BossDamaged			UMETA(DisplayName = "BossDamaged"),
+	PhaseTransition		UMETA(DisplayName = "PhaseTransition"),
+	BattleEnd			UMETA(DisplayName = "BattleEnd")
+};
+
+USTRUCT(BlueprintType)
+struct FCombatTimelineEvent
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	FString Timestamp;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	float CombatTime = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	FString ActionID;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	ECombatEventType EventType = ECombatEventType::None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	FString SourceActor;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	FString TargetActor;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	FString ActionName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	float Damage = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	float Distance = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	FString PlayerState;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	float BossHP = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	float BossHPPct = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	float PlayerHP = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	float PlayerHPPct = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	FString Details;
+
+	FString GetEventTypeString() const
+	{
+		switch (EventType)
+		{
+		case ECombatEventType::BattleStart: return TEXT("BATTLE_START");
+		case ECombatEventType::SkillWindup: return TEXT("SKILL_WINDUP");
+		case ECombatEventType::SkillRelease: return TEXT("SKILL_RELEASE");
+		case ECombatEventType::SkillRecovery: return TEXT("SKILL_RECOVERY");
+		case ECombatEventType::HitSuccess: return TEXT("HIT_SUCCESS");
+		case ECombatEventType::HitMissed: return TEXT("HIT_MISSED");
+		case ECombatEventType::HitGuarded: return TEXT("HIT_GUARDED");
+		case ECombatEventType::HitJustGuard: return TEXT("HIT_JUST_GUARD");
+		case ECombatEventType::HitEvaded: return TEXT("HIT_EVADED");
+		case ECombatEventType::BossDamaged: return TEXT("BOSS_DAMAGED");
+		case ECombatEventType::PhaseTransition: return TEXT("PHASE_TRANSITION");
+		case ECombatEventType::BattleEnd: return TEXT("BATTLE_END");
+		default: return TEXT("UNKNOWN");
+		}
+	}
+
+	FString ToCSVRow() const
+	{
+		return FString::Printf(TEXT("%s,%.3f,%s,%s,%s,%s,%s,%.1f,%.1f,%s,%.1f,%.1f%%,%.1f,%.1f%%,%s"),
+			*Timestamp,
+			CombatTime,
+			*ActionID,
+			*GetEventTypeString(),
+			*SourceActor,
+			*TargetActor,
+			*ActionName,
+			Damage,
+			Distance,
+			*PlayerState,
+			BossHP,
+			BossHPPct,
+			PlayerHP,
+			PlayerHPPct,
+			*Details.Replace(TEXT(","), TEXT(";")));
+	}
+
+	static FString GetCSVHeader()
+	{
+		return TEXT("Timestamp,CombatTime,ActionID,EventType,SourceActor,TargetActor,ActionName,Damage,Distance,PlayerState,BossHP,BossHPPct,PlayerHP,PlayerHPPct,Details");
+	}
+};
+
+USTRUCT(BlueprintType)
+struct FSkillAggregateStats
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	FString SkillName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	int32 CastCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	int32 HitCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	int32 MissCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	int32 GuardCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	int32 JustGuardCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	float TotalWindupTime = 0.0f;
+	int32 WindupSamples = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	float TotalTravelTime = 0.0f;
+	int32 TravelSamples = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	float TotalRecoveryTime = 0.0f;
+	int32 RecoverySamples = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatLog")
+	float TotalDamageDealt = 0.0f;
+
+	TMap<FString, int32> VictimStateCounts;
 };

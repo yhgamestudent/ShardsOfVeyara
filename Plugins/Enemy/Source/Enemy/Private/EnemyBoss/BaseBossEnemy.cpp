@@ -13,6 +13,7 @@
 #include "Components/TextBlock.h"
 #include "Interface/PlayerDeadInterface.h"
 #include "EnemyHUD/BossHealthBarWidget.h"
+#include "CombatTimelineLogger.h"
 
 ABaseBossEnemy::ABaseBossEnemy()
 {
@@ -192,6 +193,24 @@ float ABaseBossEnemy::TakeDamage(float DamageAmount, struct FDamageEvent const& 
 		}
 		
 		SetHitOverlay(); // 히트 오버레이 설정
+
+		float PlayerHP = 0.0f;
+		float PlayerMaxHP = 0.0f;
+		FString TargetCombatState = TEXT("Attacking");
+		float PlayerDistance = 0.0f;
+		QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, PlayerDistance);
+
+		UCombatTimelineLogger::LogBossDamaged(
+			DamageCauser ? DamageCauser->GetName() : TEXT("PlayerAttack"),
+			DamageToApply,
+			GetWorld()->GetTimeSeconds(),
+			PlayerDistance,
+			Health,
+			MaxHealth,
+			PlayerHP,
+			PlayerMaxHP,
+			TargetCombatState
+		);
 	}
 	
 	return DamageToApply;
@@ -475,6 +494,26 @@ void ABaseBossEnemy::TestDeadLogic()
 	}
 }
 
+void ABaseBossEnemy::QueryTargetPlayerData(float& OutPlayerHP, float& OutPlayerMaxHP, FString& OutPlayerState, float& OutDistance) const
+{
+	OutPlayerHP = 0.0f;
+	OutPlayerMaxHP = 0.0f;
+	OutPlayerState = TEXT("Idle");
+	OutDistance = 0.0f;
+
+	if (TargetCharacter)
+	{
+		OutDistance = FVector::Dist(GetActorLocation(), TargetCharacter->GetActorLocation());
+
+		if (const ICombatLogParticipantInterface* Participant = Cast<ICombatLogParticipantInterface>(TargetCharacter))
+		{
+			OutPlayerHP = Participant->GetParticipantHealth();
+			OutPlayerMaxHP = Participant->GetParticipantMaxHealth();
+			OutPlayerState = Participant->GetParticipantCombatState();
+		}
+	}
+}
+
 void ABaseBossEnemy::StartBattleLog()
 {
 	// 이미 전투 중이면 중복 기록 안 함
@@ -488,6 +527,21 @@ void ABaseBossEnemy::StartBattleLog()
 		GetMesh()->GetSkeletalMeshAsset()->GetName() : TEXT("NoMeshAsset");
 
 	CommonBossLogData.StartWorldTime = BattleStartTime; // 로그 데이터에 시작 시간 기록
+
+	// ─── [고정밀 전투 타임라인 세션 개시] ───
+	float PlayerHP = 0.0f;
+	float PlayerMaxHP = 0.0f;
+	FString TargetCombatState = TEXT("Idle");
+	float PlayerDistance = 0.0f;
+	QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, PlayerDistance);
+
+	UCombatTimelineLogger::StartCombatSession(
+		BossLogId.IsEmpty() ? TEXT("SkeletonMage") : BossLogId,
+		BattleStartTime,
+		MaxHealth,
+		PlayerMaxHP,
+		PlayerDistance
+	);
 }
 
 void ABaseBossEnemy::EndBattleLog()
@@ -503,8 +557,22 @@ void ABaseBossEnemy::EndBattleLog()
 
 	CommonBossLogData.EndWorldTime = EndTime; // 로그 데이터에 종료 시간 기록
 	CommonBossLogData.ElapsedTime = BattleDuration; // 로그 데이터에 소요 시간 기록
-	
-	//CommonBossLogData = FCommonBossLogData(); 이거는 자식 쪽에서 오버라이드 해서 거기서 자기꺼랑 같이 초기화
+
+	// ─── [고정밀 전투 타임라인 세션 종료 및 KPI 요약표 출력] ───
+	float PlayerHP = 0.0f;
+	float PlayerMaxHP = 0.0f;
+	FString TargetCombatState = TEXT("Idle");
+	float PlayerDistance = 0.0f;
+	QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, PlayerDistance);
+
+	UCombatTimelineLogger::EndCombatSession(
+		CommonBossLogData.Result.IsEmpty() ? TEXT("BattleEnded") : CommonBossLogData.Result,
+		EndTime,
+		Health,
+		MaxHealth,
+		PlayerHP,
+		PlayerMaxHP
+	);
 	
 	// 상태 초기화
 	bIsInBattle = false;
