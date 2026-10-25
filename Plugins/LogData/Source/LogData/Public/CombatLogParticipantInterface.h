@@ -25,4 +25,11 @@ public:
 
 	/** 중력 부유 등 외부 강제 패턴에 의한 액션 인터럽트 (구르기 중일 때는 실행되지 않음) */
 	virtual void InterruptCombatAction(bool bInterruptAttack, bool bInterruptGuard) {}
+
+	/** 피격/넉다운 경직 계측 인터페이스 (초 단위 및 횟수) */
+	virtual float GetParticipantHitStunDuration() const { return 0.0f; }
+	virtual float GetParticipantKnockdownDuration() const { return 0.0f; }
+	virtual int32 GetParticipantHitStunCount() const { return 0; }
+	virtual int32 GetParticipantKnockdownCount() const { return 0; }
+	virtual void ResetParticipantStunMetrics() {}
 };

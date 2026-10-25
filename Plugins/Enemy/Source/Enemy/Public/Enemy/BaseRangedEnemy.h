@@ -19,6 +19,10 @@ protected:
 	// 원거리 공격 지점 컴포넌트
 	UPROPERTY(VisibleAnywhere)
 	class USceneComponent* RangedAttackPoint;
+
+	// 원거리 공격 액션 이름 (기본값: Arrow)
+	UPROPERTY(EditDefaultsOnly, Category="자체설정|전투로그")
+	FString ProjectileActionName = TEXT("Arrow");
 	
 public:
 	ABaseRangedEnemy();

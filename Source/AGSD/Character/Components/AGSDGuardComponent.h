@@ -48,7 +48,7 @@ public:
 
 	// 저스트 가드 성공 연출 및 상태 리셋
 	UFUNCTION(BlueprintCallable, Category = "Guard")
-	void HandleJustGuardSuccess();
+	void HandleJustGuardSuccess(AActor* DamageCauser = nullptr);
 
 	// 수동 타이머 정리 및 판정 리셋 (예: 콤보 리셋 시 호출)
 	UFUNCTION(BlueprintCallable, Category = "Guard")

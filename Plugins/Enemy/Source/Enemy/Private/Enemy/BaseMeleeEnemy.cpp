@@ -1,6 +1,8 @@
 #include "Enemy/BaseMeleeEnemy.h"
 #include "Components/SphereComponent.h"
 #include "Kismet/GameplayStatics.h"
+#include "CombatTimelineLogger.h"
+#include "CombatLogParticipantInterface.h"
 
 ABaseMeleeEnemy::ABaseMeleeEnemy()
 {
@@ -47,8 +49,40 @@ void ABaseMeleeEnemy::CheckMeleeAttackHit(float DeltaTime)
 					FString MeshName = GetMesh()->GetSkeletalMeshAsset() ? GetMesh()->GetSkeletalMeshAsset()->GetName() : TEXT("NoMeshAsset");
 				}
 				
-				EnemyLogData.TotalDamageDealt += MeleeAttackDamage; // 로그 데이터에 입힌 대미지 누적
+				NotifyDamageDealtToPlayer(MeleeAttackDamage); // 로그 데이터 및 소환자 보스에게 입힌 대미지 누적
 				
+				// ─── [고정밀 전투 타임라인 로깅: 근접 미니언 공격 적중/가드] ───
+				if (UCombatTimelineLogger::IsSessionActive())
+				{
+					float PlayerHP = 0.0f;
+					float PlayerMaxHP = 0.0f;
+					FString TargetCombatState = TEXT("Idle");
+					if (const ICombatLogParticipantInterface* Participant = Cast<ICombatLogParticipantInterface>(OverlappingActor))
+					{
+						PlayerHP = Participant->GetParticipantHealth();
+						PlayerMaxHP = Participant->GetParticipantMaxHealth();
+						TargetCombatState = Participant->GetParticipantCombatState();
+					}
+
+					const float Dist = FVector::Dist(GetActorLocation(), OverlappingActor->GetActorLocation());
+					const float CurrentTime = GetWorld()->GetTimeSeconds();
+					const FString ActionName = TEXT("Minion_MeleeAttack");
+
+					if (TargetCombatState == TEXT("JustGuarding"))
+					{
+						UCombatTimelineLogger::LogHitJustGuard(ActionName, ActionName, CurrentTime, Dist, 0.0f, 0.0f, PlayerHP, PlayerMaxHP);
+					}
+					else if (TargetCombatState == TEXT("Guarding"))
+					{
+						UCombatTimelineLogger::LogHitGuarded(ActionName, ActionName, MeleeAttackDamage, CurrentTime, Dist, 0.0f, 0.0f, PlayerHP, PlayerMaxHP);
+					}
+					else
+					{
+						const float EstimatedAfterHP = FMath::Max(0.0f, PlayerHP - MeleeAttackDamage);
+						UCombatTimelineLogger::LogHitSuccess(ActionName, ActionName, MeleeAttackDamage, CurrentTime, Dist, TargetCombatState, 0.0f, 0.0f, EstimatedAfterHP, PlayerMaxHP);
+					}
+				}
+
 				// 플레이어에게 대미지를 적용합니다.
 				UGameplayStatics::ApplyDamage(
 					OverlappingActor,

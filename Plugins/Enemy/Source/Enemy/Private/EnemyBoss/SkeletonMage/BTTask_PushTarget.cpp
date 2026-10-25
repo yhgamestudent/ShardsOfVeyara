@@ -18,6 +18,12 @@ EBTNodeResult::Type UBTTask_PushTarget::ExecuteTask(UBehaviorTreeComponent& Owne
 	{
 		return EBTNodeResult::Failed;
 	}
+
+	// 플레이어가 PushAreaSphere 내부에 있을 때만 밀치기 실행! (외부에 있으면 실패 리턴하여 다른 패턴/이동 유도)
+	if (!Boss->IsPlayerInPushArea())
+	{
+		return EBTNodeResult::Failed;
+	}
 	
 	// 1. 공격 함수 실행 (몽타주 재생 시작)
 	Boss->PlayPushTargetMontage();

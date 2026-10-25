@@ -157,7 +157,7 @@ void ABaseEnemyProjectile::OnOverlapBegin(UPrimitiveComponent* OverlappedCompone
 					
 					ABaseEnemy* EnemyOwner = Cast<ABaseEnemy>(GetOwner());
 					
-					if ( EnemyOwner ) EnemyOwner->EnemyLogData.TotalDamageDealt += Damage; // 로그 데이터에 입힌 대미지 누적
+					if ( EnemyOwner ) EnemyOwner->NotifyDamageDealtToPlayer(Damage); // 로그 데이터 및 소환자 보스에게 입힌 대미지 누적
 					
 					ABaseRangedEnemy* RangedCharacter = Cast<ABaseRangedEnemy>(GetOwner());
 					

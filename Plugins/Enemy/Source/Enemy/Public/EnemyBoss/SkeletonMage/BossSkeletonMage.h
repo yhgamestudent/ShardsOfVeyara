@@ -33,6 +33,8 @@ struct FBossSkeletonMageAttackStruct
 	float MinTeleportDist = 500.f;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
+	float FireBallDamage = 84.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
 	float FireBallDelay = 1.f;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
@@ -111,6 +113,27 @@ struct FBossSkeletonMageAttackStruct
 	float SecondPhaseMeteorKnockdownDuration = 2.0f;
 };
 
+USTRUCT()
+struct FBossSkillCooldownInfo
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	float Cooldown = 0.0f;
+
+	UPROPERTY()
+	float ActionDelay = 1.0f;
+
+	UPROPERTY()
+	float LastCastTime = -999.0f;
+
+	UPROPERTY()
+	float BaseWeight = 0.0f;
+
+	UPROPERTY()
+	FName BlackboardKey = NAME_None;
+};
+
 UCLASS()
 class ENEMY_API ABossSkeletonMage : public ABaseBossEnemy
 {
@@ -129,12 +152,23 @@ public:
 		class AController* EventInstigator, AActor* DamageCauser) override;
 	
 	virtual void EndBattleLog() override;
+	virtual void AddSummonDamage(float DamageAmount) override;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
 	FBossSkeletonMageAttackStruct AttackStruct;
 	
 	UPROPERTY(BlueprintReadOnly)
 	FBossSkeletonMageLogData BossSkeletonMageLogData;
+
+	// ─── [스킬별 개별 쿨타임 및 공통 행동 딜레이 시스템] ───
+	UPROPERTY()
+	TMap<FName, FBossSkillCooldownInfo> SkillCooldownMap;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Cooldown")
+	float CommonAttackDelay = 1.0f;
+
+	void StartSkillCooldown(FName SkillName);
+	void UpdateSkillCooldowns();
 
 	// 타임라인 로깅용 현재 활성 ActionID 추적 변수
 	FString CurrentFireBallActionID;
@@ -245,6 +279,8 @@ public:
 	// 푸시 범위 원형 콜리전 컴포넌트
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	class USphereComponent* PushAreaSphere;
+	UFUNCTION(BlueprintCallable, Category = "자체설정")
+	bool IsPlayerInPushArea() const;
 	void PlayPushTargetMontage();
 	// 애님 노티파이에서 호출할 함수
 	UFUNCTION( BlueprintCallable )
@@ -262,6 +298,28 @@ public:
 	// 쉴드 이펙트
 	UPROPERTY(EditDefaultsOnly, Category = "자체설정")
 	class UNiagaraSystem* MagicShieldEffect;
+
+	// ─── [미니언 생존 중 매직 실드 결계(밀치기 원 유지) 기믹] ───
+	UPROPERTY()
+	TArray<TWeakObjectPtr<class ABaseEnemy>> ActiveSummonedMinions;
+
+	UPROPERTY()
+	class UNiagaraComponent* ActiveMagicShieldComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Gimmick")
+	bool bIsMagicShieldActive = false;
+
+	float LastShieldPushTime = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Gimmick")
+	float ShieldRepelRadius = 400.0f;
+
+	void ActivateMagicShieldBarrier();
+	void DeactivateMagicShieldBarrier();
+	void CheckMinionSurvivors();
+
+	UFUNCTION()
+	void OnSummonedMinionDestroyed(AActor* DestroyedActor);
 	
 	UFUNCTION( BlueprintCallable )
 	void GravityAttack();
@@ -287,6 +345,10 @@ public:
 	float GravityHalfHeight = 700.f;
 	float GravityDuration = 4.8f;
 	float GravityTimer = 0.0f;
+
+	FTimerHandle GravityActivationTimerHandle;
+	FTimerHandle GravityImpactEffectTimerHandle;
+	FTimerHandle GravityEndTimerHandle;
 	
 	// 특수 패턴 수행할 체력 비율 0 ~ 1
 	UPROPERTY(EditDefaultsOnly, Category = "자체설정")

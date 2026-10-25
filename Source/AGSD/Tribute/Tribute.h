@@ -36,9 +36,6 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tribute")
 	UDataTable* TributeDataTable;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tribute")
-	int32 TributeLevel = 0;
-
 	FText InteractActionText = FText::FromString(TEXT("봉헌하기"));
 
 	bool bCanUseTribute = true;
@@ -53,11 +50,14 @@ protected:
 	UTributeUI* TributeWidget;
 	
 	USOVGameInstance* GI;
+	
+public:	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tribute")
+	int32 TributeLevel = 0;
 
 	UFUNCTION(BlueprintCallable, Category = "Tribute")
 	void SetNextTributeUI(int32 level);
-	
-public:	
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Tribute")
 	TMap<FString, int32> CurrentLevelTributeItems = {};
 

@@ -86,7 +86,8 @@ public:
 		float BossHP,
 		float BossMaxHP,
 		float PlayerHP,
-		float PlayerMaxHP
+		float PlayerMaxHP,
+		const FString& AdditionalDetails = TEXT("")
 	);
 
 	/** 스킬 빗나감 (HIT_MISSED - 벽/바닥 충돌 또는 플레이어 탈출 소멸) */
@@ -152,6 +153,28 @@ public:
 		const FString& Details = TEXT("")
 	);
 
+	/** 플레이어 체력 회복 (PLAYER_HEALED) */
+	UFUNCTION(BlueprintCallable, Category = "CombatLog|Timeline")
+	static void LogPlayerHealed(
+		float HealAmount,
+		float CurrentWorldTime,
+		float PlayerHP,
+		float PlayerMaxHP,
+		const FString& HealSource = TEXT("Potion/Skill")
+	);
+
+	/** 소환수가 플레이어 공격 등에 피격됨 (MINION_DAMAGED) */
+	UFUNCTION(BlueprintCallable, Category = "CombatLog|Timeline")
+	static void LogMinionDamaged(
+		const FString& MinionName,
+		float Damage,
+		float CurrentWorldTime,
+		float MinionHP,
+		float MinionMaxHP,
+		const FString& DamageCauser = TEXT("Player"),
+		float Distance = 0.0f
+	);
+
 	/** 세션 종료: BATTLE_END 기록, 스킬별 KPI 종합 통계 요약표 하단 작성 및 파일 닫기 */
 	UFUNCTION(BlueprintCallable, Category = "CombatLog|Timeline")
 	static void EndCombatSession(
@@ -176,6 +199,9 @@ private:
 	static FString CurrentBossID;
 	static float SessionStartWorldTime;
 	static int32 ActionCounter;
+
+	static float LatestBossHP;
+	static float LatestBossMaxHP;
 
 	static TMap<FString, FActiveSkillTrackingInfo> ActiveSkills;
 	static TMap<FString, FSkillAggregateStats> SkillStats;

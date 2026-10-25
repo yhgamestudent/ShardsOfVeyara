@@ -88,7 +88,7 @@ bool UAGSDGuardComponent::IsGuardActive() const
 
 
 
-void UAGSDGuardComponent::HandleJustGuardSuccess()
+void UAGSDGuardComponent::HandleJustGuardSuccess(AActor* DamageCauser)
 {
 	if (!OwnerCharacter) return;
 
@@ -133,9 +133,25 @@ void UAGSDGuardComponent::HandleJustGuardSuccess()
 		}
 	}
 
+	// 공격 원인 액터에서 실제 공격자(Pawn/Character) 추출
+	AActor* ActualAttacker = DamageCauser;
+	if (ActualAttacker)
+	{
+		if (AActor* InstigatorActor = ActualAttacker->GetInstigator())
+		{
+			ActualAttacker = InstigatorActor;
+		}
+		else if (AActor* OwnerActor = ActualAttacker->GetOwner())
+		{
+			ActualAttacker = OwnerActor;
+		}
+	}
+
 	// 저스트 가드 성공 시 즉시 가드 상태 해제 후 패리 콤보 시작
 	StopBlock();
-	OwnerCharacter->StartParryCombo();
+	OwnerCharacter->LastJustGuardSuccessWorldTime = GetWorld()->GetTimeSeconds();
+	OwnerCharacter->bIsJustGuardCounterActive = true;
+	OwnerCharacter->StartParryCombo(ActualAttacker);
 }
 
 void UAGSDGuardComponent::ResetGuardState()

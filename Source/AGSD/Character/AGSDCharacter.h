@@ -491,6 +491,11 @@ public:
 	virtual float GetParticipantMaxHealth() const override { return MaxHealth; }
 	virtual FString GetParticipantCombatState() const override { return GetCurrentCombatStateString(); }
 	virtual void InterruptCombatAction(bool bInterruptAttack, bool bInterruptGuard) override;
+	virtual float GetParticipantHitStunDuration() const override;
+	virtual float GetParticipantKnockdownDuration() const override;
+	virtual int32 GetParticipantHitStunCount() const override { return HitStunCount; }
+	virtual int32 GetParticipantKnockdownCount() const override { return KnockdownCount; }
+	virtual void ResetParticipantStunMetrics() override;
 
 	void SetCanCombo(bool b);
 	void SetCanRollCancel(bool b);
@@ -503,6 +508,30 @@ public:
 	/** 튜토리얼 서브시스템에 플레이어 행동을 보고하는 헬퍼 함수 */
 	UFUNCTION(BlueprintCallable, Category = "Tutorial")
 	void ReportTutorialAction(ETutorialActionType ActionType, int32 Count = 1);
+
+public:
+	/** 봉헌 데이터테이블 (DT_TributeData) - 단계별 스탯 및 요구치 바인딩 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Tribute")
+	TObjectPtr<class UDataTable> TributeDataTable;
+
+	/** 현재 플레이어의 봉헌 완료 단계 (0: 미봉헌 기본, 1~20: 봉헌 완료 단계) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Tribute")
+	int32 CurrentTributeLevel = 0;
+
+	/** 봉헌 데이터테이블 및 GameInstance로부터 스탯 초기화 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Tribute")
+	void InitializeTributeStats();
+
+	/** 특정 봉헌 완료 단계를 즉시 적용하는 치트/디버그 함수 (콘솔 창: ApplyTributeLevel 3 또는 SetTributeLevel 3) */
+	UFUNCTION(Exec, BlueprintCallable, Category = "Combat|Tribute")
+	void ApplyTributeLevel(int32 TargetCompletedLevel);
+
+	UFUNCTION(Exec, Category = "Combat|Tribute")
+	void SetTributeLevel(int32 TargetCompletedLevel) { ApplyTributeLevel(TargetCompletedLevel); }
+
+	/** 제단 등에서 봉헌 1단계 성장을 진행할 때 호출 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Tribute")
+	void AdvanceTributeLevel();
 	
 protected:
 	/** Initialize input action bindings */
@@ -798,9 +827,25 @@ public:
 	FRotator TargetAttackRotation;
 	float RotationTimer = 0.0f;
 	float MaxRotationTime = 0.2f;   
-	float RotationSpeed = 500.0f; 
+	float RotationSpeed = 500.0f;
+
+	/** 저스트가드 성공 후 반격 공격 중 슈퍼아머 활성화 플래그 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Parry")
+	bool bIsJustGuardCounterActive = false;
+
+	/** 저스트가드 성공 시각 (초 단위) */
+	UPROPERTY()
+	float LastJustGuardSuccessWorldTime = -999.0f;
+
+	/** 저스트가드 후속 슈퍼아머 유효 제한 시간 (초, 기본값 3.0초) */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Parry")
+	float JustGuardSuperArmorDuration = 3.0f;
+
+	/** 가장 최근에 공격을 튕겨낸 공격자 (노락온 반격 타겟팅용) */
+	UPROPERTY(Transient)
+	TWeakObjectPtr<AActor> LastParryAttacker;
 	
-	void StartParryCombo();
+	void StartParryCombo(AActor* Attacker = nullptr);
 	void StartNewCombo();
 	void StartNewComboWithInput(ESpearAttackInput Input);
 	
@@ -845,7 +890,7 @@ public:
 	
 	void StartRecovery(UAnimMontage* RecoveryMontage);
 
-	void OnHitReceived();
+	void OnHitReceived(AActor* DamageCauser = nullptr);
 
 	void ResetCombo();
 
@@ -968,6 +1013,27 @@ public:
 
 	void ApplyHitStun(float Duration);
 	void ClearHitStun();
+
+	// ─── [전투 로그용 경직 계측 변수 및 헬퍼 (초 단위 및 횟수)] ───
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Log")
+	float TotalHitStunDuration = 0.0f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Log")
+	float TotalKnockdownDuration = 0.0f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Log")
+	int32 HitStunCount = 0;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Log")
+	int32 KnockdownCount = 0;
+
+	float CurrentHitStunStartTime = -1.0f;
+	float CurrentKnockdownStartTime = -1.0f;
+
+	void StartHitStunTracking();
+	void EndHitStunTracking();
+	void StartKnockdownTracking();
+	void EndKnockdownTracking();
 
 	// ─── [디버그/테스트용 무적 치트 (God Mode)] ───
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Combat|Debug")

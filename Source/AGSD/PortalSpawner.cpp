@@ -11,6 +11,11 @@
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
 #include "TimerManager.h"
+#include "Camera/CameraComponent.h"
+#include "Character/AGSDCharacter.h"
+#include "Kismet/KismetMathLibrary.h"
+#include "GameFramework/RotatingMovementComponent.h"
+#include "Camera/CameraShakeBase.h"
 
 APortalSpawner::APortalSpawner()
 {
@@ -30,6 +35,32 @@ APortalSpawner::APortalSpawner()
 	RewardSpawnPoint = CreateDefaultSubobject<USceneComponent>(TEXT("RewardSpawnPoint"));
 	RewardSpawnPoint->SetupAttachment(RootComponent);
 	RewardSpawnPoint->SetRelativeLocation(FVector::ZeroVector);
+
+	// 시네마틱 컷신 연출 카메라 컴포넌트 생성
+	CutsceneCameraComp = CreateDefaultSubobject<UCameraComponent>(TEXT("CutsceneCameraComponent"));
+	CutsceneCameraComp->SetupAttachment(RootComponent);
+	// 구슬 스폰 지점을 드라마틱하게 바라보도록 기본 위치/회전/화각 설정
+	CutsceneCameraComp->SetRelativeLocation(FVector(-450.f, 0.f, 150.f));
+	CutsceneCameraComp->SetRelativeRotation(FRotator(15.f, 0.f, 0.f));
+	CutsceneCameraComp->SetFieldOfView(65.f);
+}
+
+void APortalSpawner::OnConstruction(const FTransform& Transform)
+{
+	Super::OnConstruction(Transform);
+
+	// 에디터 뷰포트에서 카메라나 RewardSpawnPoint를 이동/조작할 때 실시간으로 RewardSpawnPoint를 정면 조준하도록 자동 회전
+	if (CutsceneCameraComp && RewardSpawnPoint)
+	{
+		const FVector CameraLoc = CutsceneCameraComp->GetComponentLocation();
+		const FVector TargetLoc = RewardSpawnPoint->GetComponentLocation();
+
+		if (!CameraLoc.Equals(TargetLoc, 1.0f))
+		{
+			const FRotator LookAtRot = UKismetMathLibrary::FindLookAtRotation(CameraLoc, TargetLoc);
+			CutsceneCameraComp->SetWorldRotation(LookAtRot);
+		}
+	}
 }
 
 void APortalSpawner::BeginPlay()
@@ -58,7 +89,14 @@ void APortalSpawner::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		World->GetTimerManager().ClearTimer(RewardSpawnTimerHandle);
 		World->GetTimerManager().ClearTimer(RewardDescentTimerHandle);
 		World->GetTimerManager().ClearTimer(PortalActivationTimerHandle);
+		World->GetTimerManager().ClearTimer(CutsceneTimerHandle);
+		World->GetTimerManager().ClearTimer(CutsceneBlendOutTimerHandle);
+		World->GetTimerManager().ClearTimer(RewardPopTimerHandle);
+		World->GetTimerManager().ClearTimer(PortalDropTimerHandle);
 	}
+
+	// 컷신 도중 종료될 경우 플레이어 상태 복원
+	RestorePlayerAfterCutscene();
 
 	Super::EndPlay(EndPlayReason);
 }
@@ -139,10 +177,14 @@ void APortalSpawner::OnBossDestroyed(AActor* DestroyedActor)
 		return;
 	}
 
-	// 4. 보스룸 중앙(RewardSpawnPoint)에 보상 구슬 스폰 (설정된 딜레이 적용)
+	// 4. 보스룸 중앙(RewardSpawnPoint)에 보상 구슬 스폰
 	if (RewardItemClass && !bRewardSpawned)
 	{
-		if (RewardSpawnDelay > 0.0f && GetWorld())
+		if (bEnableRewardCutscene)
+		{
+			StartRewardCutscene();
+		}
+		else if (RewardSpawnDelay > 0.0f && GetWorld())
 		{
 			GetWorld()->GetTimerManager().SetTimer(RewardSpawnTimerHandle, this, &APortalSpawner::SpawnRewardItem, RewardSpawnDelay, false);
 		}
@@ -151,6 +193,223 @@ void APortalSpawner::OnBossDestroyed(AActor* DestroyedActor)
 			SpawnRewardItem();
 		}
 	}
+}
+
+void APortalSpawner::StartRewardCutscene()
+{
+	UWorld* World = GetWorld();
+	if (!World) return;
+
+	APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0);
+	if (!PC)
+	{
+		SpawnRewardItem();
+		return;
+	}
+
+	AAGSDCharacter* PlayerChar = Cast<AAGSDCharacter>(PC->GetPawn());
+	CachedPlayerController = PC;
+	CachedPlayerCharacter = PlayerChar;
+
+	// 1. 플레이어 조작 차단 및 애니메이션/물리 프리징 (완전 시간 정지 연출)
+	PC->DisableInput(PC);
+	if (PlayerChar)
+	{
+		PlayerChar->CustomTimeDilation = 0.0f;
+	}
+
+	// 2. 연출 카메라가 RewardSpawnPoint(구슬 스폰 지점)를 정면에서 프레임 중앙에 담도록 설정
+	if (CutsceneCameraComp)
+	{
+		const FVector TargetLoc = RewardSpawnPoint ? RewardSpawnPoint->GetComponentLocation() : GetActorLocation();
+
+		if (bUseManualCutsceneCameraTransform)
+		{
+			// 사용자가 에디터에서 맞춘 카메라 월드 위치를 그대로 유지하고, RewardSpawnPoint 중심을 조준하도록 회전만 갱신
+			const FVector CameraWorldPos = CutsceneCameraComp->GetComponentLocation();
+			const FVector AimTargetLoc = TargetLoc + FVector(0.f, 0.f, 20.f);
+			const FRotator LookRot = UKismetMathLibrary::FindLookAtRotation(CameraWorldPos, AimTargetLoc);
+			CutsceneCameraComp->SetWorldRotation(LookRot);
+		}
+		else
+		{
+			// 플레이어가 서 있는 쪽(시야가 확보된 방향)에서 RewardSpawnPoint를 바라보도록 카메라 오프셋 자동 산출
+			FVector ViewDirection = RewardSpawnPoint ? RewardSpawnPoint->GetForwardVector() : GetActorForwardVector();
+			if (PlayerChar)
+			{
+				const FVector FromPointToPlayer = (PlayerChar->GetActorLocation() - TargetLoc).GetSafeNormal2D();
+				if (!FromPointToPlayer.IsNearlyZero())
+				{
+					ViewDirection = FromPointToPlayer;
+				}
+			}
+
+			// RewardSpawnPoint로부터 약 3.5m 거리, 높이 1.2m 위치에 카메라 자동 배치
+			const FVector CameraWorldPos = TargetLoc + (ViewDirection * 350.f) + FVector(0.f, 0.f, 120.f);
+			CutsceneCameraComp->SetWorldLocation(CameraWorldPos);
+
+			// 카메라가 RewardSpawnPoint(약간 위쪽 부유 지점)를 똑바로 바라보도록 회전 설정
+			const FVector AimTargetLoc = TargetLoc + FVector(0.f, 0.f, 30.f);
+			const FRotator LookRot = UKismetMathLibrary::FindLookAtRotation(CameraWorldPos, AimTargetLoc);
+			CutsceneCameraComp->SetWorldRotation(LookRot);
+		}
+	}
+
+	// 3. 시네마틱 연출 카메라로 부드럽게 전환
+	PC->SetViewTargetWithBlend(this, CutsceneBlendInDuration, EViewTargetBlendFunction::VTBlend_EaseInOut, 2.0f);
+
+	// 4. 카메라 전환 완료 후 + 프리징 대기(긴장감 정적) 후 구슬 스폰 호출
+	const float TotalPreSpawnDelay = CutsceneBlendInDuration + CutscenePreSpawnFreezeDelay;
+	World->GetTimerManager().SetTimer(
+		CutsceneTimerHandle,
+		this,
+		&APortalSpawner::OnCutscenePreSpawnFreezeFinished,
+		TotalPreSpawnDelay,
+		false
+	);
+}
+
+void APortalSpawner::OnCutscenePreSpawnFreezeFinished()
+{
+	UWorld* World = GetWorld();
+	if (!World) return;
+
+	// 1. 구슬 스폰
+	SpawnRewardItem();
+
+	// 2. "뽕!" 하고 튀어나오는 스케일 팝업 애니메이션 시작
+	if (SpawnedRewardActor.IsValid())
+	{
+		SpawnedRewardActor->SetActorScale3D(FVector(0.05f));
+		PopElapsedTime = 0.0f;
+		World->GetTimerManager().SetTimer(
+			RewardPopTimerHandle,
+			this,
+			&APortalSpawner::UpdateRewardPopScale,
+			0.016f,
+			true
+		);
+	}
+
+	// 3. 구슬 하강 연출 감상 후 플레이어 카메라로 복귀 타이머 등록
+	World->GetTimerManager().SetTimer(
+		CutsceneTimerHandle,
+		this,
+		&APortalSpawner::StartCutsceneBlendOut,
+		CutsceneHoldDuration,
+		false
+	);
+}
+
+void APortalSpawner::UpdateRewardPopScale()
+{
+	if (!SpawnedRewardActor.IsValid())
+	{
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().ClearTimer(RewardPopTimerHandle);
+		}
+		return;
+	}
+
+	PopElapsedTime += 0.016f;
+	const float Duration = FMath::Max(0.05f, RewardPopDuration);
+	const float Progress = FMath::Clamp(PopElapsedTime / Duration, 0.0f, 1.0f);
+
+	float CurrentScale = 1.0f;
+	if (Progress < 0.65f)
+	{
+		// 0.0 -> 0.65 구간: 0.05에서 1.25로 급격히 팽창 ("뽕!")
+		const float Alpha = Progress / 0.65f;
+		CurrentScale = FMath::Lerp(0.05f, 1.25f, FMath::InterpEaseOut(0.0f, 1.0f, Alpha, 2.0f));
+	}
+	else
+	{
+		// 0.65 -> 1.0 구간: 1.25에서 1.0으로 탄력 있게 수렴
+		const float Alpha = (Progress - 0.65f) / 0.35f;
+		CurrentScale = FMath::Lerp(1.25f, 1.0f, FMath::InterpEaseInOut(0.0f, 1.0f, Alpha, 2.0f));
+	}
+
+	SpawnedRewardActor->SetActorScale3D(FVector(CurrentScale));
+
+	if (Progress >= 1.0f)
+	{
+		SpawnedRewardActor->SetActorScale3D(FVector(1.0f));
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().ClearTimer(RewardPopTimerHandle);
+		}
+	}
+}
+
+void APortalSpawner::StartRewardDescent()
+{
+	if (!SpawnedRewardActor.IsValid() || !GetWorld()) return;
+
+	// 이미 하강 타이머가 돌고 있다면 중복 실행 방지
+	if (GetWorld()->GetTimerManager().IsTimerActive(RewardDescentTimerHandle)) return;
+
+	// 소환 위치와 목표 위치 사이에 높이 차이가 있을 경우 서서히 하강하는 애니메이션 타이머 시작
+	const float HeightDifference = FMath::Abs(RewardStartLocation.Z - RewardTargetLocation.Z);
+	if (HeightDifference > 10.f)
+	{
+		DescentElapsedTime = 0.0f;
+		GetWorld()->GetTimerManager().SetTimer(
+			RewardDescentTimerHandle,
+			this,
+			&APortalSpawner::UpdateRewardDescent,
+			0.016f,
+			true
+		);
+	}
+}
+
+void APortalSpawner::StartCutsceneBlendOut()
+{
+	UWorld* World = GetWorld();
+	if (!World) return;
+
+	// 카메라가 플레이어 시점으로 돌아가기 시작할 때 구슬 하강 연출 개시
+	StartRewardDescent();
+
+	if (CachedPlayerController.IsValid() && CachedPlayerCharacter.IsValid())
+	{
+		// 플레이어 시점으로 천천히 부드럽게 복귀 (기본 1.8초)
+		CachedPlayerController->SetViewTargetWithBlend(
+			CachedPlayerCharacter.Get(),
+			CutsceneBlendOutDuration,
+			EViewTargetBlendFunction::VTBlend_Cubic,
+			2.0f
+		);
+
+		// 블렌드 완료 시점에 플레이어 상태 복원
+		World->GetTimerManager().SetTimer(
+			CutsceneBlendOutTimerHandle,
+			this,
+			&APortalSpawner::RestorePlayerAfterCutscene,
+			CutsceneBlendOutDuration,
+			false
+		);
+	}
+	else
+	{
+		RestorePlayerAfterCutscene();
+	}
+}
+
+void APortalSpawner::RestorePlayerAfterCutscene()
+{
+	if (CachedPlayerCharacter.IsValid())
+	{
+		CachedPlayerCharacter->CustomTimeDilation = 1.0f;
+	}
+
+	if (CachedPlayerController.IsValid())
+	{
+		CachedPlayerController->EnableInput(CachedPlayerController.Get());
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[PortalSpawner] Cutscene finished! Player controls and time restored."));
 }
 
 void APortalSpawner::SpawnRewardItem()
@@ -175,23 +434,44 @@ void APortalSpawner::SpawnRewardItem()
 		}
 	}
 
-	FVector DesiredLoc = RewardSpawnPoint ? RewardSpawnPoint->GetComponentLocation() : GetActorLocation();
-	FRotator DesiredRot = RewardSpawnPoint ? RewardSpawnPoint->GetComponentRotation() : FRotator::ZeroRotator;
+	// 1. 소환 시작 위치: RewardSpawnPoint 월드 위치 그대로 사용
+	const FVector SpawnLoc = RewardSpawnPoint ? RewardSpawnPoint->GetComponentLocation() : CalculateClampedSpawnLocation(GetActorLocation());
+	const FRotator SpawnRot = RewardSpawnPoint ? RewardSpawnPoint->GetComponentRotation() : FRotator::ZeroRotator;
 
-	// 1. 최종 목표 위치 계산 (바닥 트레이스 기준 + RewardTargetFloatHeight 부유 오프셋)
-	FVector GroundLoc = CalculateClampedSpawnLocation(DesiredLoc);
-	RewardTargetLocation = GroundLoc + FVector(0.f, 0.f, RewardTargetFloatHeight);
+	RewardStartLocation = SpawnLoc;
+	RewardTargetLocation = SpawnLoc; // 기본값: 바닥이 없거나 이미 바닥 근처면 소환 위치 유지
 
-	// 2. 상공 시작 위치 계산 (목표 위치보다 RewardSpawnHeightOffset만큼 높은 곳)
-	RewardStartLocation = RewardTargetLocation + FVector(0.f, 0.f, RewardSpawnHeightOffset);
+	// 2. 바닥 감지: 소환 위치에서 수직 아래로 라인 트레이스 수행
+	FHitResult FloorHit;
+	FCollisionQueryParams TraceParams;
+	TraceParams.AddIgnoredActor(this);
+	if (TargetBoss)
+	{
+		TraceParams.AddIgnoredActor(TargetBoss);
+	}
+
+	const FVector TraceStart = SpawnLoc;
+	const FVector TraceEnd = SpawnLoc - FVector(0.f, 0.f, 2000.f); // 아래로 최대 20m 탐색
+	if (GetWorld()->LineTraceSingleByChannel(FloorHit, TraceStart, TraceEnd, ECC_Visibility, TraceParams))
+	{
+		// 바닥이 감지됨! 바닥에서 일정 높이(RewardTargetFloatHeight, 기본 80cm) 위의 목표 위치 계산
+		const float FloorZ = FloorHit.ImpactPoint.Z;
+		const float DesiredStopZ = FloorZ + RewardTargetFloatHeight;
+
+		// 소환 위치가 바닥 목표 높이보다 유의미하게(10cm 이상) 위에 있다면 하강 목표로 설정
+		if (SpawnLoc.Z > DesiredStopZ + 10.f)
+		{
+			RewardTargetLocation = FVector(SpawnLoc.X, SpawnLoc.Y, DesiredStopZ);
+		}
+	}
 
 	FActorSpawnParameters SpawnParams;
 	SpawnParams.Owner = this;
 	SpawnParams.Instigator = GetInstigator();
 	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 
-	// 상공에서 구슬 스폰
-	AActor* SpawnedReward = GetWorld()->SpawnActor<AActor>(RewardItemClass, RewardStartLocation, DesiredRot, SpawnParams);
+	// RewardSpawnPoint 위치에서 구슬 스폰
+	AActor* SpawnedReward = GetWorld()->SpawnActor<AActor>(RewardItemClass, RewardStartLocation, SpawnRot, SpawnParams);
 	if (SpawnedReward)
 	{
 		SpawnedRewardActor = SpawnedReward;
@@ -208,21 +488,28 @@ void APortalSpawner::SpawnRewardItem()
 			}
 		}
 
-		// 4. 천천히 하강하는 애니메이션 타이머 시작 (60Hz / 0.016초 주기)
-		DescentElapsedTime = 0.0f;
-		GetWorld()->GetTimerManager().SetTimer(
-			RewardDescentTimerHandle,
-			this,
-			&APortalSpawner::UpdateRewardDescent,
-			0.016f,
-			true
-		);
+		// 4. 스폰되는 첫 순간부터 착지 이후까지 끊김 없이 회전하도록 RotatingMovementComponent 부착
+		if (RewardDescentRotationSpeed > 0.0f)
+		{
+			URotatingMovementComponent* RotComp = NewObject<URotatingMovementComponent>(SpawnedReward, TEXT("RewardRotatingComp"));
+			if (RotComp)
+			{
+				RotComp->RotationRate = FRotator(0.f, RewardDescentRotationSpeed, 0.f);
+				RotComp->RegisterComponent();
+			}
+		}
+
+		// 5. 컷신 연출이 비활성화된 일반 스폰일 때만 즉시 하강 시작 (컷신 연출 중에는 카메라 복귀 시점 StartCutsceneBlendOut에서 하강 개시)
+		if (!bEnableRewardCutscene)
+		{
+			StartRewardDescent();
+		}
 	}
 
-	// 나이아가라 이펙트 재생 (상공 스폰 위치에서 화려하게 개화)
+	// 나이아가라 이펙트 재생 (소환 위치에서 화려하게 개화)
 	if (RewardSpawnEffect)
 	{
-		UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), RewardSpawnEffect, RewardStartLocation, DesiredRot);
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), RewardSpawnEffect, RewardStartLocation, SpawnRot);
 	}
 
 	// 효과음 재생
@@ -253,12 +540,6 @@ void APortalSpawner::UpdateRewardDescent()
 	const float SmoothAlpha = FMath::InterpEaseOut(0.0f, 1.0f, Alpha, 2.0f);
 	const FVector CurrentLoc = FMath::Lerp(RewardStartLocation, RewardTargetLocation, SmoothAlpha);
 	SpawnedRewardActor->SetActorLocation(CurrentLoc);
-
-	// 공중에서 신비롭게 자전 회전
-	if (RewardDescentRotationSpeed > 0.0f)
-	{
-		SpawnedRewardActor->AddActorWorldRotation(FRotator(0.f, RewardDescentRotationSpeed * DeltaSec, 0.f));
-	}
 
 	// 하강 완료 시 타이머 종료
 	if (Alpha >= 1.0f)
@@ -560,20 +841,27 @@ void APortalSpawner::SpawnPortal(const FVector& BaseLocation, const FRotator& Ba
 {
 	if (!PortalClass || !GetWorld()) return;
 
+	// 1. 목표 바닥 착지 위치
+	PortalDropTargetLocation = BaseLocation + FVector(0.f, 0.f, 5.f);
+
+	// 2. 공중 상공 시작 위치 (PortalDropHeight, 기본 +400cm)
+	PortalDropStartLocation = PortalDropTargetLocation + FVector(0.f, 0.f, FMath::Max(100.f, PortalDropHeight));
+
 	FActorSpawnParameters SpawnParams;
 	SpawnParams.Owner = this;
 	SpawnParams.Instigator = GetInstigator();
 	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-	// 바닥에서 아주 살짝 띄워서 소환 (겹침 방지)
-	FVector SpawnLoc = BaseLocation + FVector(0.f, 0.f, 5.f);
-
-	AActor* NewPortal = GetWorld()->SpawnActor<AActor>(PortalClass, SpawnLoc, BaseRotation, SpawnParams);
+	// 공중 상공에서 포탈 스폰!
+	AActor* NewPortal = GetWorld()->SpawnActor<AActor>(PortalClass, PortalDropStartLocation, BaseRotation, SpawnParams);
 	if (NewPortal)
 	{
 		SpawnedPortalActor = NewPortal;
 
-		// 1. 스폰 직후 즉시 텔레포트 오버랩 차단 (스폰 초기 납치 방지 Grace Period)
+		// 초기 스케일 0.1로 작게 시작 (공중 팝업 효과)
+		NewPortal->SetActorScale3D(FVector(0.1f));
+
+		// 낙하 및 착지 완료 전까지 물리 및 텔레포트 오버랩 차단
 		TArray<UPrimitiveComponent*> PrimComponents;
 		NewPortal->GetComponents<UPrimitiveComponent>(PrimComponents);
 		for (UPrimitiveComponent* PrimComp : PrimComponents)
@@ -581,24 +869,119 @@ void APortalSpawner::SpawnPortal(const FVector& BaseLocation, const FRotator& Ba
 			if (PrimComp)
 			{
 				PrimComp->SetGenerateOverlapEvents(false);
+				PrimComp->SetEnableGravity(false);
+				PrimComp->SetSimulatePhysics(false);
 			}
 		}
 
-		// 2. 안전 딜레이(PortalActivationDelay, 기본 1.5초) 후 오버랩 활성화
-		if (PortalActivationDelay > 0.0f)
+		// 공중 "뿅!" 나이아가라 이펙트 및 사운드 재생
+		if (PortalPopEffect)
 		{
-			GetWorld()->GetTimerManager().SetTimer(
-				PortalActivationTimerHandle,
-				this,
-				&APortalSpawner::ActivatePortalOverlap,
-				PortalActivationDelay,
-				false
-			);
+			UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), PortalPopEffect, PortalDropStartLocation, BaseRotation);
+		}
+		if (PortalPopSound)
+		{
+			UGameplayStatics::PlaySoundAtLocation(this, PortalPopSound, PortalDropStartLocation, PortalPopSoundVolume, PortalPopSoundPitch);
+		}
+
+		// 지면을 향해 급강하하는 타이머 시작 (60fps)
+		PortalDropElapsedTime = 0.0f;
+		GetWorld()->GetTimerManager().SetTimer(
+			PortalDropTimerHandle,
+			this,
+			&APortalSpawner::UpdatePortalDrop,
+			0.016f,
+			true
+		);
+	}
+}
+
+void APortalSpawner::UpdatePortalDrop()
+{
+	if (!SpawnedPortalActor.IsValid())
+	{
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().ClearTimer(PortalDropTimerHandle);
+		}
+		return;
+	}
+
+	const float DeltaSec = 0.016f;
+	PortalDropElapsedTime += DeltaSec;
+
+	const float Duration = FMath::Max(0.1f, PortalDropDuration);
+	const float Alpha = FMath::Clamp(PortalDropElapsedTime / Duration, 0.0f, 1.0f);
+
+	// 1. 스케일 팝업: 0.1f -> 1.0f로 빠르게 확장
+	const float ScaleAlpha = FMath::Clamp(PortalDropElapsedTime / (Duration * 0.5f), 0.0f, 1.0f);
+	const float CurrentScale = FMath::Lerp(0.1f, 1.0f, FMath::InterpEaseOut(0.0f, 1.0f, ScaleAlpha, 2.0f));
+	SpawnedPortalActor->SetActorScale3D(FVector(CurrentScale));
+
+	// 2. 가속 급강하: 실제 중력 가속도(InterpEaseIn)로 지면을 향해 쐐기처럼 낙하
+	const float DropAlpha = FMath::InterpEaseIn(0.0f, 1.0f, Alpha, 2.5f);
+	const FVector CurrentLoc = FMath::Lerp(PortalDropStartLocation, PortalDropTargetLocation, DropAlpha);
+	SpawnedPortalActor->SetActorLocation(CurrentLoc);
+
+	// 3. 지면 착지 완료!
+	if (Alpha >= 1.0f)
+	{
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().ClearTimer(PortalDropTimerHandle);
+		}
+		SpawnedPortalActor->SetActorLocation(PortalDropTargetLocation);
+		SpawnedPortalActor->SetActorScale3D(FVector(1.0f));
+
+		OnPortalHitGround();
+	}
+}
+
+void APortalSpawner::OnPortalHitGround()
+{
+	UWorld* World = GetWorld();
+	if (!World) return;
+
+	// 1. 캐릭터 화면에 지진 효과 (CameraShake) 발생
+	APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0);
+	if (PC)
+	{
+		if (PortalImpactCameraShakeClass)
+		{
+			PC->ClientStartCameraShake(PortalImpactCameraShakeClass, 1.5f);
 		}
 		else
 		{
-			ActivatePortalOverlap();
+			PC->ClientStartCameraShake(UCameraShakeBase::StaticClass(), 1.0f);
 		}
+	}
+
+	// 2. 지면 착지 임팩트 나이아가라 이펙트 재생
+	if (PortalImpactEffect)
+	{
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(World, PortalImpactEffect, PortalDropTargetLocation, FRotator::ZeroRotator);
+	}
+
+	// 3. 지면 충돌 쿵! 사운드 재생
+	if (PortalImpactSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, PortalImpactSound, PortalDropTargetLocation, PortalImpactSoundVolume, PortalImpactSoundPitch, 0.0f, PortalImpactSoundAttenuation);
+	}
+
+	// 4. 안전 딜레이(PortalActivationDelay) 후 텔레포트 오버랩 활성화
+	if (PortalActivationDelay > 0.0f)
+	{
+		World->GetTimerManager().SetTimer(
+			PortalActivationTimerHandle,
+			this,
+			&APortalSpawner::ActivatePortalOverlap,
+			PortalActivationDelay,
+			false
+		);
+	}
+	else
+	{
+		ActivatePortalOverlap();
 	}
 }
 

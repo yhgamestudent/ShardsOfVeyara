@@ -1,5 +1,6 @@
 #include "EnemyBoss/SkeletonMage/BossSkeletonMage.h"
 #include "BaseEnemy.h"
+#include "Enemy/BaseMeleeEnemy.h"
 #include "CSVLog.h"
 #include "CombatTimelineLogger.h"
 #include "CombatLogParticipantInterface.h"
@@ -54,6 +55,9 @@ void ABossSkeletonMage::BeginPlay()
 void ABossSkeletonMage::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+
+	// 스킬 쿨타임 만료 검사 및 가중치 복원
+	UpdateSkillCooldowns();
 
 	TraceTargetCharacterForGroundAttackEffect(DeltaTime);
 	
@@ -162,19 +166,70 @@ void ABossSkeletonMage::Tick(float DeltaTime)
 			}
 		}
 	}
+
+	// ─── [미니언 생존 중 매직 실드 결계 수명주기 체크] ───
+	if (bIsMagicShieldActive)
+	{
+		CheckMinionSurvivors();
+	}
 }
 
 void ABossSkeletonMage::Die()
 {
 	Super::Die();
 	
+	// 1. 모든 중력 관련 타이머 즉시 완전 취소
+	GetWorldTimerManager().ClearTimer(GravityActivationTimerHandle);
+	GetWorldTimerManager().ClearTimer(GravityImpactEffectTimerHandle);
+	GetWorldTimerManager().ClearTimer(GravityEndTimerHandle);
+	bIsGravityAttackActive = false;
+
+	// 2. 월드 플레이어 완전 탐색 및 표준 수치 강제 주입 (오염된 백업 변수 대신 1.0f, 400.f 직접 복원)
+	TArray<AActor*> FoundPlayers;
+	UGameplayStatics::GetAllActorsWithTag(GetWorld(), FName("Player"), FoundPlayers);
+	if (ACharacter* PlayerPawn = UGameplayStatics::GetPlayerCharacter(this, 0))
+	{
+		FoundPlayers.AddUnique(PlayerPawn);
+	}
+	if (TargetCharacter)
+	{
+		FoundPlayers.AddUnique(TargetCharacter);
+	}
+
+	for (AActor* PlayerActor : FoundPlayers)
+	{
+		if (ACharacter* Char = Cast<ACharacter>(PlayerActor))
+		{
+			if (UCharacterMovementComponent* MoveComp = Char->GetCharacterMovement())
+			{
+				MoveComp->GravityScale = 1.0f;
+				MoveComp->AirControl = 0.05f;
+				MoveComp->MaxWalkSpeed = 400.0f;
+
+				// 공중에 붕 뜨며 끌려 올라가던 상향 관성을 제거하고 낙하 모드로 강제 전환
+				if (MoveComp->IsFalling() || MoveComp->Velocity.Z > 0.f)
+				{
+					MoveComp->Velocity.Z = FMath::Min(MoveComp->Velocity.Z, 0.f);
+					MoveComp->SetMovementMode(MOVE_Falling);
+				}
+			}
+		}
+	}
+
 	// 타겟팅 이펙트가 존재하면 제거합니다.
 	if (GroundTargetingComponent && GroundTargetingComponent->IsValidLowLevel())
 	{
 		GroundTargetingComponent->DestroyComponent();
 		GroundTargetingComponent = nullptr;
 	}
-	
+
+	// 마법 결계 이펙트 제거
+	if (ActiveMagicShieldComponent)
+	{
+		ActiveMagicShieldComponent->DestroyComponent();
+		ActiveMagicShieldComponent = nullptr;
+	}
+	bIsMagicShieldActive = false;
 }
 
 void ABossSkeletonMage::SpawnDeadEffectAndDestroy()
@@ -211,6 +266,76 @@ void ABossSkeletonMage::SpawnDeadEffectAndDestroy()
 float ABossSkeletonMage::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent,
 	class AController* EventInstigator, AActor* DamageCauser)
 {
+	if (bIsMagicShieldActive)
+	{
+		// 소환수 생존 여부 재검증
+		CheckMinionSurvivors();
+
+		if (bIsMagicShieldActive)
+		{
+			// 공격자 캐릭터 추출 (직접 공격자, 투사체의 소유자 또는 가해자)
+			ACharacter* AttackerCharacter = nullptr;
+			if (DamageCauser)
+			{
+				if (ACharacter* Char = Cast<ACharacter>(DamageCauser))
+				{
+					AttackerCharacter = Char;
+				}
+				else if (AActor* Inst = DamageCauser->GetInstigator())
+				{
+					AttackerCharacter = Cast<ACharacter>(Inst);
+				}
+				else if (AActor* OwnerActor = DamageCauser->GetOwner())
+				{
+					AttackerCharacter = Cast<ACharacter>(OwnerActor);
+				}
+			}
+			if (!AttackerCharacter)
+			{
+				AttackerCharacter = TargetCharacter.Get() ? TargetCharacter.Get() : UGameplayStatics::GetPlayerCharacter(GetWorld(), 0);
+			}
+
+			if (AttackerCharacter)
+			{
+				const FVector BossLoc = GetActorLocation();
+				const FVector AttackerLoc = AttackerCharacter->GetActorLocation();
+				FVector PushDirection = AttackerLoc - BossLoc;
+				PushDirection.Z = 0.f;
+				if (!PushDirection.Normalize() || PushDirection.IsNearlyZero())
+				{
+					PushDirection = GetActorForwardVector();
+					PushDirection.Z = 0.f;
+					PushDirection.Normalize();
+				}
+
+				// 공격자에게 즉시 반사 넉백 적용
+				const FVector LaunchVelocity = PushDirection * (PushForce * 1.1f) + FVector(0.f, 0.f, PushUpwardForce * 0.9f);
+				if (UCharacterMovementComponent* MoveComp = AttackerCharacter->GetCharacterMovement())
+				{
+					MoveComp->SetMovementMode(MOVE_Falling);
+				}
+				AttackerCharacter->LaunchCharacter(LaunchVelocity, true, true);
+
+				// 피격 위치 및 방향으로 반사 충격파 나이아가라 이펙트 스폰
+				if (MagicShieldEffect)
+				{
+					UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+						GetWorld(),
+						MagicShieldEffect,
+						BossLoc + FVector(0.f, 0.f, 10.f),
+						PushDirection.Rotation(),
+						FVector(1.0f)
+					);
+				}
+
+				UE_LOG(LogTemp, Log, TEXT("[BossSkeletonMage] Attack reflected by Magic Shield! Attacker %s knocked back."), *AttackerCharacter->GetName());
+			}
+
+			// 소환수 생존 중 완전 무적 (데미지 0 차단)
+			return 0.0f;
+		}
+	}
+
 	float ActualDamage = Super::TakeDamage(DamageAmount, DamageEvent, EventInstigator, DamageCauser);
 
 	// 1. 체력이 0보다 크고, 아직 2페이즈가 시작되지 않았는지 확인
@@ -252,7 +377,7 @@ void ABossSkeletonMage::PlayTeleportMontage(const FVector& Destination)
 {
 	if ( BlackboardComp == nullptr ) return;
 	
-	BlackboardComp->SetValueAsFloat("AttackDelay", AttackStruct.TeleportDelay); // 텔포후 행동 딜레이 설정
+	StartSkillCooldown(TEXT("Teleport"));
 
 	TeleportDestination = Destination;
 	
@@ -337,6 +462,16 @@ void ABossSkeletonMage::TeleportMoveToNextPoint()
 			// Z축(Yaw) 회전만 적용하여 수평으로 바라보게 함
 			SetActorRotation(FRotator(0.f, LookAtRotation.Yaw, 0.f));
 		}
+
+		// 텔레포트 도착 후 플레이어를 향해 파이어볼 확정 연계 (0.5초 딜레이)
+		FTimerHandle FireBallComboTimer;
+		GetWorldTimerManager().SetTimer(FireBallComboTimer, [this]()
+		{
+			if (IsValid(this) && TargetCharacter && (Health > 0.0f))
+			{
+				PlayFireBallMontage();
+			}
+		}, 0.5f, false);
 		
 	}
 }
@@ -383,7 +518,7 @@ void ABossSkeletonMage::PlayFireBallMontage()
 {
 	if ( BlackboardComp == nullptr ) return;
 	
-	BlackboardComp->SetValueAsFloat("AttackDelay", AttackStruct.FireBallDelay); // 행동 딜레이 설정
+	StartSkillCooldown(TEXT("FireBall"));
 	
 	BossSkeletonMageLogData.FireBallCount++;
 
@@ -457,6 +592,7 @@ void ABossSkeletonMage::ShootFireBall()
 	{
 		SpawnedProj->ActionID = CurrentFireBallActionID;
 		SpawnedProj->ActionName = TEXT("FireBall");
+		SpawnedProj->SetDamage(AttackStruct.FireBallDamage > 0.0f ? AttackStruct.FireBallDamage : (BaseAttackDamage * 0.8f));
 		SpawnedProj->HitIntensity = AttackStruct.FireBallHitIntensity;
 		SpawnedProj->KnockdownType = AttackStruct.FireBallKnockdownType;
 		SpawnedProj->KnockdownDuration = AttackStruct.FireBallKnockdownDuration;
@@ -469,7 +605,7 @@ void ABossSkeletonMage::StartSummoning(const FVector& Location1, const FVector& 
 	
 	SpawnSummonEffectAtLocation(GetActorLocation()); // 마법사가 소환 시작 이펙트
 	
-	BlackboardComp->SetValueAsFloat("AttackDelay", AttackStruct.SummonEnemyDelay); // 행동 딜레이 설정
+	StartSkillCooldown(TEXT("Summon"));
 	
 	SummonLocations.Empty();
 	SummonLocations.Add(Location1);
@@ -511,38 +647,12 @@ void ABossSkeletonMage::SummonEnemy()
 	UWorld* World = GetWorld();
 	if (!World) return;
 
-	// ─── [소환 실행 (Release / Recovery) 로깅] ───
-	float PlayerHP = 0.0f;
-	float PlayerMaxHP = 0.0f;
-	FString TargetCombatState = TEXT("Idle");
-	float Dist = 0.0f;
-	QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, Dist);
-
-	UCombatTimelineLogger::LogSkillRelease(
-		CurrentSummonActionID,
-		GetWorld()->GetTimeSeconds(),
-		Dist,
-		TargetCombatState,
-		Health,
-		MaxHealth,
-		PlayerHP,
-		PlayerMaxHP,
-		TEXT("Minions Spawned")
-	);
-	UCombatTimelineLogger::LogSkillRecovery(
-		CurrentSummonActionID,
-		GetWorld()->GetTimeSeconds(),
-		Health,
-		MaxHealth,
-		PlayerHP,
-		PlayerMaxHP
-	);
-
 	FActorSpawnParameters SpawnParams;
 	SpawnParams.Owner = this;
 	SpawnParams.Instigator = GetInstigator();
 	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
+	TArray<FString> SpawnedMinionNames;
 	
 	// 저장된 각 소환 위치에 대해 반복합니다.
 	for (const FVector& SpawnLocation : SummonLocations)
@@ -584,36 +694,107 @@ void ABossSkeletonMage::SummonEnemy()
 			
 			if ( SpawnedEnemy )
 			{
+				SpawnedEnemy->SummonerBoss = this;
 				SpawnedEnemy->EnemyLogID = FString::Printf(TEXT("%s_SummonedEnemy"), *BossLogId);
+				SpawnedEnemy->Tags.AddUnique(FName("Minion"));
+
+				// 결계 추적 목록에 등록 및 사망 바인딩
+				ActiveSummonedMinions.Add(SpawnedEnemy);
+				SpawnedEnemy->OnDestroyed.AddDynamic(this, &ABossSkeletonMage::OnSummonedMinionDestroyed);
 
 				// 소환수 클래스에 알맞은 전용 데이터테이블 행 결정
-				FName TargetRowName = SummonMinionStatRowName;
+				FName UniversalMinionKey = TEXT("Minion_Melee");
+				FName FallbackRowName = SummonMinionStatRowName;
 				if (EnemyClassToSummon)
 				{
 					const FString ClassName = EnemyClassToSummon->GetName();
 					if (ClassName.Contains(TEXT("Rogue")))
 					{
-						TargetRowName = SummonRogueStatRowName;
+						UniversalMinionKey = TEXT("Minion_Rogue");
+						FallbackRowName = SummonRogueStatRowName;
 					}
 					else if (ClassName.Contains(TEXT("Warrior")))
 					{
-						TargetRowName = SummonWarriorStatRowName;
+						UniversalMinionKey = TEXT("Minion_Warrior");
+						FallbackRowName = SummonWarriorStatRowName;
 					}
 					else
 					{
-						TargetRowName = SummonMinionStatRowName;
+						UniversalMinionKey = TEXT("Minion_Melee");
+						FallbackRowName = SummonMinionStatRowName;
 					}
 				}
 
-				// 스켈레톤 메이지 소환수 전용 데이터테이블 행 바인딩 및 스탯 초기화
-				if (!TargetRowName.IsNone() && CombatStatHandle.DataTable)
+				SpawnedMinionNames.Add(UniversalMinionKey.ToString());
+
+				// 1. 범용 통합 전투 밸런스 테이블(DT_BossCombatBalance) 우선 적용
+				bool bInitializedFromUniversal = false;
+				if (const FBossCombatBalanceRow* MinionRow = FindSkillBalance(UniversalMinionKey))
+				{
+					if (MinionRow->MaxHealth > 0.0f)
+					{
+						SpawnedEnemy->MaxHealth = MinionRow->MaxHealth;
+						SpawnedEnemy->Health = MinionRow->MaxHealth;
+					}
+					if (MinionRow->BaseAttackDamage > 0.0f)
+					{
+						SpawnedEnemy->AttackDamage = MinionRow->BaseAttackDamage;
+						if (ABaseMeleeEnemy* MeleeEnemy = Cast<ABaseMeleeEnemy>(SpawnedEnemy))
+						{
+							MeleeEnemy->InitializeStatsFromDataTable();
+						}
+					}
+					bInitializedFromUniversal = true;
+					UE_LOG(LogTemp, Log, TEXT("[BossSkeletonMage] Summoned %s initialized from Universal Balance Table (HP: %.1f, DMG: %.1f)"),
+						*UniversalMinionKey.ToString(), SpawnedEnemy->MaxHealth, SpawnedEnemy->AttackDamage);
+				}
+
+				// 2. 기존 CombatStatHandle (하위 호환성 유지)
+				if (!bInitializedFromUniversal && !FallbackRowName.IsNone() && CombatStatHandle.DataTable)
 				{
 					SpawnedEnemy->CombatStatHandle.DataTable = CombatStatHandle.DataTable;
-					SpawnedEnemy->CombatStatHandle.RowName = TargetRowName;
+					SpawnedEnemy->CombatStatHandle.RowName = FallbackRowName;
 					SpawnedEnemy->InitializeStatsFromDataTable();
 				}
 			}
 		}
+	}
+
+	// ─── [소환 실행 (Release / Recovery) 로깅 (미니언 세부 목록 포함)] ───
+	float PlayerHP = 0.0f;
+	float PlayerMaxHP = 0.0f;
+	FString TargetCombatState = TEXT("Idle");
+	float Dist = 0.0f;
+	QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, Dist);
+
+	const FString SummonDetails = SpawnedMinionNames.Num() > 0 
+		? FString::Printf(TEXT("Minions Spawned: %s"), *FString::Join(SpawnedMinionNames, TEXT(", ")))
+		: TEXT("Minions Spawned");
+
+	UCombatTimelineLogger::LogSkillRelease(
+		CurrentSummonActionID,
+		GetWorld()->GetTimeSeconds(),
+		Dist,
+		TargetCombatState,
+		Health,
+		MaxHealth,
+		PlayerHP,
+		PlayerMaxHP,
+		SummonDetails
+	);
+	UCombatTimelineLogger::LogSkillRecovery(
+		CurrentSummonActionID,
+		GetWorld()->GetTimeSeconds(),
+		Health,
+		MaxHealth,
+		PlayerHP,
+		PlayerMaxHP
+	);
+
+	// 소환수가 존재하면 밀치기 원(매직 실드 결계) 즉시 가동!
+	if (ActiveSummonedMinions.Num() > 0)
+	{
+		ActivateMagicShieldBarrier();
 	}
 }
 
@@ -657,7 +838,7 @@ void ABossSkeletonMage::PlayGroundAreaAttackMontage()
 {
 	if ( BlackboardComp == nullptr ) return;
 	
-	BlackboardComp->SetValueAsFloat("AttackDelay", AttackStruct.GroundAttackDelay); // 행동 딜레이 설정
+	StartSkillCooldown(TEXT("GroundAttack"));
 
 	BossSkeletonMageLogData.GroundAttackCount++;
 
@@ -811,11 +992,41 @@ void ABossSkeletonMage::GroundAreaAttack()
 	}
 }
 
+bool ABossSkeletonMage::IsPlayerInPushArea() const
+{
+	if (!PushAreaSphere) return false;
+
+	// 1. 오버랩된 액터들 중 "Player" 태그 확인
+	TArray<AActor*> OverlappingActors;
+	PushAreaSphere->GetOverlappingActors(OverlappingActors);
+	for (AActor* Actor : OverlappingActors)
+	{
+		if (Actor && Actor->ActorHasTag(FName("Player")))
+		{
+			return true;
+		}
+	}
+
+	// 2. 거리 기반 안전 검사 (Sphere Radius 내에 타겟 플레이어가 있는지 확인)
+	if (TargetCharacter && TargetCharacter->ActorHasTag(FName("Player")))
+	{
+		const float SphereRadius = PushAreaSphere->GetScaledSphereRadius();
+		const float Dist = FVector::Dist(PushAreaSphere->GetComponentLocation(), TargetCharacter->GetActorLocation());
+		if (Dist <= SphereRadius + 50.f)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
 void ABossSkeletonMage::PlayPushTargetMontage()
 {
 	if ( BlackboardComp == nullptr ) return;
+	if ( !IsPlayerInPushArea() ) return; // 플레이어가 밀치기 영역에 없으면 몽타주 미실행
 	
-	BlackboardComp->SetValueAsFloat("AttackDelay", AttackStruct.PushTargetDelay); // 행동 딜레이 설정
+	StartSkillCooldown(TEXT("PushTarget"));
 	
 	BossSkeletonMageLogData.PushTargetCount++;
 
@@ -858,11 +1069,117 @@ void ABossSkeletonMage::CreateMagicShield()
 	}
 }
 
+void ABossSkeletonMage::ActivateMagicShieldBarrier()
+{
+	bIsMagicShieldActive = true;
+	LastShieldPushTime = -999.0f; // 즉시 첫 밀치기 가능하도록 초기화
+
+	if (ActiveMagicShieldComponent)
+	{
+		ActiveMagicShieldComponent->DestroyComponent();
+		ActiveMagicShieldComponent = nullptr;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[BossSkeletonMage] Magic Shield Barrier Activated! Active Minions: %d"), ActiveSummonedMinions.Num());
+}
+
+void ABossSkeletonMage::DeactivateMagicShieldBarrier()
+{
+	bIsMagicShieldActive = false;
+
+	if (ActiveMagicShieldComponent)
+	{
+		ActiveMagicShieldComponent->Deactivate();
+		ActiveMagicShieldComponent->DestroyComponent();
+		ActiveMagicShieldComponent = nullptr;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[BossSkeletonMage] Magic Shield Barrier Shattered! Boss is now vulnerable."));
+}
+
+void ABossSkeletonMage::CheckMinionSurvivors()
+{
+	if (!bIsMagicShieldActive) return;
+
+	ActiveSummonedMinions.RemoveAll([](const TWeakObjectPtr<ABaseEnemy>& MinionPtr)
+	{
+		return !MinionPtr.IsValid() || MinionPtr->Health <= 0.0f;
+	});
+
+	if (ActiveSummonedMinions.IsEmpty())
+	{
+		DeactivateMagicShieldBarrier();
+	}
+}
+
+void ABossSkeletonMage::OnSummonedMinionDestroyed(AActor* DestroyedActor)
+{
+	CheckMinionSurvivors();
+}
+
+void ABossSkeletonMage::StartSkillCooldown(FName SkillName)
+{
+	if (FBossSkillCooldownInfo* Info = SkillCooldownMap.Find(SkillName))
+	{
+		Info->LastCastTime = GetWorld()->GetTimeSeconds();
+
+		if (BlackboardComp && !Info->BlackboardKey.IsNone())
+		{
+			// 쿨다운 시작: 가중치를 0으로 설정하여 AI 추첨에서 제외
+			BlackboardComp->SetValueAsFloat(Info->BlackboardKey, 0.0f);
+		}
+
+		// 행동 딜레이는 스킬별 고유 ActionDelay 주입 (소환 6.0s 등 모션 보장)
+		const float DelayToSet = Info->ActionDelay > 0.0f ? Info->ActionDelay : CommonAttackDelay;
+		if (BlackboardComp)
+		{
+			BlackboardComp->SetValueAsFloat("AttackDelay", DelayToSet);
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("[BossSkeletonMage] Skill [%s] on Cooldown for %.1fs (ActionDelay: %.1fs)"),
+			*SkillName.ToString(), Info->Cooldown, DelayToSet);
+	}
+	else
+	{
+		// 맵에 등록되지 않은 경우 폴백
+		if (BlackboardComp)
+		{
+			BlackboardComp->SetValueAsFloat("AttackDelay", CommonAttackDelay);
+		}
+	}
+}
+
+void ABossSkeletonMage::UpdateSkillCooldowns()
+{
+	if (!BlackboardComp || SkillCooldownMap.IsEmpty()) return;
+
+	const float CurrentTime = GetWorld()->GetTimeSeconds();
+
+	for (auto& Pair : SkillCooldownMap)
+	{
+		FBossSkillCooldownInfo& Info = Pair.Value;
+		if (Info.BaseWeight <= 0.0f || Info.BlackboardKey.IsNone()) continue;
+
+		// 쿨타임이 지났는지 검사
+		if (CurrentTime - Info.LastCastTime >= Info.Cooldown)
+		{
+			const float CurrentW = BlackboardComp->GetValueAsFloat(Info.BlackboardKey);
+			if (CurrentW <= 0.0f)
+			{
+				// 쿨다운 만료: 원래 가중치로 복구
+				BlackboardComp->SetValueAsFloat(Info.BlackboardKey, Info.BaseWeight);
+				UE_LOG(LogTemp, Log, TEXT("[BossSkeletonMage] Skill [%s] Cooldown Finished -> Restored Weight to %.1f"),
+					*Pair.Key.ToString(), Info.BaseWeight);
+			}
+		}
+	}
+}
+
 void ABossSkeletonMage::GravityAttack()
 {
 	if ( BlackboardComp == nullptr ) return;
 	
-	BlackboardComp->SetValueAsFloat("AttackDelay", AttackStruct.GravityAttackDelay);
+	StartSkillCooldown(TEXT("GravityAttack"));
 	
 	BossSkeletonMageLogData.GravityAttackCount++;
 
@@ -910,15 +1227,16 @@ void ABossSkeletonMage::StartGravityAttack()
 		MaxHealth,
 		PlayerHP,
 		PlayerMaxHP,
-		TEXT("Player Lifted into Air")
+		TEXT("Gravity Field Deployed")
 	);
 
 	UCharacterMovementComponent* MoveComp = TargetCharacter->GetCharacterMovement();
 	if (MoveComp)
 	{
-		DefaultGravityScale = MoveComp->GravityScale;
-		DefaultAirControl = MoveComp->AirControl;
-		DefaultMaxWalkSpeed = MoveComp->MaxWalkSpeed;
+		// 이미 중력이 낮아져 있다면 오염된 값을 저장하지 않고 표준 정상 수치(1.0f, 400.f)로 안전 백업
+		DefaultGravityScale = (MoveComp->GravityScale >= 0.5f) ? MoveComp->GravityScale : 1.0f;
+		DefaultAirControl = 0.05f;
+		DefaultMaxWalkSpeed = (MoveComp->MaxWalkSpeed > 250.f) ? MoveComp->MaxWalkSpeed : 400.0f;
 	}
 	
 	// 바닥 위치 계산 로직 (기존과 동일)
@@ -951,18 +1269,19 @@ void ABossSkeletonMage::StartGravityAttack()
 	// 이펙트 스폰
 	UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), GravityGroundEffect, SpawnLocation + FVector(0.f, 0.f, 2.f), FRotator::ZeroRotator, FVector(1.f));
 
-	// 시전 시간 뒤에 실제 캡슐 판정 활성화
-	FTimerHandle GravityActivationTimer;
-	GetWorldTimerManager().SetTimer(GravityActivationTimer, [this]()
+	// 시전 시간 뒤에 실제 캡슐 판정 활성화 (멤버 타이머 핸들로 관리하여 사망 시 취소 가능하도록 보장)
+	GetWorldTimerManager().SetTimer(GravityActivationTimerHandle, [this]()
 	{
-		bIsGravityAttackActive = true; 
-	}, 1.0f, false); // 1.0초 지연 (원하는 시간으로 조절 가능)
+		if (Health > 0.0f)
+		{
+			bIsGravityAttackActive = true; 
+		}
+	}, 1.0f, false);
 	
-	FTimerHandle ImpactEffectTimer;
 	// 람다 캡처에 SpawnLocation을 추가하여 시작 시점의 바닥 위치를 기억하게 합니다.
-	GetWorldTimerManager().SetTimer(ImpactEffectTimer, [this, SpawnLocation]()
+	GetWorldTimerManager().SetTimer(GravityImpactEffectTimerHandle, [this, SpawnLocation]()
 	{
-		if (GravityImpactEffect)
+		if (GravityImpactEffect && Health > 0.0f)
 		{
 			// 시작 시 장판(GravityGroundEffect) 위치와 동일한 위치에서 Z축으로 -100만큼 조정
 			UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), GravityImpactEffect,
@@ -972,8 +1291,7 @@ void ABossSkeletonMage::StartGravityAttack()
 	}, 4.7f, false);
 	
 	// 일정 시간 뒤 종료 예약
-	FTimerHandle GravityEndTimer;
-	GetWorldTimerManager().SetTimer(GravityEndTimer, this, &ABossSkeletonMage::EndGravityAttack, GravityDuration, false);
+	GetWorldTimerManager().SetTimer(GravityEndTimerHandle, this, &ABossSkeletonMage::EndGravityAttack, GravityDuration, false);
 }
 
 void ABossSkeletonMage::EndGravityAttack()
@@ -1012,61 +1330,90 @@ void ABossSkeletonMage::EndGravityAttack()
 	}
 
 	// 4. 대상 캐릭터들에게 슬램(하향 내리찍기) 및 넉다운 대미지 적용
-	for (ACharacter* CharToSlam : AffectedCharacters)
+	if (AffectedCharacters.IsEmpty())
 	{
-		if (!CharToSlam) continue;
+		// ─── [GravityAttack 회피 성공(Miss) 및 Recovery 로깅] ───
+		float PlayerHP = 0.0f;
+		float PlayerMaxHP = 0.0f;
+		FString TargetCombatState = TEXT("Idle");
+		float Dist = 0.0f;
+		QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, Dist);
 
-		UCharacterMovementComponent* MoveComp = CharToSlam->GetCharacterMovement();
-		if (MoveComp)
+		UCombatTimelineLogger::LogHitMissed(
+			CurrentGravityAttackActionID,
+			TEXT("GravityAttack"),
+			GetWorld()->GetTimeSeconds(),
+			Dist,
+			TEXT("Player Escaped Gravity Field")
+		);
+
+		UCombatTimelineLogger::LogSkillRecovery(
+			CurrentGravityAttackActionID,
+			GetWorld()->GetTimeSeconds(),
+			Health,
+			MaxHealth,
+			PlayerHP,
+			PlayerMaxHP
+		);
+	}
+	else
+	{
+		for (ACharacter* CharToSlam : AffectedCharacters)
 		{
-			// 1. 대미지 주기 및 넉다운 피격 설정 (피격 처리를 먼저 완료)
-			CurrentSkillHitIntensity = AttackStruct.GravityAttackHitIntensity;
-			CurrentSkillKnockdownType = AttackStruct.GravityAttackKnockdownType;
-			CurrentSkillKnockdownDuration = AttackStruct.GravityAttackKnockdownDuration;
-			UGameplayStatics::ApplyDamage(CharToSlam, 
-				AttackStruct.GravityAttackDamage, GetController(), this, UDamageType::StaticClass());
+			if (!CharToSlam) continue;
 
-			// 2. 원래 중력 상태 복구 및 낙하(Falling) 모드 강제 보장
-			MoveComp->GravityScale = DefaultGravityScale;
-			MoveComp->AirControl = DefaultAirControl;
-			MoveComp->MaxWalkSpeed = DefaultMaxWalkSpeed;
-			MoveComp->SetMovementMode(MOVE_Falling);
+			UCharacterMovementComponent* MoveComp = CharToSlam->GetCharacterMovement();
+			if (MoveComp)
+			{
+				// 1. 대미지 주기 및 넉다운 피격 설정 (피격 처리를 먼저 완료)
+				CurrentSkillHitIntensity = AttackStruct.GravityAttackHitIntensity;
+				CurrentSkillKnockdownType = AttackStruct.GravityAttackKnockdownType;
+				CurrentSkillKnockdownDuration = AttackStruct.GravityAttackKnockdownDuration;
+				UGameplayStatics::ApplyDamage(CharToSlam, 
+					AttackStruct.GravityAttackDamage, GetController(), this, UDamageType::StaticClass());
 
-			// 3. 바닥으로 강력하게 수직 발사 (물리 속도 강제 주입 + LaunchCharacter Z-Override)
-			const FVector SlamVelocity = FVector(0.f, 0.f, -4000.f);
-			MoveComp->Velocity.Z = -4000.f;
-			CharToSlam->LaunchCharacter(SlamVelocity, false, true);
-			
-			CommonBossLogData.TotalDamageDealt += AttackStruct.GravityAttackDamage;
-			BossSkeletonMageLogData.GravityAttackDamage += AttackStruct.GravityAttackDamage;
+				// 2. 원래 중력 상태 복구 및 낙하(Falling) 모드 강제 보장
+				MoveComp->GravityScale = DefaultGravityScale;
+				MoveComp->AirControl = DefaultAirControl;
+				MoveComp->MaxWalkSpeed = DefaultMaxWalkSpeed;
+				MoveComp->SetMovementMode(MOVE_Falling);
 
-			// ─── [GravityAttack 바닥 충돌 Hit 및 Recovery 로깅] ───
-			float PlayerHP = 0.0f;
-			float PlayerMaxHP = 0.0f;
-			FString TargetCombatState = TEXT("InAir");
-			float Dist = 0.0f;
-			QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, Dist);
+				// 3. 바닥으로 강력하게 수직 발사 (물리 속도 강제 주입 + LaunchCharacter Z-Override)
+				const FVector SlamVelocity = FVector(0.f, 0.f, -4000.f);
+				MoveComp->Velocity.Z = -4000.f;
+				CharToSlam->LaunchCharacter(SlamVelocity, false, true);
+				
+				CommonBossLogData.TotalDamageDealt += AttackStruct.GravityAttackDamage;
+				BossSkeletonMageLogData.GravityAttackDamage += AttackStruct.GravityAttackDamage;
 
-			UCombatTimelineLogger::LogHitSuccess(
-				CurrentGravityAttackActionID,
-				TEXT("GravityAttack"),
-				AttackStruct.GravityAttackDamage,
-				GetWorld()->GetTimeSeconds(),
-				Dist,
-				TargetCombatState,
-				Health,
-				MaxHealth,
-				PlayerHP,
-				PlayerMaxHP
-			);
-			UCombatTimelineLogger::LogSkillRecovery(
-				CurrentGravityAttackActionID,
-				GetWorld()->GetTimeSeconds(),
-				Health,
-				MaxHealth,
-				PlayerHP,
-				PlayerMaxHP
-			);
+				// ─── [GravityAttack 바닥 충돌 Hit 및 Recovery 로깅] ───
+				float PlayerHP = 0.0f;
+				float PlayerMaxHP = 0.0f;
+				FString TargetCombatState = TEXT("InAir");
+				float Dist = 0.0f;
+				QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, Dist);
+
+				UCombatTimelineLogger::LogHitSuccess(
+					CurrentGravityAttackActionID,
+					TEXT("GravityAttack"),
+					AttackStruct.GravityAttackDamage,
+					GetWorld()->GetTimeSeconds(),
+					Dist,
+					TargetCombatState,
+					Health,
+					MaxHealth,
+					PlayerHP,
+					PlayerMaxHP
+				);
+				UCombatTimelineLogger::LogSkillRecovery(
+					CurrentGravityAttackActionID,
+					GetWorld()->GetTimeSeconds(),
+					Health,
+					MaxHealth,
+					PlayerHP,
+					PlayerMaxHP
+				);
+			}
 		}
 	}
 	
@@ -1085,8 +1432,11 @@ void ABossSkeletonMage::EndGravityAttack()
 
 void ABossSkeletonMage::HandleGravityAttack(float DeltaTime)
 {
-	if (bIsGravityAttackActive)
+	// 보스가 이미 사망했거나 체력이 0 이하라면 중력 틱 즉시 차단
+	if (!bIsGravityAttackActive || Health <= 0.0f)
 	{
+		return;
+	}
 		// 디버그 캡슐 그리기는 매 프레임 실행 (시각화 유지용)
 		//DrawDebugCapsule(GetWorld(), GravityAttackCenter, GravityHalfHeight, GravityRadius, 
 		//FQuat::Identity, FColor::Purple, false, DeltaTime * 2.f, 0, 1.0f);
@@ -1142,7 +1492,6 @@ void ABossSkeletonMage::HandleGravityAttack(float DeltaTime)
 				MoveComp->MaxWalkSpeed = DefaultMaxWalkSpeed;
 			}
 		}
-	}
 }
 
 void ABossSkeletonMage::StartSecondPhase()
@@ -1521,6 +1870,15 @@ void ABossSkeletonMage::StartSummonRandomMeteor()
 
 void ABossSkeletonMage::EndBattleLog()
 {
+	if (ICombatLogParticipantInterface* Participant = Cast<ICombatLogParticipantInterface>(TargetCharacter))
+	{
+		BossSkeletonMageLogData.PlayerHitStunDuration = Participant->GetParticipantHitStunDuration();
+		BossSkeletonMageLogData.PlayerHitStunCount = Participant->GetParticipantHitStunCount();
+		BossSkeletonMageLogData.PlayerKnockdownDuration = Participant->GetParticipantKnockdownDuration();
+		BossSkeletonMageLogData.PlayerKnockdownCount = Participant->GetParticipantKnockdownCount();
+		Participant->ResetParticipantStunMetrics();
+	}
+
 	Super::EndBattleLog();
 	
 	BossSkeletonMageLogData.Base = CommonBossLogData;
@@ -1531,11 +1889,144 @@ void ABossSkeletonMage::EndBattleLog()
 	BossSkeletonMageLogData = FBossSkeletonMageLogData();
 }
 
+void ABossSkeletonMage::AddSummonDamage(float DamageAmount)
+{
+	Super::AddSummonDamage(DamageAmount);
+	BossSkeletonMageLogData.SummonDamage += DamageAmount;
+}
+
 void ABossSkeletonMage::InitializeStatsFromDataTable()
 {
 	Super::InitializeStatsFromDataTable();
 
-	// 데이터테이블이 명시적으로 연결되어 있는 경우에만 대미지 스케일링 적용
+	// ─── 1. 범용 통합 전투 밸런스 테이블(DT_BossCombatBalance)에서 스킬 파라미터 주입 ───
+	if (CachedSkillBalanceMap.Num() > 0)
+	{
+		// FireBall
+		if (const FBossCombatBalanceRow* Row = FindSkillBalance(TEXT("FireBall")))
+		{
+			AttackStruct.FireBallWeight = Row->Weight;
+			AttackStruct.FireBallDelay = Row->Cooldown;
+			AttackStruct.FireBallDamage = BaseAttackDamage * (Row->DamageMultiplier > 0.0f ? Row->DamageMultiplier : 0.8f);
+			AttackStruct.FireBallHitIntensity = Row->HitIntensity;
+			AttackStruct.FireBallKnockdownDuration = Row->KnockdownDuration;
+			AttackStruct.FireBallKnockdownType = Row->KnockdownType;
+		}
+
+		// GroundAttack
+		if (const FBossCombatBalanceRow* Row = FindSkillBalance(TEXT("GroundAttack")))
+		{
+			AttackStruct.GroundAttackWeight = Row->Weight;
+			AttackStruct.GroundAttackDelay = Row->Cooldown;
+			AttackStruct.GroundAttackHitIntensity = Row->HitIntensity;
+			AttackStruct.GroundAttackKnockdownDuration = Row->KnockdownDuration;
+			AttackStruct.GroundAttackKnockdownType = Row->KnockdownType;
+		}
+
+		// GravityAttack
+		if (const FBossCombatBalanceRow* Row = FindSkillBalance(TEXT("GravityAttack")))
+		{
+			AttackStruct.GravityAttackWeight = Row->Weight;
+			AttackStruct.GravityAttackDelay = Row->Cooldown;
+			AttackStruct.GravityAttackDamage = BaseAttackDamage * Row->DamageMultiplier;
+			AttackStruct.GravityAttackHitIntensity = Row->HitIntensity;
+			AttackStruct.GravityAttackKnockdownDuration = Row->KnockdownDuration;
+			AttackStruct.GravityAttackKnockdownType = Row->KnockdownType;
+		}
+
+		// PushTarget
+		if (const FBossCombatBalanceRow* Row = FindSkillBalance(TEXT("PushTarget")))
+		{
+			AttackStruct.PushTargetWeight = Row->Weight;
+			AttackStruct.PushTargetDelay = Row->Cooldown;
+			AttackStruct.PushTargetHitIntensity = Row->HitIntensity;
+			AttackStruct.PushTargetKnockdownDuration = Row->KnockdownDuration;
+			AttackStruct.PushTargetKnockdownType = Row->KnockdownType;
+		}
+
+		// Teleport
+		if (const FBossCombatBalanceRow* Row = FindSkillBalance(TEXT("Teleport")))
+		{
+			AttackStruct.TeleportWeight = Row->Weight;
+			AttackStruct.TeleportDelay = Row->Cooldown;
+		}
+
+		// Summon
+		if (const FBossCombatBalanceRow* Row = FindSkillBalance(TEXT("Summon")))
+		{
+			AttackStruct.SummonWeight = Row->Weight;
+			AttackStruct.SummonEnemyDelay = Row->Cooldown;
+		}
+
+		// Thunder
+		if (const FBossCombatBalanceRow* Row = FindSkillBalance(TEXT("Thunder")))
+		{
+			AttackStruct.SecondPhaseThunderAttackDamage = BaseAttackDamage * Row->DamageMultiplier;
+			AttackStruct.SecondPhaseThunderHitIntensity = Row->HitIntensity;
+			AttackStruct.SecondPhaseThunderKnockdownDuration = Row->KnockdownDuration;
+			AttackStruct.SecondPhaseThunderKnockdownType = Row->KnockdownType;
+		}
+
+		// Meteor
+		if (const FBossCombatBalanceRow* Row = FindSkillBalance(TEXT("Meteor")))
+		{
+			AttackStruct.SecondPhaseMeteorAttackDamage = BaseAttackDamage * Row->DamageMultiplier;
+			AttackStruct.SecondPhaseMeteorHitIntensity = Row->HitIntensity;
+			AttackStruct.SecondPhaseMeteorKnockdownDuration = Row->KnockdownDuration;
+			AttackStruct.SecondPhaseMeteorKnockdownType = Row->KnockdownType;
+		}
+
+		// BaseStat에서 공통 행동 딜레이(CommonAttackDelay) 읽기 (기본값: 1.0초)
+		if (const FBossCombatBalanceRow* BaseStatRow = FindSkillBalance(TEXT("BaseStat")))
+		{
+			if (BaseStatRow->ActionDelay > 0.0f)
+			{
+				CommonAttackDelay = BaseStatRow->ActionDelay;
+			}
+			else if (BaseStatRow->Cooldown > 0.0f)
+			{
+				CommonAttackDelay = BaseStatRow->Cooldown;
+			}
+		}
+
+		// 스킬별 독립 쿨타임 및 고유 행동 딜레이 관리 맵 구성 (스킬 시전 시 AI 가중치 0 처리 -> 쿨타임 종료 시 원복)
+		SkillCooldownMap.Empty();
+
+		auto RegisterSkillCooldown = [this](FName SkillName, FName BBKey, float Cooldown, float ActionDelay, float Weight)
+		{
+			FBossSkillCooldownInfo Info;
+			Info.Cooldown = Cooldown;
+			Info.ActionDelay = ActionDelay;
+			Info.BaseWeight = Weight;
+			Info.BlackboardKey = BBKey;
+			Info.LastCastTime = -999.0f;
+			SkillCooldownMap.Add(SkillName, Info);
+		};
+
+		auto GetSkillActionDelay = [this](FName SkillName, float FallbackDelay) -> float
+		{
+			if (const FBossCombatBalanceRow* Row = FindSkillBalance(SkillName))
+			{
+				if (Row->ActionDelay > 0.0f)
+				{
+					return Row->ActionDelay;
+				}
+			}
+			return FallbackDelay;
+		};
+
+		RegisterSkillCooldown(TEXT("FireBall"), TEXT("W_FireBall"), AttackStruct.FireBallDelay, GetSkillActionDelay(TEXT("FireBall"), 1.0f), AttackStruct.FireBallWeight);
+		RegisterSkillCooldown(TEXT("GroundAttack"), TEXT("W_GroundAttack"), AttackStruct.GroundAttackDelay, GetSkillActionDelay(TEXT("GroundAttack"), 1.5f), AttackStruct.GroundAttackWeight);
+		RegisterSkillCooldown(TEXT("GravityAttack"), TEXT("W_GravityAttack"), AttackStruct.GravityAttackDelay, GetSkillActionDelay(TEXT("GravityAttack"), 1.5f), AttackStruct.GravityAttackWeight);
+		RegisterSkillCooldown(TEXT("PushTarget"), TEXT("W_PushTarget"), AttackStruct.PushTargetDelay, GetSkillActionDelay(TEXT("PushTarget"), 0.5f), AttackStruct.PushTargetWeight);
+		RegisterSkillCooldown(TEXT("Teleport"), TEXT("W_Teleport"), AttackStruct.TeleportDelay, GetSkillActionDelay(TEXT("Teleport"), 4.5f), AttackStruct.TeleportWeight);
+		RegisterSkillCooldown(TEXT("Summon"), TEXT("W_Summon"), AttackStruct.SummonEnemyDelay, GetSkillActionDelay(TEXT("Summon"), 6.0f), AttackStruct.SummonWeight);
+
+		UE_LOG(LogTemp, Log, TEXT("[BossSkeletonMage] Successfully injected all skill balance parameters and cooldowns! (Common Delay: %.1fs)"), CommonAttackDelay);
+		return;
+	}
+
+	// ─── 2. 기존 CombatStatHandle (하위 호환성 유지) ───
 	if (CombatStatHandle.DataTable && !CombatStatHandle.RowName.IsNone())
 	{
 		AttackStruct.GravityAttackDamage = BaseAttackDamage * 0.15f;

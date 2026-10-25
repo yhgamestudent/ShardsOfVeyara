@@ -47,8 +47,12 @@
 #include "EnemyProjectile/BaseEnemyProjectile.h"
 #include "EnemyProjectile/GroundAttackProjectile.h"
 #include "EnemyBoss/SkeletonMage/BossSkeletonMage.h"
+#include "CombatTimelineLogger.h"
 #include "Components/WidgetComponent.h"
 #include "Blueprint/UserWidget.h"
+#include "Tribute/TributeUI.h"
+#include "Tribute/Tribute.h"
+#include "FarmingGameMode.h"
 #if WITH_EDITOR
 #include "AssetTypeActions/AssetDefinition_SoundBase.h"
 #endif
@@ -427,6 +431,147 @@ void AAGSDCharacter::InitializeCombatStatsFromDataTable()
 	}
 }
 
+void AAGSDCharacter::InitializeTributeStats()
+{
+	if (!TributeDataTable)
+	{
+		TributeDataTable = LoadObject<UDataTable>(nullptr, TEXT("/Game/DataTable/DT_TributeData.DT_TributeData"));
+	}
+
+	if (GI)
+	{
+		// GI의 TributeLevel은 다음에 도전할 단계(1-based)이므로, 완료된 단계는 GI->TributeLevel - 1
+		CurrentTributeLevel = FMath::Max(0, GI->TributeLevel - 1);
+	}
+
+	if (CurrentTributeLevel > 0 && TributeDataTable)
+	{
+		const FName RowName = FName(*FString::FromInt(CurrentTributeLevel));
+		if (const FTributeData* Row = TributeDataTable->FindRow<FTributeData>(RowName, TEXT("InitializeTributeStats")))
+		{
+			Damage = Row->AttackDamage;
+			MaxHealth = Row->MaxHealth;
+			Health = FMath::Min(Health, MaxHealth);
+
+			if (PlayerStateWidget)
+			{
+				PlayerStateWidget->SetDamageText(Damage);
+			}
+			if (HealthBar)
+			{
+				HealthBar->UpdateHealth(Health, MaxHealth);
+			}
+
+			UE_LOG(LogTemp, Log, TEXT("[Tribute] Initialized Player Tribute Level: %d -> Damage: %.1f, MaxHealth: %.1f"),
+				CurrentTributeLevel, Damage, MaxHealth);
+		}
+	}
+}
+
+void AAGSDCharacter::ApplyTributeLevel(int32 TargetCompletedLevel)
+{
+	if (!TributeDataTable)
+	{
+		TributeDataTable = LoadObject<UDataTable>(nullptr, TEXT("/Game/DataTable/DT_TributeData.DT_TributeData"));
+	}
+
+	TargetCompletedLevel = FMath::Max(0, TargetCompletedLevel);
+
+	if (TargetCompletedLevel == 0)
+	{
+		// 0단계: 기본 스펙으로 리셋
+		CurrentTributeLevel = 0;
+		Damage = 70.0f;
+		MaxHealth = 800.0f;
+		Health = MaxHealth;
+	}
+	else if (TributeDataTable)
+	{
+		CurrentTributeLevel = TargetCompletedLevel;
+		const FName RowName = FName(*FString::FromInt(TargetCompletedLevel));
+		if (const FTributeData* Row = TributeDataTable->FindRow<FTributeData>(RowName, TEXT("ApplyTributeLevel")))
+		{
+			Damage = Row->AttackDamage;
+			MaxHealth = Row->MaxHealth;
+			Health = MaxHealth;
+		}
+		else
+		{
+			// 데이터테이블 행을 초과했거나 미발견 시 단계당 +10 공식 폴백
+			Damage = 70.0f + (TargetCompletedLevel * 10.0f);
+			MaxHealth = 800.0f;
+			Health = MaxHealth;
+		}
+	}
+	else
+	{
+		CurrentTributeLevel = TargetCompletedLevel;
+		Damage = 70.0f + (TargetCompletedLevel * 10.0f);
+		MaxHealth = 800.0f;
+		Health = MaxHealth;
+	}
+
+	// 1. UI 즉시 갱신
+	if (PlayerStateWidget)
+	{
+		PlayerStateWidget->SetDamageText(Damage);
+	}
+	if (HealthBar)
+	{
+		HealthBar->UpdateHealth(Health, MaxHealth);
+	}
+
+	// 2. GameInstance 전역 동기화
+	const int32 NextTargetLevel = CurrentTributeLevel + 1;
+	if (GI)
+	{
+		GI->Damage = Damage;
+		GI->MaxPlayerHealth = MaxHealth;
+		GI->PlayerHealth = Health;
+		GI->TributeLevel = NextTargetLevel;
+		GI->CurrentLevelTributeItems.Empty();
+	}
+
+	// 3. 월드 내 ATribute 제단 액터 실시간 동기화
+	if (UWorld* World = GetWorld())
+	{
+		TArray<AActor*> FoundAltars;
+		UGameplayStatics::GetAllActorsOfClass(World, ATribute::StaticClass(), FoundAltars);
+		for (AActor* AltarActor : FoundAltars)
+		{
+			if (ATribute* Altar = Cast<ATribute>(AltarActor))
+			{
+				Altar->TributeLevel = NextTargetLevel;
+				Altar->SetNextTributeUI(NextTargetLevel);
+			}
+		}
+
+		// 4. 분석 로그 서브시스템 갱신
+		if (UGameInstance* GameInst = World->GetGameInstance())
+		{
+			if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+			{
+				LogSubsystem->UpdateCurrentTributeLevel(NextTargetLevel);
+			}
+		}
+	}
+
+	// 5. 화면 디버그 메시지 및 콘솔 로그 출력
+	const FString Msg = FString::Printf(TEXT("[봉헌 완료: %d단계] 공격력: %.1f | 최대체력: %.1f (다음 목표: %d단계)"),
+		CurrentTributeLevel, Damage, MaxHealth, NextTargetLevel);
+
+	UE_LOG(LogTemp, Warning, TEXT("%s"), *Msg);
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Green, Msg);
+	}
+}
+
+void AAGSDCharacter::AdvanceTributeLevel()
+{
+	ApplyTributeLevel(CurrentTributeLevel + 1);
+}
+
 void AAGSDCharacter::BeginPlay()
 {
 	Super::BeginPlay();
@@ -460,6 +605,9 @@ void AAGSDCharacter::BeginPlay()
 		}
 		Damage = GI->Damage;
 	}
+
+	// 2. 봉헌 스탯 초기화 (TributeDataTable 기반)
+	InitializeTributeStats();
 
 	if (GetCharacterMovement())
 	{
@@ -602,8 +750,23 @@ void AAGSDCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 void AAGSDCharacter::WakeUp()
 {
-	FadeWidget->OnFadeFinished.RemoveDynamic(this, &AAGSDCharacter::WakeUp);
-	HealthRecovery(10.f);
+	if (FadeWidget)
+	{
+		FadeWidget->OnFadeFinished.RemoveDynamic(this, &AAGSDCharacter::WakeUp);
+		FadeWidget->SetTargetOpacity(0.f);
+	}
+
+	// 1. 하루 경과 처리 (오전 6시 = 360분 기상)
+	if (AFarmingGameMode* GM = Cast<AFarmingGameMode>(GetWorld()->GetAuthGameMode()))
+	{
+		GM->NextDay(360.f);
+	}
+
+	// 2. 최대 체력(풀피) 회복 및 조작 활성화
+	HealthRecovery(getPlayerMaxhealth());
+	EnableInput(PC);
+
+	// 3. 침대로 텔레포트
 	TeleportToBed();
 }
 
@@ -662,7 +825,7 @@ float AAGSDCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& 
 	
 	if (DamageToApply >= 0.f)
 	{
-		OnHitReceived();
+		OnHitReceived(DamageCauser);
 	}
 	
 	if (GuardComponent)
@@ -1715,8 +1878,22 @@ void AAGSDCharacter::HandleRotateCharacterStartAttack(float DeltaSeconds)
 	}
 }
 
-void AAGSDCharacter::StartParryCombo()
+void AAGSDCharacter::StartParryCombo(AActor* Attacker)
 {
+	LastParryAttacker = Attacker;
+
+	// 락온 대상이 없는 경우(노락온)에만 튕겨낸 공격자 방향으로 즉시 몸을 회전
+	AActor* LockedTarget = LockOnComponent ? LockOnComponent->GetLockedTarget() : nullptr;
+	if (!LockedTarget && Attacker && IsValid(Attacker))
+	{
+		const FVector PlayerLoc = GetActorLocation();
+		const FVector AttackerLoc = Attacker->GetActorLocation();
+		FRotator FaceRotation = UKismetMathLibrary::FindLookAtRotation(PlayerLoc, AttackerLoc);
+		FaceRotation.Pitch = 0.f;
+		FaceRotation.Roll = 0.f;
+		SetActorRotation(FaceRotation);
+	}
+
 	// 1. 가드 상태 해제 (패리 성공했으므로 공격(Combat) 상태로 전이)
 	if (GuardComponent)
 	{
@@ -1730,9 +1907,11 @@ void AAGSDCharacter::StartParryCombo()
 		UpdateCharacterRotationSettings();
 	}
 
-	// 2. 기존 공격/콤보 상태 강제 클리어
+	// 2. 기존 공격/콤보 상태 강제 클리어 및 저스트가드 반격 슈퍼아머 활성화
 	ResetCombo();
 	Mining = true; // 공격 시작 표시
+	bIsJustGuardCounterActive = true;
+	LastJustGuardSuccessWorldTime = GetWorld()->GetTimeSeconds();
 
 	// 3. Parry 전용 콤보 로드 및 1타(튕겨내기) 재생
 	CurrentComboData = GetComboDataByDirection(ESpearAttackDirection::Parry);
@@ -2016,6 +2195,7 @@ void AAGSDCharacter::ResetCombo()
 	// 2. 콤보 데이터 초기화
 	CurrentStageIndex = -1;
 	CurrentComboData = nullptr;
+	LastParryAttacker = nullptr;
 
 	// 3. (추가) 수비 시스템 관련 상태도 함께 초기화
 	if (GuardComponent)
@@ -2029,11 +2209,11 @@ void AAGSDCharacter::ResetCombo()
 	UE_LOG(LogTemp, Log, TEXT("Combo System Reset"));
 }
 
-void AAGSDCharacter::OnHitReceived()
+void AAGSDCharacter::OnHitReceived(AActor* DamageCauser)
 {
 	if (GuardComponent && GuardComponent->IsJustGuardActive())
 	{
-		GuardComponent->HandleJustGuardSuccess();
+		GuardComponent->HandleJustGuardSuccess(DamageCauser);
 	}
 	else
 	{
@@ -2108,6 +2288,12 @@ void AAGSDCharacter::ResetAttackState()
 		SetCanBeDamaged(true);
 	}
 
+	// 선입력된 후속 공격이 없다면 반격 슈퍼아머 해제
+	if (!bShouldTriggerBufferedAttack)
+	{
+		bIsJustGuardCounterActive = false;
+	}
+
 	// 공격 종료 시점에 선입력된 입력이 있다면 즉시 새로운 공격 실행
 	if (bShouldTriggerBufferedAttack)
 	{
@@ -2157,6 +2343,13 @@ void AAGSDCharacter::UpdateMotionWarpTarget()
 
 	bool bIsHardLocked = false;
 	AActor* TargetActor = LockOnComponent ? LockOnComponent->GetTargetForAttack(bIsHardLocked) : nullptr;
+
+	// 락온 대상이 없고 저스트가드 반격 콤보 진행 중이라면, 방금 튕겨낸 공격자를 모션 워프 타겟으로 지정
+	if (!TargetActor && bIsJustGuardCounterActive && LastParryAttacker.IsValid())
+	{
+		TargetActor = LastParryAttacker.Get();
+		bIsHardLocked = true; // 공격자를 향해 360도 전방향 모션 워핑 허용
+	}
 
 	// 플레이어가 마우스로 바라보고 있는 실시간 컨트롤러(카메라) 수평 회전값 및 플레이어 위치
 	const FRotator ControlRot = GetControlRotation();
@@ -2369,8 +2562,22 @@ void AAGSDCharacter::AddDamage(float addDamage)
 
 void AAGSDCharacter::HealthRecovery(float amount)
 {
-	Health = FMath::Clamp(Health + amount, 0, MaxHealth);
+	const float PrevHealth = Health;
+	Health = FMath::Clamp(Health + amount, 0.0f, MaxHealth);
+	const float ActualHealed = Health - PrevHealth;
+
 	if (HealthBar) HealthBar->UpdateHealth(Health, MaxHealth);
+
+	if (UCombatTimelineLogger::IsSessionActive() && ActualHealed > 0.0f)
+	{
+		UCombatTimelineLogger::LogPlayerHealed(
+			ActualHealed,
+			GetWorld()->GetTimeSeconds(),
+			Health,
+			MaxHealth,
+			TEXT("HealthRecovery")
+		);
+	}
 }
 //--------------
 
@@ -3840,12 +4047,15 @@ void AAGSDCharacter::ProcessHitReaction(float DamageAmount, AActor* DamageCauser
 		return;
 	}
 
-	// ⭐️ 3-1. 저스트 가드(패링) 성공 및 반격 콤보 중: 넉다운 및 모든 피격 리액션 100% 완전 면역!
+	// ⭐️ 3-1. 저스트 가드(패링) 성공 및 반격 콤보 중: 넉다운 및 모든 피격 리액션 100% 완전 면역 (슈퍼아머)!
 	const bool bIsParrying = (GuardComponent && (GuardComponent->IsJustGuardActive() || GuardComponent->IsJustGuardSuccessful())) ||
 	                         (CurrentComboData && CurrentComboData->DirectionRequirement == ESpearAttackDirection::Parry);
-	if (bIsParrying)
+	const bool bIsJustGuardCounterAttack = bIsJustGuardCounterActive || 
+	                         ((bIsAttacking || Mining) && (GetWorld()->GetTimeSeconds() - LastJustGuardSuccessWorldTime <= JustGuardSuperArmorDuration));
+
+	if (bIsParrying || bIsJustGuardCounterAttack)
 	{
-		UE_LOG(LogTemp, Log, TEXT("[HitReaction] Just Guard (Parry) SUCCESS! - Completely immune to Knockdown & Hit"));
+		UE_LOG(LogTemp, Log, TEXT("[HitReaction] Just Guard Counter Attack SUPER ARMOR! - Completely immune to Knockdown & Hit Reaction"));
 		return;
 	}
 
@@ -3941,6 +4151,8 @@ void AAGSDCharacter::ProcessHitReaction(float DamageAmount, AActor* DamageCauser
 		// 애님그래프 메인의 Blend Poses(bIsHitReacting)가 MainState(Knockdown)를 가로채지 못하도록 보장!
 		bIsHitReacting = false;
 		GetWorldTimerManager().ClearTimer(HitReactTimerHandle);
+		EndHitStunTracking();
+		StartKnockdownTracking();
 
 		StopAnimMontage();
 		bIsAttacking = false;
@@ -3982,6 +4194,7 @@ void AAGSDCharacter::ProcessHitReaction(float DamageAmount, AActor* DamageCauser
 	bHasBufferedInput = false;
 
 	bIsHitReacting = true;
+	StartHitStunTracking();
 
 	GetWorldTimerManager().ClearTimer(HitReactTimerHandle);
 	GetWorldTimerManager().SetTimer(HitReactTimerHandle, this, &AAGSDCharacter::ResetHitReact, HitReactDuration, false);
@@ -3998,6 +4211,8 @@ void AAGSDCharacter::ResetHitReact()
 	CurrentKnockdownType = EKnockdownType::None;
 	GetWorldTimerManager().ClearTimer(HitReactTimerHandle);
 	GetWorldTimerManager().ClearTimer(KnockdownTimerHandle);
+	EndHitStunTracking();
+	EndKnockdownTracking();
 	UE_LOG(LogTemp, Log, TEXT("[HitReaction] Hit reaction reset"));
 }
 
@@ -4013,6 +4228,7 @@ void AAGSDCharacter::TriggerKnockdownStandUp()
 
 void AAGSDCharacter::FinishKnockdown()
 {
+	EndKnockdownTracking();
 	bIsKnockdown = false;
 	bKnockdownStandUp = false;
 	CurrentKnockdownType = EKnockdownType::None;
@@ -4028,6 +4244,7 @@ void AAGSDCharacter::ApplyHitStun(float Duration)
 	if (!bIsKnockdown)
 	{
 		bIsHitReacting = true;
+		StartHitStunTracking();
 	}
 	GetWorldTimerManager().ClearTimer(HitStunTimerHandle);
 	GetWorldTimerManager().SetTimer(HitStunTimerHandle, this, &AAGSDCharacter::ClearHitStun, Duration, false);
@@ -4036,6 +4253,7 @@ void AAGSDCharacter::ApplyHitStun(float Duration)
 void AAGSDCharacter::ClearHitStun()
 {
 	bIsHitReacting = false;
+	EndHitStunTracking();
 	ResetHitReact();
 	GetWorldTimerManager().ClearTimer(HitStunTimerHandle);
 }
@@ -4050,4 +4268,73 @@ void AAGSDCharacter::ToggleGodMode()
 	}
 	UE_LOG(LogTemp, Warning, TEXT("[Cheat] God Mode is now: %s"), *StatusStr);
 }
+
+void AAGSDCharacter::StartHitStunTracking()
+{
+	if (CurrentHitStunStartTime < 0.0f)
+	{
+		CurrentHitStunStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+		HitStunCount++;
+	}
+}
+
+void AAGSDCharacter::EndHitStunTracking()
+{
+	if (CurrentHitStunStartTime >= 0.0f)
+	{
+		const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : CurrentHitStunStartTime;
+		TotalHitStunDuration += FMath::Max(0.0f, Now - CurrentHitStunStartTime);
+		CurrentHitStunStartTime = -1.0f;
+	}
+}
+
+void AAGSDCharacter::StartKnockdownTracking()
+{
+	if (CurrentKnockdownStartTime < 0.0f)
+	{
+		CurrentKnockdownStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+		KnockdownCount++;
+	}
+}
+
+void AAGSDCharacter::EndKnockdownTracking()
+{
+	if (CurrentKnockdownStartTime >= 0.0f)
+	{
+		const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : CurrentKnockdownStartTime;
+		TotalKnockdownDuration += FMath::Max(0.0f, Now - CurrentKnockdownStartTime);
+		CurrentKnockdownStartTime = -1.0f;
+	}
+}
+
+float AAGSDCharacter::GetParticipantHitStunDuration() const
+{
+	float Duration = TotalHitStunDuration;
+	if (CurrentHitStunStartTime >= 0.0f && GetWorld())
+	{
+		Duration += FMath::Max(0.0f, GetWorld()->GetTimeSeconds() - CurrentHitStunStartTime);
+	}
+	return Duration;
+}
+
+float AAGSDCharacter::GetParticipantKnockdownDuration() const
+{
+	float Duration = TotalKnockdownDuration;
+	if (CurrentKnockdownStartTime >= 0.0f && GetWorld())
+	{
+		Duration += FMath::Max(0.0f, GetWorld()->GetTimeSeconds() - CurrentKnockdownStartTime);
+	}
+	return Duration;
+}
+
+void AAGSDCharacter::ResetParticipantStunMetrics()
+{
+	TotalHitStunDuration = 0.0f;
+	TotalKnockdownDuration = 0.0f;
+	HitStunCount = 0;
+	KnockdownCount = 0;
+	CurrentHitStunStartTime = -1.0f;
+	CurrentKnockdownStartTime = -1.0f;
+}
+
 

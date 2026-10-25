@@ -145,6 +145,9 @@ struct FBossSkeletonMageLogData
     
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
     int32 SummonCount = 0;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
+    float SummonDamage = 0.0f;
     
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
     int32 GroundAttackCount = 0;
@@ -167,21 +170,37 @@ struct FBossSkeletonMageLogData
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
     float SecondPhaseMeteorAttackDamage = 0.0f;
     
+    // 플레이어 일반 피격 경직 누적 시간 (초)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
+    float PlayerHitStunDuration = 0.0f;
+
+    // 플레이어 일반 피격 경직 횟수
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
+    int32 PlayerHitStunCount = 0;
+
+    // 플레이어 넉다운 경직 누적 시간 (초)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
+    float PlayerKnockdownDuration = 0.0f;
+
+    // 플레이어 넉다운 횟수
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
+    int32 PlayerKnockdownCount = 0;
+
     FString ToCSVRow() const
     {
-       // 맨 뒤에 %.3f, %.3f 서식 지정자 2개 추가 및 데이터 변수 매칭
-       return FString::Printf(TEXT("%s,%d,%d,%.3f,%d,%d,%.3f,%d,%d,%.3f,%.3f,%.3f"), 
+       return FString::Printf(TEXT("%s,%d,%d,%.3f,%d,%.3f,%d,%.3f,%d,%d,%.3f,%.3f,%.3f,%.3f,%d,%.3f,%d"), 
           *Base.ToCSVRow(),
-          TeleportCount, FireBallCount, FireBallDamage, SummonCount, 
+          TeleportCount, FireBallCount, FireBallDamage, SummonCount, SummonDamage,
           GroundAttackCount, GroundAttackDamage, PushTargetCount, 
           GravityAttackCount, GravityAttackDamage,
-          SecondPhaseThunderAttackDamage, SecondPhaseMeteorAttackDamage);
+          SecondPhaseThunderAttackDamage, SecondPhaseMeteorAttackDamage,
+          PlayerHitStunDuration, PlayerHitStunCount,
+          PlayerKnockdownDuration, PlayerKnockdownCount);
     }
 
     static FString GetCSVHeader()
     {
-       // 헤더 맨 뒤에도 추가된 컬럼명 명시
-       return FString::Printf(TEXT("%s,TeleportCount,FireBallCount,FireBallDamage,SummonCount,GroundAttackCount,GroundAttackDamage,PushTargetCount,GravityAttackCount,GravityAttackDamage,SecondPhaseThunderAttackDamage,SecondPhaseMeteorAttackDamage"), 
+       return FString::Printf(TEXT("%s,TeleportCount,FireBallCount,FireBallDamage,SummonCount,SummonDamage,GroundAttackCount,GroundAttackDamage,PushTargetCount,GravityAttackCount,GravityAttackDamage,SecondPhaseThunderAttackDamage,SecondPhaseMeteorAttackDamage,PlayerHitStunDuration,PlayerHitStunCount,PlayerKnockdownDuration,PlayerKnockdownCount"), 
           *FCommonBossLogData::GetCSVHeader());
     }
 };
@@ -300,6 +319,8 @@ enum class ECombatEventType : uint8
 	HitEvaded			UMETA(DisplayName = "HitEvaded"),
 	BossDamaged			UMETA(DisplayName = "BossDamaged"),
 	PhaseTransition		UMETA(DisplayName = "PhaseTransition"),
+	PlayerHealed		UMETA(DisplayName = "PlayerHealed"),
+	MinionDamaged		UMETA(DisplayName = "MinionDamaged"),
 	BattleEnd			UMETA(DisplayName = "BattleEnd")
 };
 
@@ -368,6 +389,8 @@ struct FCombatTimelineEvent
 		case ECombatEventType::HitEvaded: return TEXT("HIT_EVADED");
 		case ECombatEventType::BossDamaged: return TEXT("BOSS_DAMAGED");
 		case ECombatEventType::PhaseTransition: return TEXT("PHASE_TRANSITION");
+		case ECombatEventType::PlayerHealed: return TEXT("PLAYER_HEALED");
+		case ECombatEventType::MinionDamaged: return TEXT("MINION_DAMAGED");
 		case ECombatEventType::BattleEnd: return TEXT("BATTLE_END");
 		default: return TEXT("UNKNOWN");
 		}

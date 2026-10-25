@@ -11,6 +11,8 @@ class UBoxComponent;
 class UAGSDInventoryComponent;
 class UNiagaraSystem;
 class USoundBase;
+class UCameraComponent;
+class AAGSDCharacter;
 
 UCLASS()
 class AGSD_API APortalSpawner : public AActor
@@ -35,6 +37,7 @@ public:
 	void SpawnRewardItem();
 
 protected:
+	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
@@ -45,6 +48,10 @@ protected:
 	// 보스 처치 후 구슬 조각 등 보상 아이템이 스폰될 중앙 타겟 위치 컴포넌트
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Portal Spawner|Boss Reward")
 	USceneComponent* RewardSpawnPoint;
+
+	// 구슬 스폰 시네마틱 전용 연출 카메라 컴포넌트
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Portal Spawner|Cutscene")
+	UCameraComponent* CutsceneCameraComp;
 
 	// 감시할 보스 액터 (인스턴스에서 지정 가능)
 	UPROPERTY(EditInstanceOnly, Category = "Portal Spawner")
@@ -70,7 +77,35 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Portal Spawner|Boss Reward")
 	TSubclassOf<AActor> RewardItemClass;
 
-	// 보스 사망 후 보상 아이템이 스폰될 때까지의 연출 딜레이 시간 (초)
+	// 시네마틱 컷신 연출 활성화 여부
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Portal Spawner|Cutscene")
+	bool bEnableRewardCutscene = true;
+
+	// 에디터에서 수동으로 맞춘 카메라 위치/구도를 인게임 컷신에서도 그대로 유지할지 여부 (기본값: true)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Portal Spawner|Cutscene")
+	bool bUseManualCutsceneCameraTransform = true;
+
+	// 플레이어 -> 연출 카메라 전환 블렌드 시간 (초)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Portal Spawner|Cutscene", meta = (ClampMin = "0.1"))
+	float CutsceneBlendInDuration = 1.0f;
+
+	// 카메라 전환 후 구슬 등장 전 긴장감 정지 대기 시간 (초)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Portal Spawner|Cutscene", meta = (ClampMin = "0.0"))
+	float CutscenePreSpawnFreezeDelay = 0.6f;
+
+	// 구슬 등장 후 카메라 복귀를 시작할 때까지의 관찰 대기 시간 (초)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Portal Spawner|Cutscene", meta = (ClampMin = "0.0"))
+	float CutsceneHoldDuration = 1.0f;
+
+	// 연출 카메라 -> 플레이어 카메라 복귀 블렌드 시간 (초)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Portal Spawner|Cutscene", meta = (ClampMin = "0.1"))
+	float CutsceneBlendOutDuration = 1.8f;
+
+	// 구슬 등장 팝 애니메이션 시간 (초)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Portal Spawner|Cutscene", meta = (ClampMin = "0.05"))
+	float RewardPopDuration = 0.35f;
+
+	// 보스 사망 후 보상 아이템이 스폰될 때까지의 연출 딜레이 시간 (초, bEnableRewardCutscene이 false일 때 사용)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Portal Spawner|Boss Reward", meta = (ClampMin = "0.0"))
 	float RewardSpawnDelay = 1.5f;
 
@@ -130,9 +165,81 @@ protected:
 	UFUNCTION()
 	void UpdateRewardDescent();
 
+	// ─── [포탈 공중 낙하 및 화면 지진 연출 설정] ───
+	// 포탈이 공중에서 시작할 낙하 높이 (기본: +400.0 유닛)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Portal Spawner|Drop Presentation")
+	float PortalDropHeight = 400.0f;
+
+	// 포탈이 지면까지 떨어지는 시간 (초, 기본: 0.45초)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Portal Spawner|Drop Presentation", meta = (ClampMin = "0.1"))
+	float PortalDropDuration = 0.45f;
+
+	// 지면 착지 시 화면 지진을 일으킬 카메라 셰이크 클래스
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Portal Spawner|Drop Presentation")
+	TSubclassOf<class UCameraShakeBase> PortalImpactCameraShakeClass;
+
+	// 공중 소환 시 재생할 "뿅!" 나이아가라 이펙트 및 사운드
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Portal Spawner|Drop Presentation")
+	class UNiagaraSystem* PortalPopEffect = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Portal Spawner|Drop Presentation")
+	class USoundBase* PortalPopSound = nullptr;
+
+	// 공중 생성 "뿅!" 사운드 볼륨 배율 (기본: 1.0)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Portal Spawner|Drop Presentation", meta = (ClampMin = "0.0", UIMin = "0.0", UIMax = "5.0"))
+	float PortalPopSoundVolume = 1.0f;
+
+	// 공중 생성 "뿅!" 사운드 피치 배율 (기본: 1.0)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Portal Spawner|Drop Presentation", meta = (ClampMin = "0.1", ClampMax = "2.0"))
+	float PortalPopSoundPitch = 1.0f;
+
+	// 지면 착지 시 재생할 착지 임팩트 나이아가라 이펙트 및 "쿵!" 사운드
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Portal Spawner|Drop Presentation")
+	class UNiagaraSystem* PortalImpactEffect = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Portal Spawner|Drop Presentation")
+	class USoundBase* PortalImpactSound = nullptr;
+
+	// 지면 착지 "쿵!" 사운드 볼륨 배율 (기본: 1.0)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Portal Spawner|Drop Presentation", meta = (ClampMin = "0.0", UIMin = "0.0", UIMax = "5.0"))
+	float PortalImpactSoundVolume = 1.0f;
+
+	// 지면 착지 "쿵!" 사운드 피치(음높이) 배율 (기본: 1.0)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Portal Spawner|Drop Presentation", meta = (ClampMin = "0.1", ClampMax = "2.0"))
+	float PortalImpactSoundPitch = 1.0f;
+
+	// 지면 착지 사운드 3D 거리 감쇄 설정 (선택 사항)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Portal Spawner|Drop Presentation")
+	class USoundAttenuation* PortalImpactSoundAttenuation = nullptr;
+
+	// 포탈 낙하 실시간 갱신 함수 (60fps 타이머)
+	UFUNCTION()
+	void UpdatePortalDrop();
+
+	// 지면 착지 완료 시 호출되는 함수 (지진 효과 및 착지 임팩트 발생)
+	void OnPortalHitGround();
+
 	// 포털 오버랩을 안전하게 활성화하는 함수
 	UFUNCTION()
 	void ActivatePortalOverlap();
+
+	// ─── [시네마틱 컷신 연출 단계별 함수] ───
+	void StartRewardCutscene();
+
+	UFUNCTION()
+	void OnCutscenePreSpawnFreezeFinished();
+
+	UFUNCTION()
+	void UpdateRewardPopScale();
+
+	// 구슬 조각 하강 애니메이션 시작 (카메라 복귀 시 또는 일반 스폰 시 호출)
+	void StartRewardDescent();
+
+	UFUNCTION()
+	void StartCutsceneBlendOut();
+
+	UFUNCTION()
+	void RestorePlayerAfterCutscene();
 
 private:
 	// 플레이어와 최소 안전 거리를 유지하는 유효한 스폰 위치를 다각도로 탐색
@@ -162,15 +269,32 @@ private:
 	UPROPERTY()
 	TWeakObjectPtr<AActor> SpawnedPortalActor = nullptr;
 
+	// 컷신 대상 플레이어 및 컨트롤러 캐싱
+	UPROPERTY()
+	TWeakObjectPtr<AAGSDCharacter> CachedPlayerCharacter = nullptr;
+
+	UPROPERTY()
+	TWeakObjectPtr<APlayerController> CachedPlayerController = nullptr;
+
 	// 구슬 하강 시작 위치 및 최종 목표 위치
 	FVector RewardStartLocation = FVector::ZeroVector;
 	FVector RewardTargetLocation = FVector::ZeroVector;
 	float DescentElapsedTime = 0.0f;
+	float PopElapsedTime = 0.0f;
+
+	// 포털 낙하 시작 위치 및 목표 위치
+	FVector PortalDropStartLocation = FVector::ZeroVector;
+	FVector PortalDropTargetLocation = FVector::ZeroVector;
+	float PortalDropElapsedTime = 0.0f;
 
 	// 타이머 핸들들
 	FTimerHandle RewardSpawnTimerHandle;
 	FTimerHandle RewardDescentTimerHandle;
 	FTimerHandle PortalActivationTimerHandle;
+	FTimerHandle CutsceneTimerHandle;
+	FTimerHandle CutsceneBlendOutTimerHandle;
+	FTimerHandle RewardPopTimerHandle;
+	FTimerHandle PortalDropTimerHandle;
 
 	// 보스 처치 여부
 	bool bBossDefeated = false;

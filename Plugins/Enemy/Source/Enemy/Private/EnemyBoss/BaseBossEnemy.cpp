@@ -14,7 +14,7 @@
 #include "Interface/PlayerDeadInterface.h"
 #include "EnemyHUD/BossHealthBarWidget.h"
 #include "CombatTimelineLogger.h"
-
+#include "Engine/DataTable.h"
 ABaseBossEnemy::ABaseBossEnemy()
 {
 	PrimaryActorTick.bCanEverTick = true;
@@ -641,10 +641,63 @@ void ABaseBossEnemy::PostEditChangeProperty(FPropertyChangedEvent& PropertyChang
 }
 #endif
 
+const FBossCombatBalanceRow* ABaseBossEnemy::FindSkillBalance(FName ActionName) const
+{
+	return CachedSkillBalanceMap.Find(ActionName);
+}
+
 void ABaseBossEnemy::InitializeStatsFromDataTable()
 {
-	// CombatStatHandle이 명시적으로 연결되어 있는 경우에만 데이터테이블 스탯을 읽어와 적용합니다.
-	// 연결되어 있지 않으면 에디터 디테일 패널이나 C++ 코드에 설정된 기존 하드코딩 스탯을 그대로 유지합니다.
+	// ─── 1. 범용 통합 전투 밸런스 데이터테이블(DT_BossCombatBalance) 우선 적용 ───
+	if (UniversalBalanceTableHandle.DataTable)
+	{
+		const UDataTable* BalanceTable = UniversalBalanceTableHandle.DataTable;
+		CachedSkillBalanceMap.Empty();
+
+		TArray<FBossCombatBalanceRow*> AllRows;
+		BalanceTable->GetAllRows<FBossCombatBalanceRow>(TEXT("ABaseBossEnemy::InitializeStatsFromDataTable"), AllRows);
+
+		const FName TargetBossId = BossLogId.IsEmpty() ? FName(TEXT("Boss_Dungeon_SkeletonMage")) : FName(*BossLogId);
+		bool bFoundBaseStat = false;
+
+		for (const FBossCombatBalanceRow* Row : AllRows)
+		{
+			if (!Row) continue;
+
+			// 현재 보스 ID와 일치하거나, CombatStatHandle의 행 이름과 일치하는 행 필터링
+			if (Row->BossID == TargetBossId || (!CombatStatHandle.RowName.IsNone() && Row->BossID == CombatStatHandle.RowName))
+			{
+				if (Row->ActionName == TEXT("BaseStat"))
+				{
+					if (Row->MaxHealth > 0.0f)
+					{
+						MaxHealth = Row->MaxHealth;
+						Health = MaxHealth;
+					}
+					if (Row->BaseAttackDamage > 0.0f)
+					{
+						BaseAttackDamage = Row->BaseAttackDamage;
+					}
+					bFoundBaseStat = true;
+					UE_LOG(LogTemp, Log, TEXT("[BaseBossEnemy] %s BaseStat Loaded from Universal Table -> MaxHealth: %.1f, BaseAttackDamage: %.1f"),
+						*GetName(), MaxHealth, BaseAttackDamage);
+				}
+				else
+				{
+					CachedSkillBalanceMap.Add(Row->ActionName, *Row);
+					UE_LOG(LogTemp, Log, TEXT("[BaseBossEnemy] %s SkillBalance Cached -> Skill: %s (Weight: %.1f, Cooldown: %.2fs, ActionDelay: %.2fs, DamageMult: %.2f)"),
+						*GetName(), *Row->ActionName.ToString(), Row->Weight, Row->Cooldown, Row->ActionDelay, Row->DamageMultiplier);
+				}
+			}
+		}
+
+		if (bFoundBaseStat || CachedSkillBalanceMap.Num() > 0)
+		{
+			return;
+		}
+	}
+
+	// ─── 2. 기존 CombatStatHandle (하위 호환성 유지) ───
 	if (CombatStatHandle.DataTable && !CombatStatHandle.RowName.IsNone())
 	{
 		const FCombatStatRow* StatRow = CombatStatHandle.GetRow<FCombatStatRow>(TEXT("ABaseBossEnemy::InitializeStatsFromDataTable"));
@@ -654,9 +707,14 @@ void ABaseBossEnemy::InitializeStatsFromDataTable()
 			Health = MaxHealth;
 			BaseAttackDamage = StatRow->BaseAttackDamage;
 
-			UE_LOG(LogTemp, Log, TEXT("[BaseBossEnemy] %s (%s) Stat Loaded from DataTable -> MaxHealth: %.1f, BaseAttackDamage: %.1f"),
+			UE_LOG(LogTemp, Log, TEXT("[BaseBossEnemy] %s (%s) Stat Loaded from CombatStatHandle -> MaxHealth: %.1f, BaseAttackDamage: %.1f"),
 				*GetName(), *CombatStatHandle.RowName.ToString(), MaxHealth, BaseAttackDamage);
 		}
 	}
+}
+
+void ABaseBossEnemy::AddSummonDamage(float DamageAmount)
+{
+	CommonBossLogData.TotalDamageDealt += DamageAmount;
 }
 

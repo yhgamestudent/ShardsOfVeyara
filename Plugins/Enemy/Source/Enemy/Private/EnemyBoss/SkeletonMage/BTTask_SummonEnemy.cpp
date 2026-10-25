@@ -6,6 +6,7 @@
 UBTTask_SummonEnemy::UBTTask_SummonEnemy()
 {
 	NodeName = "SummonEnemy";
+	bNotifyTick = true;
 }
 
 EBTNodeResult::Type UBTTask_SummonEnemy::ExecuteTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory)
@@ -57,8 +58,33 @@ EBTNodeResult::Type UBTTask_SummonEnemy::ExecuteTask(UBehaviorTreeComponent& Own
 	if (SummonLocations.Num() == 2)
 	{
 		BossPawn->StartSummoning(SummonLocations[0], SummonLocations[1]);
-		return EBTNodeResult::Succeeded;
+		bIsAttacking = true;
+		return EBTNodeResult::InProgress;
 	}
 	
 	return EBTNodeResult::Failed;
+}
+
+void UBTTask_SummonEnemy::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory, float DeltaSeconds)
+{
+	Super::TickTask(OwnerComp, NodeMemory, DeltaSeconds);
+
+	if (!bIsAttacking) return;
+	
+	AAIController* AIController = OwnerComp.GetAIOwner();
+	ABossSkeletonMage* Boss = Cast<ABossSkeletonMage>(AIController ? AIController->GetPawn() : nullptr);
+
+	if (Boss && Boss->GetMesh() && Boss->GetMesh()->GetAnimInstance())
+	{
+		if (!Boss->GetMesh()->GetAnimInstance()->Montage_IsPlaying(Boss->SummonEnemyMontage))
+		{
+			bIsAttacking = false;
+			FinishLatentTask(OwnerComp, EBTNodeResult::Succeeded);
+		}
+	}
+	else
+	{
+		bIsAttacking = false;
+		FinishLatentTask(OwnerComp, EBTNodeResult::Failed);
+	}
 }

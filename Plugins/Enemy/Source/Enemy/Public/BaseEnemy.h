@@ -109,6 +109,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="자체설정|전투스탯")
 	float AttackDamage = 20.f;
 
+	/** 소환된 몬스터일 경우 자신을 소환한 보스 참조 */
+	UPROPERTY(Transient)
+	TWeakObjectPtr<class ABaseBossEnemy> SummonerBoss;
+
+	/** 플레이어에게 대미지를 입혔을 때 호출하여 로그 및 소환자 보스 통계에 누적 */
+	virtual void NotifyDamageDealtToPlayer(float DamageAmount);
+
 	// 데이터테이블로부터 전투 스탯을 읽어와 초기화합니다
 	UFUNCTION(BlueprintCallable, Category="자체설정|전투스탯")
 	virtual void InitializeStatsFromDataTable();

@@ -7,7 +7,52 @@
 #include "CSVLogType.h" 
 #include "CombatStatData.h"
 #include "CombatLogParticipantInterface.h"
+#include "EnemyProjectile/BaseEnemyProjectile.h"
 #include "BaseBossEnemy.generated.h"
+
+/**
+ * [범용 보스 전투 밸런스 데이터 구조체]
+ * 모든 보스의 기본 스탯(체력, 공격력) 및 스킬 밸런스(가중치, 쿨다운, 대미지 배율, 피격 강도, 넉다운)를
+ * 단일 통합 CSV(DT_BossCombatBalance.csv)에서 관리하기 위한 행 데이터입니다.
+ */
+USTRUCT(BlueprintType)
+struct ENEMY_API FBossCombatBalanceRow : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance")
+	FName BossID = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance")
+	FName ActionName = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|BaseStat")
+	float MaxHealth = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|BaseStat")
+	float BaseAttackDamage = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Skill")
+	float Weight = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Skill")
+	float Cooldown = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Skill")
+	float ActionDelay = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Skill")
+	float DamageMultiplier = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Skill")
+	float HitIntensity = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Skill")
+	EKnockdownType KnockdownType = EKnockdownType::None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Skill")
+	float KnockdownDuration = 0.0f;
+};
 
 UCLASS()
 class ENEMY_API ABaseBossEnemy : public ACharacter, public IItemDropInterface, public IInteractionInterface, public ICombatLogParticipantInterface
@@ -69,6 +114,17 @@ protected:
 	// 기본 공격력 (데이터테이블 DT_CombatStats 연동 또는 기본값)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="자체설정|전투스탯")
 	float BaseAttackDamage = 100.f;
+
+	/** 모든 보스 공통 단일 통합 전투 밸런스 데이터테이블 핸들 (DT_BossCombatBalance.csv) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|전투스탯")
+	FDataTableRowHandle UniversalBalanceTableHandle;
+
+	/** 해당 보스의 스킬별 밸런스 데이터 캐시 맵 (ActionName -> BalanceRow) */
+	UPROPERTY(Transient)
+	TMap<FName, FBossCombatBalanceRow> CachedSkillBalanceMap;
+
+	/** 특정 스킬의 밸런스 데이터 조회 헬퍼 */
+	const FBossCombatBalanceRow* FindSkillBalance(FName ActionName) const;
 
 	// 데이터테이블로부터 전투 스탯을 읽어와 초기화합니다
 	UFUNCTION(BlueprintCallable, Category="자체설정|전투스탯")
@@ -187,6 +243,7 @@ public:
 	bool bIsInBattle = false;
 	void StartBattleLog();
 	virtual void EndBattleLog();
+	virtual void AddSummonDamage(float DamageAmount);
 	void AttackPatternLog(FString PatternName) const;
 	FString SelectedRangeName = TEXT("Long Range");
 	UFUNCTION()

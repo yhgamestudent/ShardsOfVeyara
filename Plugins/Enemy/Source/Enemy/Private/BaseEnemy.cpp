@@ -13,6 +13,8 @@
 #include "Interface/PlayerDeadInterface.h"
 #include "Particles/ParticleSystemComponent.h"
 #include "CSVLog.h"  
+#include "CombatTimelineLogger.h"
+#include "EnemyBoss/BaseBossEnemy.h"
 
 ABaseEnemy::ABaseEnemy()
 {
@@ -216,6 +218,27 @@ float ABaseEnemy::TakeDamage(float DamageAmount, struct FDamageEvent const& Dama
 	if ( DamageToApply > 0.f )
 	{
 		Health -= DamageToApply;
+
+		// ─── [소환수 피격 타임라인 로깅 (MINION_DAMAGED)] ───
+		if (EnemyLogID.Contains(TEXT("SummonedEnemy")) || ActorHasTag(TEXT("Minion")))
+		{
+			float Dist = DamageCauser ? FVector::Dist(GetActorLocation(), DamageCauser->GetActorLocation()) : 0.0f;
+			FString CauserName = DamageCauser ? DamageCauser->GetName() : TEXT("Player");
+			FString MinionName = GetClass()->GetName();
+			MinionName.RemoveFromStart(TEXT("BP_"));
+			MinionName.RemoveFromEnd(TEXT("_C"));
+
+			UCombatTimelineLogger::LogMinionDamaged(
+				MinionName,
+				DamageToApply,
+				GetWorld()->GetTimeSeconds(),
+				Health,
+				MaxHealth,
+				CauserName,
+				Dist
+			);
+		}
+
 		if ( Health <= 0.f )
 		{
 			Die();
@@ -541,6 +564,15 @@ void ABaseEnemy::InitializeStatsFromDataTable()
 			UE_LOG(LogTemp, Log, TEXT("[BaseEnemy] %s (%s) Stat Loaded from DataTable -> MaxHealth: %.1f, AttackDamage: %.1f, AttackDelay: %.1f"),
 				*GetName(), *CombatStatHandle.RowName.ToString(), MaxHealth, AttackDamage, AttackDelay);
 		}
+	}
+}
+
+void ABaseEnemy::NotifyDamageDealtToPlayer(float DamageAmount)
+{
+	EnemyLogData.TotalDamageDealt += DamageAmount;
+	if (SummonerBoss.IsValid())
+	{
+		SummonerBoss->AddSummonDamage(DamageAmount);
 	}
 }
 

@@ -24,7 +24,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tribute")
 	TMap<FString, int32> TributeItems;
 
-	FTributeData() : TributeItems({}) {}
+	/** 해당 봉헌 단계 달성 시 플레이어 기본 공격력 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tribute|Reward")
+	float AttackDamage = 70.0f;
+
+	/** 해당 봉헌 단계 달성 시 플레이어 최대 체력 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tribute|Reward")
+	float MaxHealth = 800.0f;
+
+	FTributeData() : TributeItems({}), AttackDamage(70.0f), MaxHealth(800.0f) {}
 };
 
 UCLASS()

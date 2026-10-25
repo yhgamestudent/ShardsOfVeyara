@@ -228,8 +228,16 @@ void ATribute::SuccessInsert(FString ItemID, int32 AmountToRemove)
 	{
 		CurrentLevelTributeItems = {};
 		PlayFireExplosionNiagara();
-		Player->AddDamage(10.0f);
-		SetNextTributeUI(++TributeLevel);
+
+		if (Player)
+		{
+			Player->AdvanceTributeLevel();
+		}
+		else
+		{
+			SetNextTributeUI(++TributeLevel);
+		}
+
 		UTextLog::WriteTextLogByFloat(TEXT("봉헌 단계"), TributeLevel);
 		
 		if (UGameInstance* GameInst = GetGameInstance())
@@ -237,7 +245,6 @@ void ATribute::SuccessInsert(FString ItemID, int32 AmountToRemove)
 			if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
 			{
 				LogSubsystem->IncrementTributeAltarUsage();
-				LogSubsystem->UpdateCurrentTributeLevel(TributeLevel);
 			}
 		}
 	} 

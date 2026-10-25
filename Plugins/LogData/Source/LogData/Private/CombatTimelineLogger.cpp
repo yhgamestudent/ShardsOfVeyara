@@ -9,6 +9,8 @@ FString UCombatTimelineLogger::CurrentSessionFilePath = TEXT("");
 FString UCombatTimelineLogger::CurrentBossID = TEXT("");
 float UCombatTimelineLogger::SessionStartWorldTime = 0.0f;
 int32 UCombatTimelineLogger::ActionCounter = 0;
+float UCombatTimelineLogger::LatestBossHP = 0.0f;
+float UCombatTimelineLogger::LatestBossMaxHP = 0.0f;
 TMap<FString, FActiveSkillTrackingInfo> UCombatTimelineLogger::ActiveSkills;
 TMap<FString, FSkillAggregateStats> UCombatTimelineLogger::SkillStats;
 
@@ -33,6 +35,8 @@ void UCombatTimelineLogger::StartCombatSession(
 	ActiveSkills.Empty();
 	SkillStats.Empty();
 
+	LatestBossHP = BossMaxHP;
+	LatestBossMaxHP = BossMaxHP;
 	SessionStartWorldTime = StartWorldTime;
 	CurrentBossID = BossID.IsEmpty() ? TEXT("SkeletonMage") : BossID;
 
@@ -243,7 +247,8 @@ void UCombatTimelineLogger::LogHitSuccess(
 	float BossHP,
 	float BossMaxHP,
 	float PlayerHP,
-	float PlayerMaxHP)
+	float PlayerMaxHP,
+	const FString& AdditionalDetails)
 {
 	if (!bSessionActive) return;
 
@@ -283,7 +288,21 @@ void UCombatTimelineLogger::LogHitSuccess(
 	Event.BossHPPct = (BossMaxHP > 0.f) ? (BossHP / BossMaxHP * 100.f) : 0.f;
 	Event.PlayerHP = PlayerHP;
 	Event.PlayerHPPct = (PlayerMaxHP > 0.f) ? (PlayerHP / PlayerMaxHP * 100.f) : 0.f;
-	Event.Details = FString::Printf(TEXT("Hit Player (Travel: %.2fs)"), TravelTime);
+
+	FString DetailStr = FString::Printf(TEXT("Hit Player (Travel: %.2fs)"), TravelTime);
+	if (!AdditionalDetails.IsEmpty())
+	{
+		DetailStr += FString::Printf(TEXT(" | %s"), *AdditionalDetails);
+	}
+	else if (PlayerState == TEXT("HeavyHit") || PlayerState == TEXT("LightHit"))
+	{
+		DetailStr += TEXT(" | HitStun Flinch");
+	}
+	else if (PlayerState == TEXT("KneelKnockdown") || PlayerState == TEXT("AirborneFloorKnockdown"))
+	{
+		DetailStr += TEXT(" | Knockdown Stun");
+	}
+	Event.Details = DetailStr;
 
 	WriteEvent(Event);
 }
@@ -458,6 +477,66 @@ void UCombatTimelineLogger::LogPhaseTransition(
 	WriteEvent(Event);
 }
 
+void UCombatTimelineLogger::LogPlayerHealed(
+	float HealAmount,
+	float CurrentWorldTime,
+	float PlayerHP,
+	float PlayerMaxHP,
+	const FString& HealSource)
+{
+	if (!bSessionActive) return;
+
+	FCombatTimelineEvent Event;
+	Event.Timestamp = GetFormattedCurrentTime();
+	Event.CombatTime = FMath::Max(0.0f, CurrentWorldTime - SessionStartWorldTime);
+	Event.ActionID = TEXT("-");
+	Event.EventType = ECombatEventType::PlayerHealed;
+	Event.SourceActor = TEXT("Player");
+	Event.TargetActor = TEXT("Player");
+	Event.ActionName = TEXT("HealthRecovery");
+	Event.Damage = HealAmount;
+	Event.Distance = 0.0f;
+	Event.PlayerState = TEXT("Healed");
+	Event.BossHP = LatestBossHP;
+	Event.BossHPPct = (LatestBossMaxHP > 0.f) ? (LatestBossHP / LatestBossMaxHP * 100.f) : 0.f;
+	Event.PlayerHP = PlayerHP;
+	Event.PlayerHPPct = (PlayerMaxHP > 0.f) ? (PlayerHP / PlayerMaxHP * 100.f) : 0.f;
+	Event.Details = FString::Printf(TEXT("Recovered %.1f HP (Source: %s)"), HealAmount, *HealSource);
+
+	WriteEvent(Event);
+}
+
+void UCombatTimelineLogger::LogMinionDamaged(
+	const FString& MinionName,
+	float Damage,
+	float CurrentWorldTime,
+	float MinionHP,
+	float MinionMaxHP,
+	const FString& DamageCauser,
+	float Distance)
+{
+	if (!bSessionActive) return;
+
+	FCombatTimelineEvent Event;
+	Event.Timestamp = GetFormattedCurrentTime();
+	Event.CombatTime = FMath::Max(0.0f, CurrentWorldTime - SessionStartWorldTime);
+	Event.ActionID = TEXT("-");
+	Event.EventType = ECombatEventType::MinionDamaged;
+	Event.SourceActor = DamageCauser.IsEmpty() ? TEXT("Player") : DamageCauser;
+	Event.TargetActor = MinionName;
+	Event.ActionName = MinionName;
+	Event.Damage = Damage;
+	Event.Distance = Distance;
+	Event.PlayerState = TEXT("Attacking");
+	Event.BossHP = LatestBossHP;
+	Event.BossHPPct = (LatestBossMaxHP > 0.f) ? (LatestBossHP / LatestBossMaxHP * 100.f) : 0.f;
+	Event.PlayerHP = 0.0f;
+	Event.PlayerHPPct = 0.0f;
+	Event.Details = FString::Printf(TEXT("Minion Damaged | HP: %.1f/%.1f"), MinionHP, MinionMaxHP);
+
+	WriteEvent(Event);
+}
+
 void UCombatTimelineLogger::EndCombatSession(
 	const FString& Result,
 	float EndWorldTime,
@@ -496,6 +575,22 @@ void UCombatTimelineLogger::EndCombatSession(
 	Summary += TEXT("# COMBAT BALANCE KPI SUMMARY (스킬별 밸런스 핵심 분석 지표)\n");
 	Summary += TEXT("# =========================================================================================\n");
 	Summary += TEXT("# SkillName,CastCount,Attempts,Hits,Misses,Guards,JustGuards,HitRate(%),AvgWindup(s),AvgTravel(s),AvgRecovery(s),TotalDmgDealt,PrimaryVictimState\n");
+	// 소환수 스킬들의 총 피해 및 타격 결과를 Summon 스킬의 통계에 합산 (Summon 패턴의 총 기여도 반영)
+	if (FSkillAggregateStats* SummonStats = SkillStats.Find(TEXT("Summon")))
+	{
+		for (const auto& Pair : SkillStats)
+		{
+			if (Pair.Key.StartsWith(TEXT("Minion_")))
+			{
+				const FSkillAggregateStats& MinionS = Pair.Value;
+				SummonStats->TotalDamageDealt += MinionS.TotalDamageDealt;
+				SummonStats->HitCount += MinionS.HitCount;
+				SummonStats->MissCount += MinionS.MissCount;
+				SummonStats->GuardCount += MinionS.GuardCount;
+				SummonStats->JustGuardCount += MinionS.JustGuardCount;
+			}
+		}
+	}
 
 	for (const auto& Pair : SkillStats)
 	{
@@ -574,5 +669,9 @@ void UCombatTimelineLogger::AppendRowToFile(const FString& RowText)
 
 void UCombatTimelineLogger::WriteEvent(const FCombatTimelineEvent& Event)
 {
+	if (Event.BossHP > 0.0f)
+	{
+		LatestBossHP = Event.BossHP;
+	}
 	AppendRowToFile(Event.ToCSVRow() + TEXT("\n"));
 }
