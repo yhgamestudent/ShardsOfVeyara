@@ -124,6 +124,9 @@ public:
 	AEnemySpawner();
 	virtual void Tick(float DeltaTime) override;
 	
+	FORCEINLINE float GetHealth() const { return Health; }
+	FORCEINLINE float GetMaxHealth() const { return MaxHealth; }
+
 	// 체력 바 위젯 컴포넌트
 	UPROPERTY( EditDefaultsOnly, BlueprintReadOnly, Category = "자체설정")
 	TObjectPtr<class UWidgetComponent> HealthBarWidget;

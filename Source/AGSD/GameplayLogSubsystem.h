@@ -5,6 +5,8 @@
 #include "Struct_GameplayLogData.h"
 #include "GameplayLogSubsystem.generated.h"
 
+struct FDamageEvent;
+
 // 로그 업로드 완료 델리게이트 (성공 여부, 응답 메시지)
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnLogUploadCompleted, bool, bSuccess, const FString&, ResponseMessage);
 
@@ -399,7 +401,85 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Config")
 	void LoadTelemetryCredentials();
 
+	// 플레이어가 데미지를 입었을 때 위치, 피해량, 공격자, 데미지타입, 잔여체력 등을 파일(Saved/Logs/PlayerDamageLogs/...)에 실시간 기록
+	void LogPlayerDamageTaken(
+		const FVector& PlayerLocation,
+		float IncomingDamage,
+		float AppliedDamage,
+		float CurrentHealth,
+		float MaxHealth,
+		AActor* DamageCauser,
+		const FDamageEvent& DamageEvent,
+		const FString& GuardState = TEXT("None")
+	);
+
+	// 플레이어 데미지 로그 파일 경로 반환
+	UFUNCTION(BlueprintPure, Category = "GameplayLog|Damage")
+	FString GetPlayerDamageLogFilePath() const { return PlayerDamageLogFilePath; }
+
+	// 플레이어가 아이템을 파밍(상자 또는 필드/몬스터 드롭)했을 때 위치, 출처, 아이템명, 수량 등을 파일(Saved/Logs/PlayerItemLootLogs/...)에 실시간 기록
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Loot")
+	void LogPlayerItemLooted(
+		const FVector& PlayerLocation,
+		const FString& LootSource,
+		const FString& SourceActorName,
+		const FString& ItemID,
+		const FString& ItemName,
+		int32 Quantity
+	);
+
+	// 플레이어 아이템 파밍 로그 파일 경로 반환
+	UFUNCTION(BlueprintPure, Category = "GameplayLog|Loot")
+	FString GetPlayerItemLootLogFilePath() const { return PlayerItemLootLogFilePath; }
+
+	// 플레이어가 몬스터/보스/스포너에게 데미지를 입혔을 때 위치, 대상, 가해 데미지, 대상 잔여체력 등을 파일(Saved/Logs/PlayerDamageDealtLogs/...)에 실시간 기록
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Damage")
+	void LogPlayerDamageDealt(
+		const FVector& PlayerLocation,
+		AActor* TargetActor,
+		float DamageDealt,
+		float TargetCurrentHealth,
+		float TargetMaxHealth,
+		const FString& AttackType = TEXT("NormalAttack")
+	);
+
+	// 플레이어 가해 데미지 로그 파일 경로 반환
+	UFUNCTION(BlueprintPure, Category = "GameplayLog|Damage")
+	FString GetPlayerDamageDealtLogFilePath() const { return PlayerDamageDealtLogFilePath; }
+
+	// 플레이어가 체력을 회복했을 때 위치, 회복 출처, 회복량, 이전/현재 체력 등을 파일(Saved/Logs/PlayerHealLogs/...)에 실시간 기록
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Heal")
+	void LogPlayerHealed(
+		const FVector& PlayerLocation,
+		const FString& SourceName,
+		float HealAmount,
+		float PrevHealth,
+		float CurrentHealth,
+		float MaxHealth
+	);
+
+	// 플레이어 체력 회복 로그 파일 경로 반환
+	UFUNCTION(BlueprintPure, Category = "GameplayLog|Heal")
+	FString GetPlayerHealLogFilePath() const { return PlayerHealLogFilePath; }
+
 protected:
+	void EnsurePlayerDamageLogFileInitialized();
+	void EnsurePlayerItemLootLogFileInitialized();
+	void EnsurePlayerDamageDealtLogFileInitialized();
+	void EnsurePlayerHealLogFileInitialized();
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GameplayLog|Damage")
+	FString PlayerDamageLogFilePath;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GameplayLog|Loot")
+	FString PlayerItemLootLogFilePath;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GameplayLog|Damage")
+	FString PlayerDamageDealtLogFilePath;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GameplayLog|Heal")
+	FString PlayerHealLogFilePath;
+
 	// 실시간 보스전 활성 상태 (레벨 스트리밍 환경에서 보스 전투 시작 ~ 처치/사망 구간 트래킹)
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GameplayLog|Boss")
 	bool bIsBossBattleActive = false;

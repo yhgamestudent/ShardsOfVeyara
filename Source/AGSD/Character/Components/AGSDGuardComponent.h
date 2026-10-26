@@ -10,6 +10,7 @@ class AAGSDCharacter;
 class UNiagaraSystem;
 class UParticleSystem;
 class USoundBase;
+struct FDamageEvent;
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
 class AGSD_API UAGSDGuardComponent : public UActorComponent
@@ -54,9 +55,19 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Guard")
 	void ResetGuardState();
 
+	// 가드 가능 여부 검사 (가드 불가 데미지 타입 또는 태그 여부 확인)
+	bool CanBlockDamage(const FDamageEvent& DamageEvent, AActor* DamageCauser = nullptr) const;
+
 	// 대미지 감쇄 프로세스 (TakeDamage 위임용)
 	// 가드/저스트가드로 대미지가 감쇄된 경우 true 반환 및 OutMitigatedDamage 갱신
+	bool ProcessDamageMitigation(float IncomingDamage, float& OutMitigatedDamage, const FDamageEvent& DamageEvent, AActor* DamageCauser = nullptr);
 	bool ProcessDamageMitigation(float IncomingDamage, float& OutMitigatedDamage);
+
+	UFUNCTION(BlueprintCallable, Category = "Guard")
+	float GetGuardDamageMitigationRate() const { return GuardDamageMitigationRate; }
+
+	UFUNCTION(BlueprintCallable, Category = "Guard")
+	void SetGuardDamageMitigationRate(float NewRate) { GuardDamageMitigationRate = FMath::Clamp(NewRate, 0.0f, 1.0f); }
 
 public:
 	// 저스트 가드 활성화 여부 동적 설정 (노티파이 연동용)
@@ -95,7 +106,12 @@ private:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Guard|Config", meta = (AllowPrivateAccess = "true"))
 	TArray<EHoldingWeapon> BlockableWeapons;
 
+	/** 일반 가드(Block) 시 피해 경감률 (기본값: 0.7 = 70% 피해 감소, 30% 칩 데미지 관통) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Guard|Config", meta = (AllowPrivateAccess = "true", ClampMin = "0.0", ClampMax = "1.0", ToolTip = "일반 가드 성공 시 차감할 대미지 비율 (0.7 = 70% 경감, 30% 칩 데미지)"))
+	float GuardDamageMitigationRate = 0.7f;
+
 	// 소유주 캐릭터 캐싱
 	UPROPERTY()
 	TObjectPtr<AAGSDCharacter> OwnerCharacter;
 };
+

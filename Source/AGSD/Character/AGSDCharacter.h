@@ -804,6 +804,32 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "PlayerState")
 	void HealthRecovery(float amount);
 
+	// ── 글로벌 포션 공유 쿨다운 시스템 ──
+
+	/** 모든 포션이 공유하는 기본 쿨다운 시간(초) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Potion")
+	float GlobalPotionCooldown = 5.0f;
+
+	/** 마지막으로 포션을 사용한 시점의 월드 시간(초) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Potion")
+	float LastGlobalPotionUseTime = -100.0f;
+
+	/** 포션 쿨다운 진행 비율 반환 (1.0 = 방금 마심, 0.0 = 쿨다운 완료) */
+	UFUNCTION(BlueprintPure, Category = "Combat|Potion")
+	float GetPotionCooldownRatio() const;
+
+	/** 포션 쿨다운 잔여 시간(초) 반환 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Potion")
+	float GetPotionCooldownRemaining() const;
+
+	/** 포션이 현재 쿨다운 중인지 여부 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Potion")
+	bool IsPotionOnCooldown() const;
+
+	/** 아이템 데이터가 포션 종류인지 판별하는 헬퍼 함수 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Potion")
+	bool IsPotionItem(const FStruct_ItemData& ItemData) const;
+
 	UFUNCTION(BlueprintCallable, Category = "Combat")
 	float GetCurrentAttackDamageMultiplier() const;
 

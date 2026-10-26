@@ -1,5 +1,7 @@
 #include "Character/Components/AGSDGuardComponent.h"
 #include "Character/AGSDCharacter.h"
+#include "Combat/AGSDUnblockableDamageType.h"
+#include "Engine/DamageEvents.h"
 #include "Kismet/GameplayStatics.h"
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
@@ -166,13 +168,67 @@ void UAGSDGuardComponent::SetJustGuardWindowActive(bool bActive)
 	UE_LOG(LogTemp, Warning, TEXT("Just Guard Window State Changed: %s"), bActive ? TEXT("ACTIVE") : TEXT("INACTIVE"));
 }
 
-bool UAGSDGuardComponent::ProcessDamageMitigation(float IncomingDamage, float& OutMitigatedDamage)
+bool UAGSDGuardComponent::CanBlockDamage(const FDamageEvent& DamageEvent, AActor* DamageCauser) const
+{
+	// 1. 데미지 타입 검사: UAGSDUnblockableDamageType 파생 클래스는 가드/패링 불가
+	TSubclassOf<UDamageType> DamageTypeClass = DamageEvent.DamageTypeClass;
+	if (!DamageTypeClass)
+	{
+		DamageTypeClass = UDamageType::StaticClass();
+	}
+	if (DamageTypeClass && DamageTypeClass->IsChildOf(UAGSDUnblockableDamageType::StaticClass()))
+	{
+		return false;
+	}
+
+	// 2. 액터 태그 검사: 만약 블루프린트에서 "Unblockable" 또는 "Trap" 태그가 지정된 액터인 경우도 가드 불가
+	if (DamageCauser && (DamageCauser->ActorHasTag(TEXT("Unblockable")) || DamageCauser->ActorHasTag(TEXT("Trap"))))
+	{
+		return false;
+	}
+
+	return true;
+}
+
+bool UAGSDGuardComponent::ProcessDamageMitigation(float IncomingDamage, float& OutMitigatedDamage, const FDamageEvent& DamageEvent, AActor* DamageCauser)
 {
 	if (!OwnerCharacter) return false;
 
-	if (bIsJustGuardWindow || IsGuardActive())
+	// 가드 불가능한 피해(환경 함정, 가드 불가 공격 등)는 가드/패링 처리 스킵
+	if (!CanBlockDamage(DamageEvent, DamageCauser))
+	{
+		return false;
+	}
+
+	// 1. 저스트 가드(패링) 타이밍: 100% 완전 방어 (대미지 0)
+	if (bIsJustGuardWindow)
 	{
 		OutMitigatedDamage = 0.f;
+
+		if (IncomingDamage >= 0.f && GuardEffect)
+		{
+			FVector SpawnLocation = OwnerCharacter->GetActorLocation() 
+				+ (OwnerCharacter->GetActorForwardVector() * 50.f) 
+				+ (OwnerCharacter->GetActorUpVector() * 40.f);
+
+			UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+				GetWorld(), 
+				GuardEffect, 
+				SpawnLocation, 
+				FRotator::ZeroRotator, 
+				FVector(0.5f), 
+				true
+			);
+		}
+
+		OwnerCharacter->ReportTutorialAction(ETutorialActionType::Guard);
+		return true;
+	}
+	// 2. 일반 가드 상태: 설정된 비율(70%)만큼 대미지 경감 (30% 칩 데미지 관통)
+	else if (IsGuardActive())
+	{
+		const float ClampedRate = FMath::Clamp(GuardDamageMitigationRate, 0.0f, 1.0f);
+		OutMitigatedDamage = IncomingDamage * (1.0f - ClampedRate);
 
 		if (IncomingDamage >= 0.f && GuardEffect)
 		{
@@ -196,3 +252,10 @@ bool UAGSDGuardComponent::ProcessDamageMitigation(float IncomingDamage, float& O
 
 	return false;
 }
+
+bool UAGSDGuardComponent::ProcessDamageMitigation(float IncomingDamage, float& OutMitigatedDamage)
+{
+	FDamageEvent DefaultDamageEvent;
+	return ProcessDamageMitigation(IncomingDamage, OutMitigatedDamage, DefaultDamageEvent, nullptr);
+}
+

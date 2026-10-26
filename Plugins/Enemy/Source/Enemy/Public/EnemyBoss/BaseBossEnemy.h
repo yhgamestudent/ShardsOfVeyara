@@ -64,6 +64,8 @@ public:
 	virtual float GetParticipantHealth() const override { return Health; }
 	virtual float GetParticipantMaxHealth() const override { return MaxHealth; }
 	virtual FString GetParticipantCombatState() const override { return TEXT("Boss"); }
+	FORCEINLINE float GetHealth() const { return Health; }
+	FORCEINLINE float GetMaxHealth() const { return MaxHealth; }
 
 	/** 플레이어(TargetCharacter)의 체력 및 상태 쿼리 헬퍼 */
 	void QueryTargetPlayerData(float& OutPlayerHP, float& OutPlayerMaxHP, FString& OutPlayerState, float& OutDistance) const;

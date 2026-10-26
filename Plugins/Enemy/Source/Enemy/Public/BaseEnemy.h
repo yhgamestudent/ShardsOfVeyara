@@ -58,6 +58,8 @@ public:
 	UFUNCTION(BlueprintPure)
 	FORCEINLINE bool IsSpawnEnd() const { return !bUseSpawnMontage; }; // 스폰 몽타주 끝났는지 여부 반환
 	FORCEINLINE EEnemyType GetEnemyType() const { return EnemyType; }; // 적 타입 반환
+	FORCEINLINE float GetHealth() const { return Health; }
+	FORCEINLINE float GetMaxHealth() const { return MaxHealth; }
 	
 	// 데미지 처리 함수 재정의
 	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent,

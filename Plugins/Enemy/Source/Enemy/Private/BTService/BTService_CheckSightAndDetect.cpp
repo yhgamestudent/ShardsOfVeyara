@@ -35,11 +35,13 @@ void UBTService_CheckSightAndDetect::TickNode(UBehaviorTreeComponent& OwnerComp,
 			// 추적 범위 내에 있다면 계속 위치를 업데이트
 			OwnerComp.GetBlackboardComponent()->SetValueAsVector(GetSelectedBlackboardKey(),
 				TargetPawn->GetActorLocation());
+			OwnerComp.GetBlackboardComponent()->SetValueAsObject(TEXT("TargetCharacter"), TargetPawn);
 		}
 		else
 		{
-			// 추적 범위를 벗어났다면 타겟 정보 초기화
+			// 추적 범위를 벗어났다면 타겟 정보 및 오브젝트 참조 완전 초기화
 			OwnerComp.GetBlackboardComponent()->ClearValue(GetSelectedBlackboardKey());
+			OwnerComp.GetBlackboardComponent()->ClearValue(TEXT("TargetCharacter"));
 		}
 	}
 	else // 추적 중이 아닌 경우
@@ -50,11 +52,13 @@ void UBTService_CheckSightAndDetect::TickNode(UBehaviorTreeComponent& OwnerComp,
 			// 플레이어를 감지하면 블랙보드에 위치와 타겟 정보를 업데이트
 			OwnerComp.GetBlackboardComponent()->SetValueAsVector(GetSelectedBlackboardKey(),
 				TargetPawn->GetActorLocation());
+			OwnerComp.GetBlackboardComponent()->SetValueAsObject(TEXT("TargetCharacter"), TargetPawn);
 		}
 		else
 		{
 			// 감지하지 못했다면 타겟 정보 초기화
 			OwnerComp.GetBlackboardComponent()->ClearValue(GetSelectedBlackboardKey());
+			OwnerComp.GetBlackboardComponent()->ClearValue(TEXT("TargetCharacter"));
 		}
 	}
 }

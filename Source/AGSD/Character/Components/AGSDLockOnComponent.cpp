@@ -10,6 +10,7 @@
 #include "Kismet/KismetMathLibrary.h"
 #include "MotionWarpingComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SphereComponent.h"
 #include "Interaction.h"
 #include "DrawDebugHelpers.h"
 #include "BaseFlyingPet.h"
@@ -152,12 +153,26 @@ void UAGSDLockOnComponent::UpdateSoftLockState(float DeltaSeconds)
 	CurrentSoftLockTarget = FindSoftLockTarget();
 
 	// 디버그 시각화 (화면 상단 디버그 텍스트 및 3D 셰이프)
+	// 디버그 시각화 (화면 상단 디버그 텍스트 및 3D 셰이프)
 	if (bShowSoftLockDebug)
 	{
 		if (CurrentSoftLockTarget)
 		{
+			// Rebirth 소울 활성화 여부 확인
+			TArray<USphereComponent*> SphereComps;
+			CurrentSoftLockTarget->GetComponents<USphereComponent>(SphereComps);
+			USphereComponent* ActiveSoul = nullptr;
+			for (USphereComponent* Sphere : SphereComps)
+			{
+				if (Sphere && Sphere->GetName().Contains(TEXT("Soul")) && Sphere->GetCollisionEnabled() != ECollisionEnabled::NoCollision)
+				{
+					ActiveSoul = Sphere;
+					break;
+				}
+			}
+
 			FVector PlayerLoc = OwnerCharacter->GetActorLocation();
-			FVector TargetLoc = CurrentSoftLockTarget->GetActorLocation();
+			FVector TargetLoc = ActiveSoul ? ActiveSoul->GetComponentLocation() : CurrentSoftLockTarget->GetActorLocation();
 			float Dist = FVector::Dist2D(PlayerLoc, TargetLoc);
 
 			// 카메라 기준 수평 각도 계산
@@ -172,24 +187,28 @@ void UAGSDLockOnComponent::UpdateSoftLockState(float DeltaSeconds)
 			// 1) 화면 상단 디버그 텍스트 (Key 7777로 고정하여 화면 깜빡임 없이 매 프레임 제자리 갱신)
 			if (GEngine)
 			{
-				FString Msg = FString::Printf(TEXT("[SoftLock] Target: %s | Dist: %.0f / %.0f | Angle: %.1f° / %.1f°"),
-					*CurrentSoftLockTarget->GetName(), Dist, SoftLockRadius, Angle, SoftLockMaxAngle);
+				FString Msg = FString::Printf(TEXT("[SoftLock] Target: %s%s | Dist: %.0f / %.0f | Angle: %.1f° / %.1f°"),
+					*CurrentSoftLockTarget->GetName(), ActiveSoul ? TEXT(" (Soul)") : TEXT(""), Dist, SoftLockRadius, Angle, SoftLockMaxAngle);
 				GEngine->AddOnScreenDebugMessage(7777, 0.05f, FColor::Emerald, Msg);
 			}
 
 			// 2) 3D 디버그 셰이프 (적 위치에 와이어프레임 구체 및 카메라-타겟 간 연결 가이드 라인)
 			if (UWorld* World = GetWorld())
 			{
-				FVector Origin, BoxExtent;
-				CurrentSoftLockTarget->GetActorBounds(true, Origin, BoxExtent);
-				FVector SphereLoc = (BoxExtent.Z > 10.0f) ? (Origin + FVector(0.f, 0.f, BoxExtent.Z * 0.5f)) : (TargetLoc + FVector(0.f, 0.f, 80.f));
+				FVector SphereLoc = TargetLoc;
+				if (!ActiveSoul)
+				{
+					FVector Origin, BoxExtent;
+					CurrentSoftLockTarget->GetActorBounds(true, Origin, BoxExtent);
+					SphereLoc = (BoxExtent.Z > 10.0f) ? (Origin + FVector(0.f, 0.f, BoxExtent.Z * 0.5f)) : (TargetLoc + FVector(0.f, 0.f, 80.f));
+				}
 
-				// 적 머리/중심 위에 에메랄드색 구체 마커
-				DrawDebugSphere(World, SphereLoc, 35.0f, 16, FColor::Emerald, false, -1.0f, 0, 2.0f);
+				// 적 머리/소울 위치에 에메랄드색 구체 마커
+				DrawDebugSphere(World, SphereLoc, ActiveSoul ? 45.0f : 35.0f, 16, ActiveSoul ? FColor::Cyan : FColor::Emerald, false, -1.0f, 0, 2.0f);
 
 				// 플레이어 카메라에서 적 중심으로 뻗어나가는 가이드 조준선
 				FVector CamLoc = FollowCamera ? FollowCamera->GetComponentLocation() : PlayerLoc;
-				DrawDebugLine(World, CamLoc, SphereLoc, FColor(0, 255, 128), false, -1.0f, 0, 1.2f);
+				DrawDebugLine(World, CamLoc, SphereLoc, ActiveSoul ? FColor::Cyan : FColor(0, 255, 128), false, -1.0f, 0, 1.2f);
 			}
 		}
 		else
@@ -453,25 +472,41 @@ AActor* UAGSDLockOnComponent::FindSoftLockTarget()
 	{
 		if (!Actor || Actor == OwnerCharacter) continue;
 
-		// 적 액터가 유효하고 콜리전이 활성화되어 있는지 확인 (사망한 적 제외)
+		// Rebirth 몬스터 소울 컴포넌트 활성화 여부 확인
+		TArray<USphereComponent*> SphereComps;
+		Actor->GetComponents<USphereComponent>(SphereComps);
+		USphereComponent* ActiveSoul = nullptr;
+		for (USphereComponent* Sphere : SphereComps)
+		{
+			if (Sphere && Sphere->GetName().Contains(TEXT("Soul")) && Sphere->GetCollisionEnabled() != ECollisionEnabled::NoCollision)
+			{
+				ActiveSoul = Sphere;
+				break;
+			}
+		}
+
+		// 적 액터가 유효하고 콜리전이 활성화되어 있는지 확인 (사망한 적 제외, 단 활성 소울이 있는 적은 타겟 포함)
 		ACharacter* EnemyChar = Cast<ACharacter>(Actor);
 		if (EnemyChar && EnemyChar->GetCapsuleComponent())
 		{
-			if (EnemyChar->GetCapsuleComponent()->GetCollisionEnabled() == ECollisionEnabled::NoCollision)
+			if (EnemyChar->GetCapsuleComponent()->GetCollisionEnabled() == ECollisionEnabled::NoCollision && !ActiveSoul)
 			{
 				continue;
 			}
 		}
 
+		// 타겟의 기준 위치: 소울이 활성화되어 있다면 소울 위치, 아니면 액터 위치
+		const FVector EffectiveTargetLoc = ActiveSoul ? ActiveSoul->GetComponentLocation() : Actor->GetActorLocation();
+
 		// 플레이어와의 수평 거리 검사
-		float Distance = FVector::Dist2D(PlayerLoc, Actor->GetActorLocation());
+		float Distance = FVector::Dist2D(PlayerLoc, EffectiveTargetLoc);
 		if (Distance > SoftLockRadius) continue;
 
 		// 카메라 정면 기준 수평(2D) 각도 검사 (플레이어가 마우스로 회전한 방향과 정확히 일치하도록 계산)
 		APlayerController* PC = Cast<APlayerController>(OwnerCharacter->GetController());
 		FRotator ViewRot = PC ? PC->GetControlRotation() : FollowCamera->GetComponentRotation();
 		FVector CameraForward2D = FRotationMatrix(FRotator(0.f, ViewRot.Yaw, 0.f)).GetUnitAxis(EAxis::X);
-		FVector DirToTarget2D = (Actor->GetActorLocation() - PlayerLoc).GetSafeNormal2D();
+		FVector DirToTarget2D = (EffectiveTargetLoc - PlayerLoc).GetSafeNormal2D();
 		float Dot = FVector::DotProduct(CameraForward2D, DirToTarget2D);
 		float AngleOffset = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(Dot, -1.0f, 1.0f)));
 
@@ -479,24 +514,26 @@ AActor* UAGSDLockOnComponent::FindSoftLockTarget()
 
 		// 시야 차폐 검사 (장애물 뒤에 가려진 적 제외)
 		FVector TraceStart = CameraLocation;
-		FVector TargetCenter = Actor->GetActorLocation();
+		FVector TargetCenter = EffectiveTargetLoc;
 
-		// 액터의 실제 3D 콜리전/메시 바운딩 박스를 통해 지오메트리 중심점(Origin) 계산
-		// 피벗이 땅바닥에 있는 허수아비나 일반 액터도 바닥 지형 충돌 없이 몸통 중심으로 시선 레이 발사
-		FVector Origin, BoxExtent;
-		Actor->GetActorBounds(true, Origin, BoxExtent);
-		if (BoxExtent.Z > 10.0f)
+		if (!ActiveSoul)
 		{
-			TargetCenter = Origin;
-		}
-		else if (EnemyChar)
-		{
-			float HalfHeight = EnemyChar->GetSimpleCollisionHalfHeight();
-			TargetCenter.Z += (HalfHeight > 0.0f) ? HalfHeight * 0.5f : 40.0f;
-		}
-		else
-		{
-			TargetCenter.Z += 60.0f; // 기본 높이 보정
+			// 액터의 실제 3D 콜리전/메시 바운딩 박스를 통해 지오메트리 중심점(Origin) 계산
+			FVector Origin, BoxExtent;
+			Actor->GetActorBounds(true, Origin, BoxExtent);
+			if (BoxExtent.Z > 10.0f)
+			{
+				TargetCenter = Origin;
+			}
+			else if (EnemyChar)
+			{
+				float HalfHeight = EnemyChar->GetSimpleCollisionHalfHeight();
+				TargetCenter.Z += (HalfHeight > 0.0f) ? HalfHeight * 0.5f : 40.0f;
+			}
+			else
+			{
+				TargetCenter.Z += 60.0f; // 기본 높이 보정
+			}
 		}
 
 		FCollisionQueryParams TraceParams;

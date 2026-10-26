@@ -3,6 +3,10 @@
 
 #include "AnimNotifyState_WeaponAttack.h"
 #include "AGSDCharacter.h"
+#include "GameplayLogSubsystem.h"
+#include "BaseEnemy.h"
+#include "EnemyBoss/BaseBossEnemy.h"
+#include "EnemySpawner/EnemySpawner.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Kismet/GameplayStatics.h"
 #include "NiagaraFunctionLibrary.h"
@@ -112,7 +116,7 @@ void UAnimNotifyState_WeaponAttack::NotifyTick(USkeletalMeshComponent* MeshComp,
 				FVector AttackDirection = (CurrentLocation - PreviousLocation).GetSafeNormal();
 
 				// 데미지 가하기
-				UGameplayStatics::ApplyPointDamage(
+				const float AppliedDamage = UGameplayStatics::ApplyPointDamage(
 					HitActor,
 					BaseDamage,
 					AttackDirection,
@@ -121,6 +125,45 @@ void UAnimNotifyState_WeaponAttack::NotifyTick(USkeletalMeshComponent* MeshComp,
 					MeshComp->GetOwner(),
 					UDamageType::StaticClass()
 				);
+
+				// ─── [플레이어 가해 데미지 실시간 CSV 로깅] ───
+				if (AppliedDamage > 0.0f)
+				{
+					if (UWorld* World = MeshComp->GetWorld())
+					{
+						if (UGameInstance* GameInst = World->GetGameInstance())
+						{
+							if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+							{
+								float TargetHP = 0.0f;
+								float TargetMaxHP = 0.0f;
+
+								if (ABaseEnemy* Enemy = Cast<ABaseEnemy>(HitActor))
+								{
+									TargetHP = Enemy->GetHealth();
+									TargetMaxHP = Enemy->GetMaxHealth();
+								}
+								else if (ABaseBossEnemy* Boss = Cast<ABaseBossEnemy>(HitActor))
+								{
+									TargetHP = Boss->GetHealth();
+									TargetMaxHP = Boss->GetMaxHealth();
+								}
+								else if (AEnemySpawner* Spawner = Cast<AEnemySpawner>(HitActor))
+								{
+									TargetHP = Spawner->GetHealth();
+									TargetMaxHP = Spawner->GetMaxHealth();
+								}
+
+								FVector PlayerLoc = FVector(Hit.ImpactPoint);
+								if (AActor* OwnerActor = MeshComp->GetOwner())
+								{
+									PlayerLoc = OwnerActor->GetActorLocation();
+								}
+								LogSubsystem->LogPlayerDamageDealt(PlayerLoc, HitActor, AppliedDamage, TargetHP, TargetMaxHP, TEXT("WeaponMelee"));
+							}
+						}
+					}
+				}
 
 				// 타격 이펙트 (나이아가라) 재생
 				if (HitEffect)

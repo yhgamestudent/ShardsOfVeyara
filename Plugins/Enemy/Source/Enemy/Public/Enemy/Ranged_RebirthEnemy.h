@@ -60,6 +60,13 @@ public:
 	// 애니메이션 노티파이에서 호출할 함수: 소울 생성
 	UFUNCTION(BlueprintCallable)
 	void SpawnSoul();
+
+	// 소울 활성화 여부 및 콜리전 스피어 조회 (소프트 락온 등 연동)
+	UFUNCTION(BlueprintCallable, Category = "Rebirth")
+	bool IsActiveSoul() const { return bIsActiveSoul; }
+
+	UFUNCTION(BlueprintCallable, Category = "Rebirth")
+	class USphereComponent* GetSoulCollisionSphere() const { return SoulCollisionSphere; }
 	
 #if WITH_EDITOR
 	// 에디터에서 프로퍼티가 변경될 때 호출됩니다.

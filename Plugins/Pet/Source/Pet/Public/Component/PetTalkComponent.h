@@ -128,6 +128,13 @@ protected:
 	// 탐험시 재생 중인 음성 오디오 컴포넌트 (필요시 중지용)
 	UPROPERTY()
 	UAudioComponent* CurrentFollowVoiceAudioComponent = nullptr;
+
+	// 전투 종료 대사 간 최소 쿨다운 (초 단위, 스폰 몬스터 연속 처치 시 대사 남발 방지)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|대화쿨다운")
+	float BattleEndDialogueCooldown = 15.0f;
+
+	float LastBattleEndTime = -100.0f;
+
 	// 현재 대화가 끝나면 넘어갈 다음 대화 ID 저장용
 	FName NextDialogueID;
 	// 대화 스킵 입력 액션

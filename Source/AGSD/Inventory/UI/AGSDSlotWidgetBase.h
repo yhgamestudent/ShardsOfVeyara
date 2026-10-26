@@ -59,6 +59,18 @@ public:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "UI")
 	TObjectPtr<UTextBlock> TXT_ItemAmount;
 
+	// ── 쿨다운 머티리얼 인스턴스 UI 바인딩 ──
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "Slot UI|Cooldown")
+	TObjectPtr<UImage> IMG_CooldownOverlay;
+
+	/** 머티리얼 내 스칼라 파라미터 이름 (기본값: Percent) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Slot UI|Cooldown")
+	FName CooldownParamName = FName(TEXT("Percent"));
+
+	/** 런타임에 동적으로 제어할 머티리얼 인스턴스 */
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> CooldownDynamicMaterial;
+
 	// ── 더블클릭 이벤트 델리게이트 ──
 	UPROPERTY(BlueprintAssignable, Category = "Slot UI|Events")
 	FOnSlotDoubleClicked OnSlotDoubleClicked;
@@ -77,9 +89,18 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Slot UI")
 	virtual void UpdateVisual();
 
+	/** 현재 슬롯이 포션 아이템인지 여부 반환 */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Slot UI|Cooldown")
+	bool IsPotionSlot() const;
+
+	/** 쿨다운 비주얼(오버레이 및 머티리얼 파라미터)을 업데이트합니다. */
+	UFUNCTION(BlueprintCallable, Category = "Slot UI|Cooldown")
+	virtual void UpdateCooldownVisual();
+
 protected:
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
 	/** 더블클릭 발생 시 아이템 자동 이동을 처리합니다. */
 	virtual void HandleSlotDoubleClicked();

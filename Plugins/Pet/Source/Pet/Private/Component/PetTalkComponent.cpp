@@ -169,6 +169,19 @@ void UPetTalkComponent::Travel_FollowToBattle(bool bBoss)
 
 void UPetTalkComponent::Travel_BattleToFollow( bool bBoss )
 {
+	// 보스전 종료가 아닌 일반 전투 종료 대사의 경우 쿨다운 검사 (스폰 몬스터 연속 처치 시 대사 남발 방지)
+	if (!bBoss)
+	{
+		const float CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+		if (CurrentTime - LastBattleEndTime < BattleEndDialogueCooldown)
+		{
+			UE_LOG(LogTemp, Log, TEXT("[PetTalkComponent] Travel_BattleToFollow skipped due to cooldown (%.1fs remaining)"),
+				BattleEndDialogueCooldown - (CurrentTime - LastBattleEndTime));
+			return;
+		}
+		LastBattleEndTime = CurrentTime;
+	}
+
 	UDataTable* TargetTable = bBoss ? Travel_BattleEndBoss : Travel_BattleToFollowDialogue;
 	FPetConversationData SelectedDialogue;
 

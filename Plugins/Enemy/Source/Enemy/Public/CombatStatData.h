@@ -38,27 +38,7 @@ struct ENEMY_API FCombatStatRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Stats", meta = (ClampMin = 0.0f))
 	float BaseAttackDamage = 80.0f;
 
-	/** 방어력 (피해 감소 계산용) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Stats", meta = (ClampMin = 0.0f))
-	float Defense = 10.0f;
-
-	/** 치명타 확률 (0.0 ~ 1.0) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Stats", meta = (ClampMin = 0.0f, ClampMax = 1.0f))
-	float CriticalChance = 0.05f;
-
-	/** 치명타 피해 배율 (예: 1.5 = 150%) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Stats", meta = (ClampMin = 1.0f))
-	float CriticalMultiplier = 1.5f;
-
-	/** 평균 공격 주기 (초) */
+	/** 평균 공격 주기 / 딜레이 (초) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Timing", meta = (ClampMin = 0.1f))
 	float AttackInterval = 2.5f;
-
-	/** 넉백 저항력 (0.0 ~ 1.0) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Physics", meta = (ClampMin = 0.0f, ClampMax = 1.0f))
-	float KnockbackResistance = 0.0f;
-
-	/** 목표 처치 시간 (TTK) 가이드라인 (초 단위, 기획/시뮬레이션 참고용) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|DesignGuideline")
-	float TargetTTK = 5.0f;
 };

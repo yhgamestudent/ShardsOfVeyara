@@ -16,6 +16,7 @@
 #include "Engine/LocalPlayer.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SphereComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/Controller.h"
@@ -828,13 +829,18 @@ float AAGSDCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& 
 		OnHitReceived(DamageCauser);
 	}
 	
+	const float IncomingDamage = DamageAmount;
+	FString GuardState = TEXT("None");
+
 	if (GuardComponent)
 	{
 		float MitigatedDamage = DamageToApply;
-		if (GuardComponent->ProcessDamageMitigation(DamageToApply, MitigatedDamage))
+		if (GuardComponent->ProcessDamageMitigation(DamageToApply, MitigatedDamage, DamageEvent, DamageCauser))
 		{
 			const float MitigatedAmount = DamageToApply - MitigatedDamage;
 			DamageToApply = MitigatedDamage;
+
+			GuardState = (GuardComponent->IsJustGuardSuccessful() || GuardComponent->IsJustGuardActive()) ? TEXT("JustGuarded") : TEXT("Guarded");
 
 			if (MitigatedAmount > 0.f)
 			{
@@ -874,6 +880,18 @@ float AAGSDCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& 
 				{
 					LogSubsystem->AddStageDamageTaken(MapName, DamageToApply);
 					LogSubsystem->UpdateLatestHealthPercent((MaxHealth > 0.f) ? (Health / MaxHealth * 100.f) : 0.f);
+
+					// ─── [플레이어 피격 정밀 위치/원인 로그 파일 기록] ───
+					LogSubsystem->LogPlayerDamageTaken(
+						GetActorLocation(),
+						IncomingDamage,
+						DamageToApply,
+						Health,
+						MaxHealth,
+						DamageCauser,
+						DamageEvent,
+						GuardState
+					);
 				}
 			}
 		}
@@ -1771,8 +1789,17 @@ void AAGSDCharacter::UseEquippedItem()
 		AActor* DefaultActor = Cast<AActor>(HoldingItemData.ItemBPClass->GetDefaultObject());
 		if (DefaultActor && DefaultActor->Implements<UUsableItem>())
 		{
+			const bool bIsPotion = IsPotionItem(HoldingItemData);
+
+			// ⏳ 글로벌 포션 쿨다운 검사: 어떤 포션이든 쿨다운 중이면 모든 포션 사용 불가
+			if (bIsPotion && IsPotionOnCooldown())
+			{
+				UE_LOG(LogTemp, Log, TEXT("[Potion] On Cooldown! Remaining: %.1fs"), GetPotionCooldownRemaining());
+				return;
+			}
+
 			// 🛡️ 체력 물약인 경우: 체력이 이미 가득 차 있다면 사용 차단 (아이템 낭비 및 로그 데이터 왜곡 방지)
-			if (HoldingItemData.ItemID.Contains(TEXT("Health")) || HoldingItemData.ItemID.Contains(TEXT("Heal")))
+			if (bIsPotion)
 			{
 				if (Health >= MaxHealth)
 				{
@@ -1782,6 +1809,12 @@ void AAGSDCharacter::UseEquippedItem()
 
 			IUsableItem::Execute_UseItem(DefaultActor, this);
 			bUsed = true;
+
+			// ⏳ 포션 사용 성공 시 글로벌 공유 쿨다운 시작
+			if (bIsPotion && GetWorld())
+			{
+				LastGlobalPotionUseTime = GetWorld()->GetTimeSeconds();
+			}
 
 			// 📜 체력 물약 등 소비 아이템 사용 로깅
 			if (UGameInstance* GameInst = GetGameInstance())
@@ -2364,6 +2397,19 @@ void AAGSDCharacter::UpdateMotionWarpTarget()
 	}
 
 	FVector TargetLoc = TargetActor->GetActorLocation();
+
+	// Rebirth 소울이 활성화되어 있다면 소울 위치로 모션 워프 타겟 지정
+	TArray<USphereComponent*> SphereComps;
+	TargetActor->GetComponents<USphereComponent>(SphereComps);
+	for (USphereComponent* Sphere : SphereComps)
+	{
+		if (Sphere && Sphere->GetName().Contains(TEXT("Soul")) && Sphere->GetCollisionEnabled() != ECollisionEnabled::NoCollision)
+		{
+			TargetLoc = Sphere->GetComponentLocation();
+			break;
+		}
+	}
+
 	FVector DirToTarget = (TargetLoc - PlayerLoc).GetSafeNormal2D();
 
 	// 소프트 락온 상태에서도 모션 워핑 시 하드 락온과 동일한 거리(MaxWarpStep)로 이동되도록 적용
@@ -2578,6 +2624,84 @@ void AAGSDCharacter::HealthRecovery(float amount)
 			TEXT("HealthRecovery")
 		);
 	}
+
+	// 📜 실시간 체력 회복 CSV 로깅
+	if (ActualHealed > 0.0f)
+	{
+		if (UGameInstance* GameInst = GetGameInstance())
+		{
+			if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+			{
+				const FString HealSource = HoldingItemData.ItemName.IsEmpty() ? TEXT("HealthRecovery") : HoldingItemData.ItemName.ToString();
+				LogSubsystem->LogPlayerHealed(
+					GetActorLocation(),
+					HealSource,
+					ActualHealed,
+					PrevHealth,
+					Health,
+					MaxHealth
+				);
+			}
+		}
+	}
+}
+
+float AAGSDCharacter::GetPotionCooldownRatio() const
+{
+	if (!IsPotionOnCooldown() || GlobalPotionCooldown <= 0.0f)
+	{
+		return 0.0f;
+	}
+
+	const float CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+	const float Elapsed = CurrentTime - LastGlobalPotionUseTime;
+	const float Remaining = FMath::Max(0.0f, GlobalPotionCooldown - Elapsed);
+	return FMath::Clamp(Remaining / GlobalPotionCooldown, 0.0f, 1.0f);
+}
+
+float AAGSDCharacter::GetPotionCooldownRemaining() const
+{
+	if (!IsPotionOnCooldown() || GlobalPotionCooldown <= 0.0f)
+	{
+		return 0.0f;
+	}
+
+	const float CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+	const float Elapsed = CurrentTime - LastGlobalPotionUseTime;
+	return FMath::Max(0.0f, GlobalPotionCooldown - Elapsed);
+}
+
+bool AAGSDCharacter::IsPotionOnCooldown() const
+{
+	if (GlobalPotionCooldown <= 0.0f)
+	{
+		return false;
+	}
+
+	const float CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+	return (CurrentTime - LastGlobalPotionUseTime) < GlobalPotionCooldown;
+}
+
+bool AAGSDCharacter::IsPotionItem(const FStruct_ItemData& ItemData) const
+{
+	if (ItemData.ItemID.IsEmpty())
+	{
+		return false;
+	}
+
+	if (ItemData.EquipHoldingState == EHoldingState::EHS_Potion || ItemData.ItemCategory == EHoldingState::EHS_Potion)
+	{
+		return true;
+	}
+
+	if (ItemData.ItemID.Contains(TEXT("Health")) ||
+		ItemData.ItemID.Contains(TEXT("Heal")) ||
+		ItemData.ItemID.Contains(TEXT("Potion")))
+	{
+		return true;
+	}
+
+	return false;
 }
 //--------------
 
@@ -2778,6 +2902,23 @@ void AAGSDCharacter::HandleEnemyDeadAndDropItem_Implementation(AActor* DeadActor
 
 							// 아이템 획득 TextLog 기록
 							UTextLog::WriteTextLogByStringAndFloat(TEXT("아이템 획득"), OutItemData.ItemName.ToString(), static_cast<float>(AcquiredQty));
+
+							// ─── [플레이어 아이템 파밍 실시간 CSV 로그 기록 (몬스터 드롭)] ───
+							if (UGameInstance* GameInst = GetGameInstance())
+							{
+								if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+								{
+									const FString DeadActorName = DeadActor ? DeadActor->GetName() : TEXT("Enemy");
+									LogSubsystem->LogPlayerItemLooted(
+										GetActorLocation(),
+										TEXT("MonsterDrop"),
+										DeadActorName,
+										TargetItemID,
+										OutItemData.ItemName.ToString(),
+										AcquiredQty
+									);
+								}
+							}
 						}
 					}
 				}
@@ -3844,6 +3985,16 @@ void AAGSDCharacter::AddCoin(int32 Amount)
 		if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
 		{
 			LogSubsystem->AddAcquiredCoins(Amount);
+
+			// 골드 파밍 실시간 CSV 로그 기록
+			LogSubsystem->LogPlayerItemLooted(
+				GetActorLocation(),
+				TEXT("Gold"),
+				TEXT("GoldReward"),
+				TEXT("Gold"),
+				TEXT("골드"),
+				Amount
+			);
 		}
 	}
 }

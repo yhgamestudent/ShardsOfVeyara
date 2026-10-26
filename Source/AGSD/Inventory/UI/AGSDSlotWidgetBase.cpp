@@ -227,6 +227,98 @@ void UAGSDSlotWidgetBase::UpdateVisual()
 			}
 		}
 	}
+
+	// 슬롯 상태 변경 시 쿨다운 비주얼도 즉시 동기화
+	UpdateCooldownVisual();
+}
+
+void UAGSDSlotWidgetBase::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+	Super::NativeTick(MyGeometry, InDeltaTime);
+
+	// 매 프레임 쿨다운 프로그레스바 실시간 갱신 (모든 포션 슬롯 동시 회전)
+	UpdateCooldownVisual();
+}
+
+bool UAGSDSlotWidgetBase::IsPotionSlot() const
+{
+	if (SlotItemData.IsEmpty || SlotItemData.ItemData.ItemID.IsEmpty())
+	{
+		return false;
+	}
+
+	if (SlotItemData.ItemData.EquipHoldingState == EHoldingState::EHS_Potion || SlotItemData.ItemData.ItemCategory == EHoldingState::EHS_Potion)
+	{
+		return true;
+	}
+
+	if (SlotItemData.ItemData.ItemID.Contains(TEXT("Health")) ||
+		SlotItemData.ItemData.ItemID.Contains(TEXT("Heal")) ||
+		SlotItemData.ItemData.ItemID.Contains(TEXT("Potion")))
+	{
+		return true;
+	}
+
+	return false;
+}
+
+void UAGSDSlotWidgetBase::UpdateCooldownVisual()
+{
+	if (!IMG_CooldownOverlay)
+	{
+		return;
+	}
+
+	// 1. 포션 슬롯이 아니라면 오버레이를 숨김
+	if (!IsPotionSlot())
+	{
+		if (IMG_CooldownOverlay->GetVisibility() != ESlateVisibility::Hidden)
+		{
+			IMG_CooldownOverlay->SetVisibility(ESlateVisibility::Hidden);
+		}
+		return;
+	}
+
+	// 2. 소유한 플레이어 캐릭터로부터 글로벌 포션 쿨다운 정보 조회
+	AAGSDCharacter* PlayerChar = Cast<AAGSDCharacter>(GetOwningPlayerPawn());
+	if (!PlayerChar)
+	{
+		if (IMG_CooldownOverlay->GetVisibility() != ESlateVisibility::Hidden)
+		{
+			IMG_CooldownOverlay->SetVisibility(ESlateVisibility::Hidden);
+		}
+		return;
+	}
+
+	// 3. 쿨다운 진행 여부 확인
+	if (PlayerChar->IsPotionOnCooldown())
+	{
+		const float CooldownRatio = PlayerChar->GetPotionCooldownRatio();
+
+		// Dynamic Material Instance 캐싱 및 매개변수 적용
+		if (!CooldownDynamicMaterial)
+		{
+			CooldownDynamicMaterial = IMG_CooldownOverlay->GetDynamicMaterial();
+		}
+
+		if (CooldownDynamicMaterial)
+		{
+			CooldownDynamicMaterial->SetScalarParameterValue(CooldownParamName, CooldownRatio);
+		}
+
+		if (IMG_CooldownOverlay->GetVisibility() != ESlateVisibility::HitTestInvisible)
+		{
+			IMG_CooldownOverlay->SetVisibility(ESlateVisibility::HitTestInvisible);
+		}
+	}
+	else
+	{
+		// 쿨다운이 끝났으면 숨김
+		if (IMG_CooldownOverlay->GetVisibility() != ESlateVisibility::Hidden)
+		{
+			IMG_CooldownOverlay->SetVisibility(ESlateVisibility::Hidden);
+		}
+	}
 }
 
 FReply UAGSDSlotWidgetBase::NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)

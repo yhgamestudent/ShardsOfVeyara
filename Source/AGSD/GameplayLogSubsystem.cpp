@@ -11,6 +11,7 @@
 #include "Serialization/JsonSerializer.h"
 #include "Misc/ConfigCacheIni.h"
 #include "HAL/PlatformFileManager.h"
+#include "Engine/DamageEvents.h"
 
 void UGameplayLogSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -2503,5 +2504,277 @@ void UGameplayLogSubsystem::UploadLogsToGoogleSheets(const FString& InWebAppURL,
 	UE_LOG(LogTemp, Log, TEXT("[GameplayLogSubsystem] Sending gameplay logs to Google Sheets (Target: %s, Session: %s)..."), *TargetURL, *LogData.PlayerSessionID);
 	HttpRequest->ProcessRequest();
 #endif
+}
+
+void UGameplayLogSubsystem::EnsurePlayerDamageLogFileInitialized()
+{
+	if (!PlayerDamageLogFilePath.IsEmpty())
+	{
+		return;
+	}
+
+	const FString LogsDir = FPaths::ProjectSavedDir() / TEXT("Logs/PlayerDamageLogs");
+	IFileManager::Get().MakeDirectory(*LogsDir, true);
+
+	const FString Timestamp = FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S"));
+	PlayerDamageLogFilePath = LogsDir / FString::Printf(TEXT("PlayerDamageLog_%s.csv"), *Timestamp);
+
+	// CSV 헤더 작성
+	const FString Header = TEXT("RealTime,WorldTime,MapName,PlayerLoc_X,PlayerLoc_Y,PlayerLoc_Z,IncomingDamage,AppliedDamage,CurrentHealth,MaxHealth,DamageCauser,CauserClass,CauserLoc_X,CauserLoc_Y,CauserLoc_Z,DamageType,GuardState\n");
+	FFileHelper::SaveStringToFile(Header, *PlayerDamageLogFilePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+
+	UE_LOG(LogTemp, Log, TEXT("[GameplayLogSubsystem] Player Damage Log initialized at: %s"), *PlayerDamageLogFilePath);
+}
+
+void UGameplayLogSubsystem::LogPlayerDamageTaken(
+	const FVector& PlayerLocation,
+	float IncomingDamage,
+	float AppliedDamage,
+	float CurrentHealth,
+	float MaxHealth,
+	AActor* DamageCauser,
+	const FDamageEvent& DamageEvent,
+	const FString& GuardState)
+{
+	EnsurePlayerDamageLogFileInitialized();
+
+	const FString RealTime = FDateTime::Now().ToString(TEXT("%Y-%m-%d %H:%M:%S"));
+	const float WorldTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+	const FString MapName = GetTargetStageName();
+
+	// 공격자 정보 추출
+	FString CauserName = TEXT("None");
+	FString CauserClassName = TEXT("None");
+	FVector CauserLoc = FVector::ZeroVector;
+
+	if (DamageCauser)
+	{
+		CauserName = DamageCauser->GetName();
+		CauserClassName = DamageCauser->GetClass()->GetName();
+		CauserLoc = DamageCauser->GetActorLocation();
+	}
+
+	// 데미지 타입 추출
+	FString DamageTypeName = TEXT("UDamageType");
+	if (DamageEvent.DamageTypeClass)
+	{
+		DamageTypeName = DamageEvent.DamageTypeClass->GetName();
+	}
+
+	// CSV 행 구성
+	const FString Row = FString::Printf(
+		TEXT("%s,%.2f,%s,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%s,%s,%.1f,%.1f,%.1f,%s,%s\n"),
+		*RealTime,
+		WorldTime,
+		*MapName,
+		PlayerLocation.X,
+		PlayerLocation.Y,
+		PlayerLocation.Z,
+		IncomingDamage,
+		AppliedDamage,
+		CurrentHealth,
+		MaxHealth,
+		*CauserName,
+		*CauserClassName,
+		CauserLoc.X,
+		CauserLoc.Y,
+		CauserLoc.Z,
+		*DamageTypeName,
+		*GuardState
+	);
+
+	FFileHelper::SaveStringToFile(Row, *PlayerDamageLogFilePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM, &IFileManager::Get(), FILEWRITE_Append);
+
+	UE_LOG(LogTemp, Warning, TEXT("[DamageLog] Hit taken at (%.0f, %.0f, %.0f) from '%s' | Dmg: %.1f -> HP: %.1f/%.1f (%s)"),
+		PlayerLocation.X, PlayerLocation.Y, PlayerLocation.Z, *CauserName, AppliedDamage, CurrentHealth, MaxHealth, *GuardState);
+}
+
+void UGameplayLogSubsystem::EnsurePlayerItemLootLogFileInitialized()
+{
+	if (!PlayerItemLootLogFilePath.IsEmpty())
+	{
+		return;
+	}
+
+	const FString LogsDir = FPaths::ProjectSavedDir() / TEXT("Logs/PlayerItemLootLogs");
+	IFileManager::Get().MakeDirectory(*LogsDir, true);
+
+	const FString Timestamp = FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S"));
+	PlayerItemLootLogFilePath = LogsDir / FString::Printf(TEXT("PlayerItemLootLog_%s.csv"), *Timestamp);
+
+	// CSV 헤더 작성
+	const FString Header = TEXT("RealTime,WorldTime,MapName,PlayerLoc_X,PlayerLoc_Y,PlayerLoc_Z,LootSource,SourceActor,ItemID,ItemName,Quantity\n");
+	FFileHelper::SaveStringToFile(Header, *PlayerItemLootLogFilePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+
+	UE_LOG(LogTemp, Log, TEXT("[GameplayLogSubsystem] Player Item Loot Log initialized at: %s"), *PlayerItemLootLogFilePath);
+}
+
+void UGameplayLogSubsystem::LogPlayerItemLooted(
+	const FVector& PlayerLocation,
+	const FString& LootSource,
+	const FString& SourceActorName,
+	const FString& ItemID,
+	const FString& ItemName,
+	int32 Quantity)
+{
+	EnsurePlayerItemLootLogFileInitialized();
+
+	const FString RealTime = FDateTime::Now().ToString(TEXT("%Y-%m-%d %H:%M:%S"));
+	const float WorldTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+	const FString MapName = GetTargetStageName();
+
+	// CSV 행 구성
+	const FString Row = FString::Printf(
+		TEXT("%s,%.2f,%s,%.1f,%.1f,%.1f,%s,%s,%s,\"%s\",%d\n"),
+		*RealTime,
+		WorldTime,
+		*MapName,
+		PlayerLocation.X,
+		PlayerLocation.Y,
+		PlayerLocation.Z,
+		*LootSource,
+		*SourceActorName,
+		*ItemID,
+		*ItemName,
+		Quantity
+	);
+
+	FFileHelper::SaveStringToFile(Row, *PlayerItemLootLogFilePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM, &IFileManager::Get(), FILEWRITE_Append);
+
+	UE_LOG(LogTemp, Log, TEXT("[ItemLootLog] Looted %s x%d from [%s:%s] at (%.0f, %.0f, %.0f)"),
+		*ItemName, Quantity, *LootSource, *SourceActorName, PlayerLocation.X, PlayerLocation.Y, PlayerLocation.Z);
+}
+
+void UGameplayLogSubsystem::EnsurePlayerDamageDealtLogFileInitialized()
+{
+	if (!PlayerDamageDealtLogFilePath.IsEmpty())
+	{
+		return;
+	}
+
+	const FString LogsDir = FPaths::ProjectSavedDir() / TEXT("Logs/PlayerDamageDealtLogs");
+	IFileManager::Get().MakeDirectory(*LogsDir, true);
+
+	const FString Timestamp = FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S"));
+	PlayerDamageDealtLogFilePath = LogsDir / FString::Printf(TEXT("PlayerDamageDealtLog_%s.csv"), *Timestamp);
+
+	// CSV 헤더 작성
+	const FString Header = TEXT("RealTime,WorldTime,MapName,PlayerLoc_X,PlayerLoc_Y,PlayerLoc_Z,TargetName,TargetClass,TargetLoc_X,TargetLoc_Y,TargetLoc_Z,Distance,DamageDealt,TargetCurrentHealth,TargetMaxHealth,IsTargetDead,AttackType\n");
+	FFileHelper::SaveStringToFile(Header, *PlayerDamageDealtLogFilePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+
+	UE_LOG(LogTemp, Log, TEXT("[GameplayLogSubsystem] Player Damage Dealt Log initialized at: %s"), *PlayerDamageDealtLogFilePath);
+}
+
+void UGameplayLogSubsystem::LogPlayerDamageDealt(
+	const FVector& PlayerLocation,
+	AActor* TargetActor,
+	float DamageDealt,
+	float TargetCurrentHealth,
+	float TargetMaxHealth,
+	const FString& AttackType)
+{
+	EnsurePlayerDamageDealtLogFileInitialized();
+
+	const FString RealTime = FDateTime::Now().ToString(TEXT("%Y-%m-%d %H:%M:%S"));
+	const float WorldTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+	const FString MapName = GetTargetStageName();
+
+	FString TargetName = TEXT("None");
+	FString TargetClassName = TEXT("None");
+	FVector TargetLoc = FVector::ZeroVector;
+	float Distance = 0.0f;
+
+	if (TargetActor)
+	{
+		TargetName = TargetActor->GetName();
+		TargetClassName = TargetActor->GetClass()->GetName();
+		TargetLoc = TargetActor->GetActorLocation();
+		Distance = FVector::Dist(PlayerLocation, TargetLoc);
+	}
+
+	const FString IsTargetDead = (TargetCurrentHealth <= 0.0f) ? TEXT("True") : TEXT("False");
+
+	// CSV 행 구성
+	const FString Row = FString::Printf(
+		TEXT("%s,%.2f,%s,%.1f,%.1f,%.1f,%s,%s,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%s,%s\n"),
+		*RealTime,
+		WorldTime,
+		*MapName,
+		PlayerLocation.X,
+		PlayerLocation.Y,
+		PlayerLocation.Z,
+		*TargetName,
+		*TargetClassName,
+		TargetLoc.X,
+		TargetLoc.Y,
+		TargetLoc.Z,
+		Distance,
+		DamageDealt,
+		TargetCurrentHealth,
+		TargetMaxHealth,
+		*IsTargetDead,
+		*AttackType
+	);
+
+	FFileHelper::SaveStringToFile(Row, *PlayerDamageDealtLogFilePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM, &IFileManager::Get(), FILEWRITE_Append);
+
+	UE_LOG(LogTemp, Warning, TEXT("[DamageDealtLog] Dealt %.1f dmg to '%s' (%s) | Target HP: %.1f/%.1f (Dead: %s) | Dist: %.0f"),
+		DamageDealt, *TargetName, *TargetClassName, TargetCurrentHealth, TargetMaxHealth, *IsTargetDead, Distance);
+}
+
+void UGameplayLogSubsystem::EnsurePlayerHealLogFileInitialized()
+{
+	if (!PlayerHealLogFilePath.IsEmpty())
+	{
+		return;
+	}
+
+	const FString LogsDir = FPaths::ProjectSavedDir() / TEXT("Logs/PlayerHealLogs");
+	IFileManager::Get().MakeDirectory(*LogsDir, true);
+
+	const FString Timestamp = FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S"));
+	PlayerHealLogFilePath = LogsDir / FString::Printf(TEXT("PlayerHealLog_%s.csv"), *Timestamp);
+
+	// CSV 헤더 작성
+	const FString Header = TEXT("RealTime,WorldTime,MapName,PlayerLoc_X,PlayerLoc_Y,PlayerLoc_Z,SourceName,HealAmount,PrevHealth,CurrentHealth,MaxHealth\n");
+	FFileHelper::SaveStringToFile(Header, *PlayerHealLogFilePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+
+	UE_LOG(LogTemp, Log, TEXT("[GameplayLogSubsystem] Player Heal Log initialized at: %s"), *PlayerHealLogFilePath);
+}
+
+void UGameplayLogSubsystem::LogPlayerHealed(
+	const FVector& PlayerLocation,
+	const FString& SourceName,
+	float HealAmount,
+	float PrevHealth,
+	float CurrentHealth,
+	float MaxHealth)
+{
+	EnsurePlayerHealLogFileInitialized();
+
+	const FString RealTime = FDateTime::Now().ToString(TEXT("%Y-%m-%d %H:%M:%S"));
+	const float WorldTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+	const FString MapName = GetTargetStageName();
+
+	// CSV 행 구성
+	const FString Row = FString::Printf(
+		TEXT("%s,%.2f,%s,%.1f,%.1f,%.1f,%s,%.1f,%.1f,%.1f,%.1f\n"),
+		*RealTime,
+		WorldTime,
+		*MapName,
+		PlayerLocation.X,
+		PlayerLocation.Y,
+		PlayerLocation.Z,
+		*SourceName,
+		HealAmount,
+		PrevHealth,
+		CurrentHealth,
+		MaxHealth
+	);
+
+	FFileHelper::SaveStringToFile(Row, *PlayerHealLogFilePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM, &IFileManager::Get(), FILEWRITE_Append);
+
+	UE_LOG(LogTemp, Warning, TEXT("[HealLog] Healed +%.1f HP from '%s' | HP: %.1f -> %.1f (Max: %.1f)"),
+		HealAmount, *SourceName, PrevHealth, CurrentHealth, MaxHealth);
 }
 

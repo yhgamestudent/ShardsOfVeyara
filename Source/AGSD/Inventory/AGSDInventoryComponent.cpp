@@ -637,6 +637,29 @@ bool UAGSDInventoryComponent::CrossInventoryTransfer(UAGSDInventoryComponent* So
 	if (Transferred > 0)
 	{
 		SourceInv->RemoveItem(SourceIndex, Transferred);
+
+		// 플레이어가 외부 상자/보관함에서 아이템을 가져온 경우 파밍 CSV 로그 기록
+		AActor* TargetOwner = TargetInv->GetOwner();
+		AActor* SourceOwner = SourceInv->GetOwner();
+		if (TargetOwner && TargetOwner->ActorHasTag(FName("Player")))
+		{
+			if (UGameInstance* GI = TargetInv->GetGameInstance())
+			{
+				if (UGameplayLogSubsystem* LogSubsystem = GI->GetSubsystem<UGameplayLogSubsystem>())
+				{
+					FString SourceName = SourceOwner ? SourceOwner->GetName() : TEXT("Chest");
+					LogSubsystem->LogPlayerItemLooted(
+						TargetOwner->GetActorLocation(),
+						TEXT("Chest"),
+						SourceName,
+						ItemToAdd.ItemID,
+						ItemToAdd.ItemName.ToString(),
+						Transferred
+					);
+				}
+			}
+		}
+
 		return true;
 	}
 	return false;

@@ -19,6 +19,10 @@ AEnemySpawner::AEnemySpawner()
 	
 	RootCollisionSphere = CreateDefaultSubobject<UCapsuleComponent>(TEXT("RootCollisionSphere"));
 	RootComponent = RootCollisionSphere;
+	RootCollisionSphere->SetCollisionObjectType(ECC_WorldDynamic);
+	RootCollisionSphere->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	RootCollisionSphere->SetCollisionResponseToAllChannels(ECR_Block);
+	RootCollisionSphere->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 
 	SpawnerMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("SpawnerMesh"));
 	SpawnerMesh->SetupAttachment(RootComponent);
@@ -291,8 +295,8 @@ void AEnemySpawner::SpawnEnemy()
 				
 				if ( SpawnSound )
 				{
-					//2d 사운드로 재생
-					UGameplayStatics::PlaySound2D(this, SpawnSound);
+					// 스포너 위치에서 3D 감쇠 사운드로 재생
+					UGameplayStatics::PlaySoundAtLocation(this, SpawnSound, GetActorLocation());
 				}
 
 				EnemyLogData.SpawnCount += 1; // 로그 데이터에 스폰 횟수 누적
@@ -311,7 +315,8 @@ void AEnemySpawner::Die()
 	
 	if (DeadSound)
 	{
-		UGameplayStatics::PlaySound2D(this, DeadSound);
+		// 스포너 위치에서 3D 감쇠 사운드로 재생
+		UGameplayStatics::PlaySoundAtLocation(this, DeadSound, GetActorLocation());
 	}
 	
 	if ( DeathEffectCascade )

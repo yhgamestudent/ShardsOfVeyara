@@ -14,6 +14,7 @@
 #include "Inventory/UI/AGSDPlayerHUD.h"
 #include "TextLog.h"
 #include "SOVGameInstance.h"
+#include "GameplayLogSubsystem.h"
 
 APickUpItem::APickUpItem()
 {
@@ -149,6 +150,22 @@ void APickUpItem::Interact_Implementation(AAGSDCharacter* player)
 
 		// 아이템 획득 TextLog 기록
 		UTextLog::WriteTextLogByStringAndFloat(TEXT("아이템 획득"), OutItemData.ItemName.ToString(), static_cast<float>(AcquiredQty));
+
+		// 플레이어 아이템 파밍 실시간 CSV 로그 기록
+		if (UGameInstance* GameInst = player->GetGameInstance())
+		{
+			if (UGameplayLogSubsystem* LogSubsystem = GameInst->GetSubsystem<UGameplayLogSubsystem>())
+			{
+				LogSubsystem->LogPlayerItemLooted(
+					player->GetActorLocation(),
+					TEXT("Pickup"),
+					GetName(),
+					ItemID,
+					OutItemData.ItemName.ToString(),
+					AcquiredQty
+				);
+			}
+		}
 
 		// 플레이어 HUD에 아이템 획득 알림 출력
 		if (player->PlayerHUDRef)

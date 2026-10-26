@@ -37,9 +37,10 @@ ABaseFlyingPet::ABaseFlyingPet()
 	EnemyDetectSphere->SetSphereRadius(EnemyDetectRange);
 	EnemyDetectSphere->SetVisibility(false);
 	EnemyDetectSphere->SetHiddenInGame(false);
-	// 퀘스트/월드 트리거 볼륨과의 불필요한 오버랩을 방지하고 적 캐릭터(Pawn)만 감지하도록 설정
+	// 퀘스트/월드 트리거 볼륨과의 불필요한 오버랩을 방지하고 적 캐릭터(Pawn) 및 스포너 등 적 액터(WorldDynamic)를 감지하도록 설정
 	EnemyDetectSphere->SetCollisionResponseToAllChannels(ECR_Ignore);
 	EnemyDetectSphere->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+	EnemyDetectSphere->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Overlap);
 
 	// 아이템 감지 범위 구체 컴포넌트 생성 및 설정
 	ItemDetectSphere = CreateDefaultSubobject<USphereComponent>(TEXT("ItemDetectSphere"));
@@ -792,8 +793,8 @@ void ABaseFlyingPet::CheckSurroundingEnemy()
 	if (!EnemyDetectSphere || PetState == EPetState::EPS_Conversation) return;
 	
 	TArray<AActor*> OverlappingActors;
-	// 현재 스피어 안에 있는 모든 액터를 가져옵니다. (필터링할 클래스가 있다면 두 번째 인자에 넣음)
-	EnemyDetectSphere->GetOverlappingActors(OverlappingActors, ACharacter::StaticClass());
+	// 현재 스피어 안에 있는 모든 액터를 가져옵니다. (적 캐릭터뿐만 아니라 스포너 등 적 액터 전체 감지)
+	EnemyDetectSphere->GetOverlappingActors(OverlappingActors, AActor::StaticClass());
 
 	bool bEnemyFound = false;
 
