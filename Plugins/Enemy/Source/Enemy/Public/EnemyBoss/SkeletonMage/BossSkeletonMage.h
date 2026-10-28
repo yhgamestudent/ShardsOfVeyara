@@ -148,6 +148,7 @@ public:
 
 	void StartSkillCooldown(FName SkillName);
 	void UpdateSkillCooldowns();
+	virtual bool IsSkillOnCooldown(FName SkillOrBlackboardKey) const override;
 
 	// 타임라인 로깅용 현재 활성 ActionID 추적 변수
 	FString CurrentFireBallActionID;
@@ -160,16 +161,16 @@ public:
 	FString CurrentPhase2MeteorActionID;
 
 	/** 현재 발동 중인 스킬의 피격 연출 강도 (0.0 ~ 1.0) */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "자체설정|HitReaction")
-	float CurrentSkillHitIntensity = 1.0f;
+	// HitReaction 프로퍼티는 ABaseBossEnemy에서 상속받음
+	// CurrentSkillHitIntensity inherited from ABaseBossEnemy
 
 	/** 현재 발동 중인 스킬의 넉다운 타입 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "자체설정|HitReaction")
-	EKnockdownType CurrentSkillKnockdownType = EKnockdownType::None;
+	// HitReaction 프로퍼티는 ABaseBossEnemy에서 상속받음
+	// CurrentSkillKnockdownType inherited from ABaseBossEnemy
 
 	/** 현재 발동 중인 스킬의 넉다운 지속 시간 (초) */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "자체설정|HitReaction")
-	float CurrentSkillKnockdownDuration = 1.2f;
+	// HitReaction 프로퍼티는 ABaseBossEnemy에서 상속받음
+	// CurrentSkillKnockdownDuration inherited from ABaseBossEnemy
 	
 	UPROPERTY(EditDefaultsOnly, Category = "자체설정")
 	class UAnimMontage* TeleportMontage;

@@ -85,7 +85,7 @@ void ABossSkeletonMage::Tick(float DeltaTime)
 
 				CurrentSkillHitIntensity = AttackStruct.PushTargetHitIntensity;
 				CurrentSkillKnockdownType = AttackStruct.PushTargetKnockdownType;
-				CurrentSkillKnockdownDuration = AttackStruct.PushTargetKnockdownDuration;
+				CurrentSkillKnockdownDuration = AttackStruct.PushTargetKnockdownDuration; bHasExplicitSkillReaction = true;
 
 				// --- 플레이어 밀치기 효과 시작 ---
 				ACharacter* PlayerCharacter = Cast<ACharacter>(OverlappingActor);
@@ -1050,7 +1050,7 @@ void ABossSkeletonMage::PlayPushTargetMontage()
 	
 	CurrentSkillHitIntensity = AttackStruct.PushTargetHitIntensity;
 	CurrentSkillKnockdownType = AttackStruct.PushTargetKnockdownType;
-	CurrentSkillKnockdownDuration = AttackStruct.PushTargetKnockdownDuration;
+	CurrentSkillKnockdownDuration = AttackStruct.PushTargetKnockdownDuration; bHasExplicitSkillReaction = true;
 
 	if ( PushTargetMontage )
 	{
@@ -1122,6 +1122,7 @@ void ABossSkeletonMage::StartSkillCooldown(FName SkillName)
 	if (FBossSkillCooldownInfo* Info = SkillCooldownMap.Find(SkillName))
 	{
 		Info->LastCastTime = GetWorld()->GetTimeSeconds();
+		Info->bIsOnCooldown = true;
 
 		if (BlackboardComp && !Info->BlackboardKey.IsNone())
 		{
@@ -1158,11 +1159,12 @@ void ABossSkeletonMage::UpdateSkillCooldowns()
 	for (auto& Pair : SkillCooldownMap)
 	{
 		FBossSkillCooldownInfo& Info = Pair.Value;
-		if (Info.BaseWeight <= 0.0f || Info.BlackboardKey.IsNone()) continue;
+		if (!Info.bIsOnCooldown || Info.BaseWeight <= 0.0f || Info.BlackboardKey.IsNone()) continue;
 
 		// 쿨타임이 지났는지 검사
 		if (CurrentTime - Info.LastCastTime >= Info.Cooldown)
 		{
+			Info.bIsOnCooldown = false;
 			const float CurrentW = BlackboardComp->GetValueAsFloat(Info.BlackboardKey);
 			if (CurrentW <= 0.0f)
 			{
@@ -1173,6 +1175,22 @@ void ABossSkeletonMage::UpdateSkillCooldowns()
 			}
 		}
 	}
+}
+
+bool ABossSkeletonMage::IsSkillOnCooldown(FName SkillOrBlackboardKey) const
+{
+	if (const FBossSkillCooldownInfo* Info = SkillCooldownMap.Find(SkillOrBlackboardKey))
+	{
+		return Info->bIsOnCooldown;
+	}
+	for (const auto& Pair : SkillCooldownMap)
+	{
+		if (Pair.Value.BlackboardKey == SkillOrBlackboardKey)
+		{
+			return Pair.Value.bIsOnCooldown;
+		}
+	}
+	return false;
 }
 
 void ABossSkeletonMage::GravityAttack()
@@ -1368,7 +1386,7 @@ void ABossSkeletonMage::EndGravityAttack()
 				// 1. 대미지 주기 및 넉다운 피격 설정 (피격 처리를 먼저 완료)
 				CurrentSkillHitIntensity = AttackStruct.GravityAttackHitIntensity;
 				CurrentSkillKnockdownType = AttackStruct.GravityAttackKnockdownType;
-				CurrentSkillKnockdownDuration = AttackStruct.GravityAttackKnockdownDuration;
+				CurrentSkillKnockdownDuration = AttackStruct.GravityAttackKnockdownDuration; bHasExplicitSkillReaction = true;
 				UGameplayStatics::ApplyDamage(CharToSlam, 
 					AttackStruct.GravityAttackDamage, GetController(), this, UDamageType::StaticClass());
 
@@ -1685,7 +1703,7 @@ void ABossSkeletonMage::SummonThunderToPlayer()
 				{
 					CurrentSkillHitIntensity = AttackStruct.SecondPhaseThunderHitIntensity;
 					CurrentSkillKnockdownType = AttackStruct.SecondPhaseThunderKnockdownType;
-					CurrentSkillKnockdownDuration = AttackStruct.SecondPhaseThunderKnockdownDuration;
+					CurrentSkillKnockdownDuration = AttackStruct.SecondPhaseThunderKnockdownDuration; bHasExplicitSkillReaction = true;
 					UGameplayStatics::ApplyDamage(HitActor, AttackStruct.SecondPhaseThunderAttackDamage, GetController(), this, UDamageType::StaticClass());
 					
 					BossSkeletonMageLogData.SecondPhaseThunderAttackDamage += AttackStruct.SecondPhaseThunderAttackDamage;
@@ -1828,7 +1846,7 @@ void ABossSkeletonMage::StartSummonRandomMeteor()
                     {
                         CurrentSkillHitIntensity = AttackStruct.SecondPhaseMeteorHitIntensity;
                         CurrentSkillKnockdownType = AttackStruct.SecondPhaseMeteorKnockdownType;
-                        CurrentSkillKnockdownDuration = AttackStruct.SecondPhaseMeteorKnockdownDuration;
+                        CurrentSkillKnockdownDuration = AttackStruct.SecondPhaseMeteorKnockdownDuration; bHasExplicitSkillReaction = true;
                         UGameplayStatics::ApplyDamage(HitActor, AttackStruct.SecondPhaseMeteorAttackDamage, GetController(), this, UDamageType::StaticClass());
 
                         BossSkeletonMageLogData.SecondPhaseMeteorAttackDamage += AttackStruct.SecondPhaseMeteorAttackDamage;

@@ -68,6 +68,9 @@ struct ENEMY_API FBossSkillCooldownInfo
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Cooldown")
 	float LastCastTime = -999.0f;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Cooldown")
+	bool bIsOnCooldown = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cooldown")
 	float BaseWeight = 0.0f;
 
@@ -90,6 +93,28 @@ public:
 
 	/** 플레이어(TargetCharacter)의 체력 및 상태 쿼리 헬퍼 */
 	void QueryTargetPlayerData(float& OutPlayerHP, float& OutPlayerMaxHP, FString& OutPlayerState, float& OutDistance) const;
+
+	/** 현재 발동 중인 스킬의 피격 연출 강도 (0.0 ~ 1.0) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "자체설정|HitReaction")
+	float CurrentSkillHitIntensity = 1.0f;
+
+	/** 현재 발동 중인 스킬의 넉다운 타입 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "자체설정|HitReaction")
+	EKnockdownType CurrentSkillKnockdownType = EKnockdownType::None;
+
+	/** 현재 발동 중인 스킬의 넉다운 지속 시간 (초) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "자체설정|HitReaction")
+	float CurrentSkillKnockdownDuration = 1.2f;
+
+	/** 현재 발동 중인 스킬이 명시적인 피격/넉다운 설정(None 포함)을 보유하고 있는지 여부 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "자체설정|HitReaction")
+	bool bHasExplicitSkillReaction = false;
+
+	/** DT_BossCombatBalance 캐시에서 스킬별 피격 강도 및 넉다운 설정을 현재 스킬 리액션으로 적용 */
+	void ApplySkillBalanceReaction(FName ActionName, float DefaultHitIntensity = 1.0f, EKnockdownType DefaultKnockdownType = EKnockdownType::None, float DefaultKnockdownDuration = 0.0f);
+
+	/** 특정 스킬 이름 또는 블랙보드 가중치 키가 현재 쿨다운 중인지 확인 */
+	virtual bool IsSkillOnCooldown(FName SkillOrBlackboardKey) const { return false; }
 
 public:
 	UPROPERTY(EditAnywhere, Category="자체설정")

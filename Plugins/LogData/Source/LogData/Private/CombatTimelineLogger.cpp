@@ -11,6 +11,8 @@ float UCombatTimelineLogger::SessionStartWorldTime = 0.0f;
 int32 UCombatTimelineLogger::ActionCounter = 0;
 float UCombatTimelineLogger::LatestBossHP = 0.0f;
 float UCombatTimelineLogger::LatestBossMaxHP = 0.0f;
+float UCombatTimelineLogger::LatestPlayerHP = 0.0f;
+float UCombatTimelineLogger::LatestPlayerMaxHP = 0.0f;
 TMap<FString, FActiveSkillTrackingInfo> UCombatTimelineLogger::ActiveSkills;
 TMap<FString, FSkillAggregateStats> UCombatTimelineLogger::SkillStats;
 
@@ -37,6 +39,8 @@ void UCombatTimelineLogger::StartCombatSession(
 
 	LatestBossHP = BossMaxHP;
 	LatestBossMaxHP = BossMaxHP;
+	LatestPlayerHP = PlayerMaxHP;
+	LatestPlayerMaxHP = PlayerMaxHP;
 	SessionStartWorldTime = StartWorldTime;
 	CurrentBossID = BossID.IsEmpty() ? TEXT("SkeletonMage") : BossID;
 
@@ -331,10 +335,10 @@ void UCombatTimelineLogger::LogHitMissed(
 	Event.Damage = 0.0f;
 	Event.Distance = Distance;
 	Event.PlayerState = TEXT("-");
-	Event.BossHP = 0.0f;
-	Event.BossHPPct = 0.0f;
-	Event.PlayerHP = 0.0f;
-	Event.PlayerHPPct = 0.0f;
+	Event.BossHP = LatestBossHP;
+	Event.BossHPPct = (LatestBossMaxHP > 0.f) ? (LatestBossHP / LatestBossMaxHP * 100.f) : 0.f;
+	Event.PlayerHP = LatestPlayerHP;
+	Event.PlayerHPPct = (LatestPlayerMaxHP > 0.f) ? (LatestPlayerHP / LatestPlayerMaxHP * 100.f) : 0.f;
 	Event.Details = Reason;
 
 	WriteEvent(Event);
@@ -672,6 +676,10 @@ void UCombatTimelineLogger::WriteEvent(const FCombatTimelineEvent& Event)
 	if (Event.BossHP > 0.0f)
 	{
 		LatestBossHP = Event.BossHP;
+	}
+	if (Event.PlayerHP > 0.0f)
+	{
+		LatestPlayerHP = Event.PlayerHP;
 	}
 	AppendRowToFile(Event.ToCSVRow() + TEXT("\n"));
 }

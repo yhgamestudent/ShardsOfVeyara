@@ -30,11 +30,25 @@ EBTNodeResult::Type UBTTask_BossSelectWeight::ExecuteTask(UBehaviorTreeComponent
 	// 설정 적용을 위한 람다 함수 (중복 제거용)
 	auto ApplyWeights = [&](const TArray<FBossSelectWeightConfig>& Settings)
 	{
+		float TotalActiveWeight = 0.0f;
+		ABaseBossEnemy* BossRef = Cast<ABaseBossEnemy>(ControlledPawn);
 		for (const FBossSelectWeightConfig& Config : Settings)
 		{
 			if (Config.Key.SelectedKeyName != NAME_None)
 			{
-				BlackboardComp->SetValueAsFloat(Config.Key.SelectedKeyName, Config.Value);
+				const float EffectiveWeight = (BossRef && BossRef->IsSkillOnCooldown(Config.Key.SelectedKeyName)) ? 0.0f : Config.Value;
+				BlackboardComp->SetValueAsFloat(Config.Key.SelectedKeyName, EffectiveWeight);
+				TotalActiveWeight += EffectiveWeight;
+			}
+		}
+		if (TotalActiveWeight <= 0.0f)
+		{
+			for (const FBossSelectWeightConfig& Config : Settings)
+			{
+				if (Config.Key.SelectedKeyName != NAME_None)
+				{
+					BlackboardComp->SetValueAsFloat(Config.Key.SelectedKeyName, Config.Value);
+				}
 			}
 		}
 	};
@@ -45,8 +59,12 @@ EBTNodeResult::Type UBTTask_BossSelectWeight::ExecuteTask(UBehaviorTreeComponent
 	
 	if ( Boss )
 	{
+		const float EffectiveCloseDist = (Boss->BossLogId == TEXT("Boss_BlackKnight"))
+			? FMath::Min(CloseRangeDistance, 400.0f)
+			: CloseRangeDistance;
+
 		// 거리별 분기 처리
-		if (Distance <= CloseRangeDistance) // 근거리
+		if (Distance <= EffectiveCloseDist) // 근거리
 		{
 			ApplyWeights(CloseRangeWeights);
 			// 로그
@@ -54,7 +72,7 @@ EBTNodeResult::Type UBTTask_BossSelectWeight::ExecuteTask(UBehaviorTreeComponent
 			SelectedRangeName = TEXT("Short Range");
 			Boss->CommonBossLogData.ShortRangePatternCount++; // 로그 데이터에 근거리 패턴 선택 횟수 누적
 		}
-		else if (Distance > CloseRangeDistance && Distance <= MidRangeDistance) // 중거리
+		else if (Distance > EffectiveCloseDist && Distance <= MidRangeDistance) // 중거리
 		{
 			ApplyWeights(MidRangeWeights);
 			// 로그

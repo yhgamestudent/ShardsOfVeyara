@@ -646,6 +646,24 @@ const FBossCombatBalanceRow* ABaseBossEnemy::FindSkillBalance(FName ActionName) 
 	return CachedSkillBalanceMap.Find(ActionName);
 }
 
+void ABaseBossEnemy::ApplySkillBalanceReaction(FName ActionName, float DefaultHitIntensity, EKnockdownType DefaultKnockdownType, float DefaultKnockdownDuration)
+{
+	if (const FBossCombatBalanceRow* Row = FindSkillBalance(ActionName))
+	{
+		CurrentSkillHitIntensity = (Row->HitIntensity > 0.0f) ? Row->HitIntensity : DefaultHitIntensity;
+		CurrentSkillKnockdownType = Row->KnockdownType;
+		CurrentSkillKnockdownDuration = Row->KnockdownDuration;
+		bHasExplicitSkillReaction = true;
+	}
+	else
+	{
+		CurrentSkillHitIntensity = DefaultHitIntensity;
+		CurrentSkillKnockdownType = DefaultKnockdownType;
+		CurrentSkillKnockdownDuration = DefaultKnockdownDuration;
+		bHasExplicitSkillReaction = true;
+	}
+}
+
 void ABaseBossEnemy::InitializeStatsFromDataTable()
 {
 	// ─── 1. 범용 통합 전투 밸런스 데이터테이블(DT_BossCombatBalance) 우선 적용 ───

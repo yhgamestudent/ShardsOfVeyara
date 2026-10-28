@@ -104,5 +104,8 @@ Config/*Local*.ini
 *CombatStats*.csv
 DT_*.csv
 
+# Local MCP / Editor Automation Plugins
+Plugins/EngineWire/
+
 
 

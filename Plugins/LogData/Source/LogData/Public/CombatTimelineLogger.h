@@ -202,6 +202,8 @@ private:
 
 	static float LatestBossHP;
 	static float LatestBossMaxHP;
+	static float LatestPlayerHP;
+	static float LatestPlayerMaxHP;
 
 	static TMap<FString, FActiveSkillTrackingInfo> ActiveSkills;
 	static TMap<FString, FSkillAggregateStats> SkillStats;

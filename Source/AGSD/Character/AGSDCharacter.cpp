@@ -4249,24 +4249,24 @@ void AAGSDCharacter::ProcessHitReaction(float DamageAmount, AActor* DamageCauser
 			TargetKnockdownDuration = GroundProj->KnockdownDuration;
 		}
 	}
-	else if (ABossSkeletonMage* BossMage = Cast<ABossSkeletonMage>(DamageCauser))
+	else if (ABaseBossEnemy* Boss = Cast<ABaseBossEnemy>(DamageCauser))
 	{
-		ResolvedIntensity = BossMage->CurrentSkillHitIntensity;
-		if (BossMage->CurrentSkillKnockdownType != EKnockdownType::None)
+		ResolvedIntensity = Boss->CurrentSkillHitIntensity;
+		if (Boss->bHasExplicitSkillReaction || Boss->CurrentSkillKnockdownType != EKnockdownType::None)
 		{
-			TargetKnockdownType = BossMage->CurrentSkillKnockdownType;
-			TargetKnockdownDuration = BossMage->CurrentSkillKnockdownDuration;
+			TargetKnockdownType = Boss->CurrentSkillKnockdownType;
+			TargetKnockdownDuration = (Boss->CurrentSkillKnockdownDuration > 0.0f) ? Boss->CurrentSkillKnockdownDuration : KnockdownDuration;
 		}
 	}
-	else if (DamageCauser && DamageCauser->GetOwner() && DamageCauser->GetOwner()->IsA(ABossSkeletonMage::StaticClass()))
+	else if (DamageCauser && DamageCauser->GetOwner() && DamageCauser->GetOwner()->IsA(ABaseBossEnemy::StaticClass()))
 	{
-		if (ABossSkeletonMage* OwnerBoss = Cast<ABossSkeletonMage>(DamageCauser->GetOwner()))
+		if (ABaseBossEnemy* OwnerBoss = Cast<ABaseBossEnemy>(DamageCauser->GetOwner()))
 		{
 			ResolvedIntensity = OwnerBoss->CurrentSkillHitIntensity;
-			if (OwnerBoss->CurrentSkillKnockdownType != EKnockdownType::None)
+			if (OwnerBoss->bHasExplicitSkillReaction || OwnerBoss->CurrentSkillKnockdownType != EKnockdownType::None)
 			{
 				TargetKnockdownType = OwnerBoss->CurrentSkillKnockdownType;
-				TargetKnockdownDuration = OwnerBoss->CurrentSkillKnockdownDuration;
+				TargetKnockdownDuration = (OwnerBoss->CurrentSkillKnockdownDuration > 0.0f) ? OwnerBoss->CurrentSkillKnockdownDuration : KnockdownDuration;
 			}
 		}
 	}
