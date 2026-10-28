@@ -16,7 +16,7 @@ void ABossBlackKnightAIController::SetBlackboardKey()
 	if ( BlackboardComp == nullptr || ControlledEnemy == nullptr ) return;
 
 	BlackboardComp->SetValueAsBool("CanAttack", true);
-	BlackboardComp->SetValueAsFloat("AttackDelay", ControlledEnemy->AttackDelay);
+	BlackboardComp->SetValueAsFloat("AttackDelay", ControlledEnemy->CommonAttackDelay);
 
 	BlackboardComp->SetValueAsObject(TEXT("TargetCharacter"), TargetPawn);
 	BlackboardComp->SetValueAsFloat(TEXT("W_RushAttack"), ControlledEnemy->AttackStruct.RushAttackWeight);

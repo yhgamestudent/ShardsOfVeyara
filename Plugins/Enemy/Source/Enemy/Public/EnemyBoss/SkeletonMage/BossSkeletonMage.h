@@ -113,27 +113,6 @@ struct FBossSkeletonMageAttackStruct
 	float SecondPhaseMeteorKnockdownDuration = 2.0f;
 };
 
-USTRUCT()
-struct FBossSkillCooldownInfo
-{
-	GENERATED_BODY()
-
-	UPROPERTY()
-	float Cooldown = 0.0f;
-
-	UPROPERTY()
-	float ActionDelay = 1.0f;
-
-	UPROPERTY()
-	float LastCastTime = -999.0f;
-
-	UPROPERTY()
-	float BaseWeight = 0.0f;
-
-	UPROPERTY()
-	FName BlackboardKey = NAME_None;
-};
-
 UCLASS()
 class ENEMY_API ABossSkeletonMage : public ABaseBossEnemy
 {

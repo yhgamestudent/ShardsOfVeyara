@@ -6,6 +6,10 @@
 #include "Engine/OverlapResult.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
+#include "Engine/DataTable.h"
+#include "UObject/ConstructorHelpers.h"
+#include "CombatTimelineLogger.h"
+#include "CombatLogParticipantInterface.h"
 
 // 깃 허브 업데이트 확인
 ABossBlackKnight::ABossBlackKnight()
@@ -20,6 +24,17 @@ ABossBlackKnight::ABossBlackKnight()
 	
 	// 최대 걷기 속도 100
 	GetCharacterMovement()->MaxWalkSpeed = 100.0f;
+
+	// 보스 식별자 설정
+	BossLogId = TEXT("Boss_BlackKnight");
+	CombatStatHandle.RowName = TEXT("Boss_BlackKnight");
+
+	// 범용 통합 전투 밸런스 데이터테이블 기본 바인딩 (DT_BossCombatBalance)
+	static ConstructorHelpers::FObjectFinder<UDataTable> UniversalBalanceTableObj(TEXT("/Game/HYH/DataAssets/DT_BossCombatBalance.DT_BossCombatBalance"));
+	if (UniversalBalanceTableObj.Succeeded())
+	{
+		UniversalBalanceTableHandle.DataTable = UniversalBalanceTableObj.Object;
+	}
 }
 
 void ABossBlackKnight::BeginPlay()
@@ -52,6 +67,66 @@ void ABossBlackKnight::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 	
+	// 스킬 쿨타임 만료 검사 및 가중치 복원
+	UpdateSkillCooldowns();
+}
+
+void ABossBlackKnight::StartSkillCooldown(FName SkillName)
+{
+	if (FBossSkillCooldownInfo* Info = SkillCooldownMap.Find(SkillName))
+	{
+		Info->LastCastTime = GetWorld()->GetTimeSeconds();
+
+		if (BlackboardComp && !Info->BlackboardKey.IsNone())
+		{
+			// 쿨다운 시작: 가중치를 0으로 설정하여 AI 추첨에서 제외
+			BlackboardComp->SetValueAsFloat(Info->BlackboardKey, 0.0f);
+		}
+
+		// 행동 딜레이는 스킬별 고유 ActionDelay 주입
+		const float DelayToSet = Info->ActionDelay > 0.0f ? Info->ActionDelay : CommonAttackDelay;
+		if (BlackboardComp)
+		{
+			BlackboardComp->SetValueAsFloat("AttackDelay", DelayToSet);
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("[BossBlackKnight] Skill [%s] on Cooldown for %.1fs (ActionDelay: %.1fs)"),
+			*SkillName.ToString(), Info->Cooldown, DelayToSet);
+	}
+	else
+	{
+		// 맵에 등록되지 않은 경우 폴백
+		if (BlackboardComp)
+		{
+			BlackboardComp->SetValueAsFloat("AttackDelay", CommonAttackDelay);
+		}
+	}
+}
+
+void ABossBlackKnight::UpdateSkillCooldowns()
+{
+	if (!BlackboardComp || SkillCooldownMap.IsEmpty()) return;
+
+	const float CurrentTime = GetWorld()->GetTimeSeconds();
+
+	for (auto& Pair : SkillCooldownMap)
+	{
+		FBossSkillCooldownInfo& Info = Pair.Value;
+		if (Info.BaseWeight <= 0.0f || Info.BlackboardKey.IsNone()) continue;
+
+		// 쿨타임이 지났는지 검사
+		if (CurrentTime - Info.LastCastTime >= Info.Cooldown)
+		{
+			const float CurrentW = BlackboardComp->GetValueAsFloat(Info.BlackboardKey);
+			if (CurrentW <= 0.0f)
+			{
+				// 쿨다운 만료: 원래 가중치로 복구
+				BlackboardComp->SetValueAsFloat(Info.BlackboardKey, Info.BaseWeight);
+				UE_LOG(LogTemp, Log, TEXT("[BossBlackKnight] Skill [%s] Cooldown Finished -> Restored Weight to %.1f"),
+					*Pair.Key.ToString(), Info.BaseWeight);
+			}
+		}
+	}
 }
 
 float ABossBlackKnight::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent,
@@ -60,6 +135,28 @@ float ABossBlackKnight::TakeDamage(float DamageAmount, struct FDamageEvent const
 	if ( bIsGuarding )
 	{
 		DamageWhileGuarding += DamageAmount;
+
+		// ─── [보스 가드 성공 타임라인 로깅] ───
+		if (UCombatTimelineLogger::IsSessionActive())
+		{
+			float CurPlayerHP = 0.0f;
+			float CurPlayerMaxHP = 0.0f;
+			FString CurPlayerState = TEXT("Idle");
+			float CurDist = 0.0f;
+			QueryTargetPlayerData(CurPlayerHP, CurPlayerMaxHP, CurPlayerState, CurDist);
+
+			UCombatTimelineLogger::LogHitGuarded(
+				TEXT("BossGuard"),
+				TEXT("ShieldBlock"),
+				DamageAmount,
+				GetWorld()->GetTimeSeconds(),
+				CurDist,
+				Health,
+				MaxHealth,
+				CurPlayerHP,
+				CurPlayerMaxHP
+			);
+		}
 
 		// 아직 리액션 대미지에 도달하지 않았으면 가드 몽타주 재생
 		if ( DamageWhileGuarding < AttackStruct.MaxDamageToReaction && GuardMontage )
@@ -79,6 +176,45 @@ void ABossBlackKnight::OnBeginOverlapAxeCollisionSphere(UPrimitiveComponent* Ove
 	if (OtherActor && OtherActor != this && OtherActor->ActorHasTag(FName("Player")))
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Attack Sphere Overlapped with Player!"));
+		bAxeHitPlayer = true;
+
+		// ─── [도끼 공격 적중/방어 타임라인 로깅] ───
+		if (UCombatTimelineLogger::IsSessionActive())
+		{
+			float CurPlayerHP = 0.0f;
+			float CurPlayerMaxHP = 0.0f;
+			FString CurPlayerState = TEXT("Idle");
+			float CurDist = 0.0f;
+			QueryTargetPlayerData(CurPlayerHP, CurPlayerMaxHP, CurPlayerState, CurDist);
+
+			FString CurrentActionID = CurrentNormalAttackActionID;
+			FString CurrentActionName = TEXT("NormalAttack");
+			if (AttackDamage == AttackStruct.ChargeAttackDamage)
+			{
+				CurrentActionID = CurrentChargeAttackActionID;
+				CurrentActionName = TEXT("ChargeAttack");
+			}
+			else if (AttackDamage == AttackStruct.GuardAttackDamage)
+			{
+				CurrentActionID = CurrentGuardAttackActionID;
+				CurrentActionName = TEXT("GuardAttack");
+			}
+
+			const float CurrentTime = GetWorld()->GetTimeSeconds();
+			if (CurPlayerState == TEXT("JustGuarding"))
+			{
+				UCombatTimelineLogger::LogHitJustGuard(CurrentActionID, CurrentActionName, CurrentTime, CurDist, Health, MaxHealth, CurPlayerHP, CurPlayerMaxHP);
+			}
+			else if (CurPlayerState == TEXT("Guarding"))
+			{
+				UCombatTimelineLogger::LogHitGuarded(CurrentActionID, CurrentActionName, AttackDamage, CurrentTime, CurDist, Health, MaxHealth, CurPlayerHP, CurPlayerMaxHP);
+			}
+			else
+			{
+				const float EstimatedAfterHP = FMath::Max(0.0f, CurPlayerHP - AttackDamage);
+				UCombatTimelineLogger::LogHitSuccess(CurrentActionID, CurrentActionName, AttackDamage, CurrentTime, CurDist, CurPlayerState, Health, MaxHealth, EstimatedAfterHP, CurPlayerMaxHP);
+			}
+		}
 
 		// 대미지 적용 ( 어택 대미지는 공격 전 가드 공격인지 아님 일반 공격인지에 따라 각각 함수에서 설정 )
 		UGameplayStatics::ApplyDamage(OtherActor, AttackDamage, GetController(),
@@ -101,12 +237,92 @@ void ABossBlackKnight::OnBeginOverlapAxeCollisionSphere(UPrimitiveComponent* Ove
 
 void ABossBlackKnight::AttackStart_AxeCollisionSphere()
 {
+	bAxeHitPlayer = false;
 	if ( AxeCollisionSphere ) AxeCollisionSphere->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+
+	// ─── [도끼 공격 판정 개시(Release) 로깅] ───
+	if (UCombatTimelineLogger::IsSessionActive())
+	{
+		float CurPlayerHP = 0.0f;
+		float CurPlayerMaxHP = 0.0f;
+		FString CurPlayerState = TEXT("Idle");
+		float CurDist = 0.0f;
+		QueryTargetPlayerData(CurPlayerHP, CurPlayerMaxHP, CurPlayerState, CurDist);
+
+		FString CurrentActionID = CurrentNormalAttackActionID;
+		FString Detail = TEXT("Normal Attack Swing");
+		if (AttackDamage == AttackStruct.ChargeAttackDamage)
+		{
+			CurrentActionID = CurrentChargeAttackActionID;
+			Detail = TEXT("Charge Attack Swing");
+		}
+		else if (AttackDamage == AttackStruct.GuardAttackDamage)
+		{
+			CurrentActionID = CurrentGuardAttackActionID;
+			Detail = TEXT("Guard Counter Swing");
+		}
+
+		UCombatTimelineLogger::LogSkillRelease(
+			CurrentActionID,
+			GetWorld()->GetTimeSeconds(),
+			CurDist,
+			CurPlayerState,
+			Health,
+			MaxHealth,
+			CurPlayerHP,
+			CurPlayerMaxHP,
+			Detail
+		);
+	}
 }
 
 void ABossBlackKnight::AttackEnd_AxeCollisionSphere()
 {
 	if ( AxeCollisionSphere ) AxeCollisionSphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	// ─── [도끼 공격 판정 종료(Recovery/Missed) 로깅] ───
+	if (UCombatTimelineLogger::IsSessionActive())
+	{
+		FString CurrentActionID = CurrentNormalAttackActionID;
+		FString CurrentActionName = TEXT("NormalAttack");
+		if (AttackDamage == AttackStruct.ChargeAttackDamage)
+		{
+			CurrentActionID = CurrentChargeAttackActionID;
+			CurrentActionName = TEXT("ChargeAttack");
+		}
+		else if (AttackDamage == AttackStruct.GuardAttackDamage)
+		{
+			CurrentActionID = CurrentGuardAttackActionID;
+			CurrentActionName = TEXT("GuardAttack");
+		}
+
+		const float CurrentTime = GetWorld()->GetTimeSeconds();
+		float CurPlayerHP = 0.0f;
+		float CurPlayerMaxHP = 0.0f;
+		FString CurPlayerState = TEXT("Idle");
+		float CurDist = 0.0f;
+		QueryTargetPlayerData(CurPlayerHP, CurPlayerMaxHP, CurPlayerState, CurDist);
+
+		if (!bAxeHitPlayer)
+		{
+			UCombatTimelineLogger::LogHitMissed(
+				CurrentActionID,
+				CurrentActionName,
+				CurrentTime,
+				CurDist,
+				TEXT("Player Dodged Axe")
+			);
+		}
+
+		UCombatTimelineLogger::LogSkillRecovery(
+			CurrentActionID,
+			CurrentTime,
+			Health,
+			MaxHealth,
+			CurPlayerHP,
+			CurPlayerMaxHP
+		);
+	}
 }
 
 void ABossBlackKnight::OnBeginOverlapRushAttackSphere(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
@@ -116,6 +332,32 @@ void ABossBlackKnight::OnBeginOverlapRushAttackSphere(UPrimitiveComponent* Overl
 	if (OtherActor && OtherActor != this && OtherActor->ActorHasTag(FName("Player")))
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Rush Attack Sphere Overlapped with Player!"));
+		bRushHitPlayer = true;
+
+		// ─── [돌진 적중/방어 타임라인 로깅] ───
+		if (UCombatTimelineLogger::IsSessionActive())
+		{
+			float CurPlayerHP = 0.0f;
+			float CurPlayerMaxHP = 0.0f;
+			FString CurPlayerState = TEXT("Idle");
+			float CurDist = 0.0f;
+			QueryTargetPlayerData(CurPlayerHP, CurPlayerMaxHP, CurPlayerState, CurDist);
+
+			const float CurrentTime = GetWorld()->GetTimeSeconds();
+			if (CurPlayerState == TEXT("JustGuarding"))
+			{
+				UCombatTimelineLogger::LogHitJustGuard(CurrentRushAttackActionID, TEXT("RushAttack"), CurrentTime, CurDist, Health, MaxHealth, CurPlayerHP, CurPlayerMaxHP);
+			}
+			else if (CurPlayerState == TEXT("Guarding"))
+			{
+				UCombatTimelineLogger::LogHitGuarded(CurrentRushAttackActionID, TEXT("RushAttack"), AttackStruct.RushAttackDamage, CurrentTime, CurDist, Health, MaxHealth, CurPlayerHP, CurPlayerMaxHP);
+			}
+			else
+			{
+				const float EstimatedAfterHP = FMath::Max(0.0f, CurPlayerHP - AttackStruct.RushAttackDamage);
+				UCombatTimelineLogger::LogHitSuccess(CurrentRushAttackActionID, TEXT("RushAttack"), AttackStruct.RushAttackDamage, CurrentTime, CurDist, CurPlayerState, Health, MaxHealth, EstimatedAfterHP, CurPlayerMaxHP);
+			}
+		}
 
 		// 대미지 적용
 		UGameplayStatics::ApplyDamage(OtherActor, AttackStruct.RushAttackDamage, GetController(),
@@ -145,15 +387,36 @@ void ABossBlackKnight::OnBeginOverlapRushAttackSphere(UPrimitiveComponent* Overl
 
 void ABossBlackKnight::RushAttack()
 {
+	bRushHitPlayer = false;
+
+	// ─── [돌진 선딜레이 시작(Windup) 로깅] ───
+	if (UCombatTimelineLogger::IsSessionActive())
+	{
+		float CurPlayerHP = 0.0f;
+		float CurPlayerMaxHP = 0.0f;
+		FString CurPlayerState = TEXT("Idle");
+		float CurDist = 0.0f;
+		QueryTargetPlayerData(CurPlayerHP, CurPlayerMaxHP, CurPlayerState, CurDist);
+
+		CurrentRushAttackActionID = UCombatTimelineLogger::LogSkillWindup(
+			TEXT("RushAttack"),
+			GetWorld()->GetTimeSeconds(),
+			CurDist,
+			CurPlayerState,
+			Health,
+			MaxHealth,
+			CurPlayerHP,
+			CurPlayerMaxHP
+		);
+	}
+
 	if ( RushAttackMontage )
 	{
 		PlayAnimMontage(RushAttackMontage);
 		
 		bFocusPlayerAfterAttack = false; // 돌진 공격 중에는 포커스 비활성화
 		
-		if ( BlackboardComp == nullptr ) return;
-	
-		BlackboardComp->SetValueAsFloat("AttackDelay", AttackStruct.RushAttackDelay); // 행동 딜레이 설정
+		StartSkillCooldown(TEXT("RushAttack"));
 	}
 }
 
@@ -161,15 +424,91 @@ void ABossBlackKnight::StartRush()
 {
 	// 콜리전 켜기: 돌진 중 플레이어와 충돌 감지
 	RushAttackSphere->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+
+	// ─── [돌진 판정 개시(Release) 로깅] ───
+	if (UCombatTimelineLogger::IsSessionActive())
+	{
+		float CurPlayerHP = 0.0f;
+		float CurPlayerMaxHP = 0.0f;
+		FString CurPlayerState = TEXT("Idle");
+		float CurDist = 0.0f;
+		QueryTargetPlayerData(CurPlayerHP, CurPlayerMaxHP, CurPlayerState, CurDist);
+
+		UCombatTimelineLogger::LogSkillRelease(
+			CurrentRushAttackActionID,
+			GetWorld()->GetTimeSeconds(),
+			CurDist,
+			CurPlayerState,
+			Health,
+			MaxHealth,
+			CurPlayerHP,
+			CurPlayerMaxHP,
+			TEXT("Rush Dash Movement Started")
+		);
+	}
 }
 
 void ABossBlackKnight::EndRush()
 {
 	RushAttackSphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	// ─── [돌진 종료 및 후딜 복귀(Recovery/Missed) 로깅] ───
+	if (UCombatTimelineLogger::IsSessionActive())
+	{
+		const float CurrentTime = GetWorld()->GetTimeSeconds();
+		float CurPlayerHP = 0.0f;
+		float CurPlayerMaxHP = 0.0f;
+		FString CurPlayerState = TEXT("Idle");
+		float CurDist = 0.0f;
+		QueryTargetPlayerData(CurPlayerHP, CurPlayerMaxHP, CurPlayerState, CurDist);
+
+		if (!bRushHitPlayer)
+		{
+			UCombatTimelineLogger::LogHitMissed(
+				CurrentRushAttackActionID,
+				TEXT("RushAttack"),
+				CurrentTime,
+				CurDist,
+				TEXT("Player Evaded Rush")
+			);
+		}
+
+		UCombatTimelineLogger::LogSkillRecovery(
+			CurrentRushAttackActionID,
+			CurrentTime,
+			Health,
+			MaxHealth,
+			CurPlayerHP,
+			CurPlayerMaxHP
+		);
+	}
 }
 
 void ABossBlackKnight::GuardAttack()
 {
+	bAxeHitPlayer = false;
+
+	// ─── [가드 카운터 선딜레이 시작(Windup) 로깅] ───
+	if (UCombatTimelineLogger::IsSessionActive())
+	{
+		float CurPlayerHP = 0.0f;
+		float CurPlayerMaxHP = 0.0f;
+		FString CurPlayerState = TEXT("Idle");
+		float CurDist = 0.0f;
+		QueryTargetPlayerData(CurPlayerHP, CurPlayerMaxHP, CurPlayerState, CurDist);
+
+		CurrentGuardAttackActionID = UCombatTimelineLogger::LogSkillWindup(
+			TEXT("GuardAttack"),
+			GetWorld()->GetTimeSeconds(),
+			CurDist,
+			CurPlayerState,
+			Health,
+			MaxHealth,
+			CurPlayerHP,
+			CurPlayerMaxHP
+		);
+	}
+
 	if ( GuardAttackMontage )
 	{
 		PlayAnimMontage(GuardAttackMontage);
@@ -178,10 +517,7 @@ void ABossBlackKnight::GuardAttack()
 		
 		bFocusPlayerAfterAttack = false; // 가드 공격 중에는 포커스 비활성화
 		
-		if ( BlackboardComp )
-		{
-			BlackboardComp->SetValueAsFloat("AttackDelay", AttackStruct.GuardAttackDelay); // 행동 딜레이 설정
-		}
+		StartSkillCooldown(TEXT("Guard"));
 	}
 }
 
@@ -196,6 +532,28 @@ void ABossBlackKnight::StartWaveAttack()
 	
     UWorld* World = GetWorld();
     if (!World) return;
+
+	// ─── [가드 웨이브 판정 개시(Release) 로깅] ───
+	if (UCombatTimelineLogger::IsSessionActive())
+	{
+		float CurPlayerHP = 0.0f;
+		float CurPlayerMaxHP = 0.0f;
+		FString CurPlayerState = TEXT("Idle");
+		float CurDist = 0.0f;
+		QueryTargetPlayerData(CurPlayerHP, CurPlayerMaxHP, CurPlayerState, CurDist);
+
+		UCombatTimelineLogger::LogSkillRelease(
+			CurrentGuardAttackActionID,
+			World->GetTimeSeconds(),
+			CurDist,
+			CurPlayerState,
+			Health,
+			MaxHealth,
+			CurPlayerHP,
+			CurPlayerMaxHP,
+			TEXT("Wave Zap Discharged")
+		);
+	}
 
     FVector StartLocation = (AxeCollisionSphere) ? AxeCollisionSphere->GetComponentLocation() : GetActorLocation();
     FVector FixedForward = GetActorForwardVector();
@@ -249,9 +607,33 @@ void ABossBlackKnight::StartWaveAttack()
             			{
             				if ( WeakThis->bIsHitZap == false )
             				{
-            					// 여기서 플레이어에게 데미지를 주거나 로직 수행!
             					UE_LOG(LogTemp, Warning, TEXT("Player Hit At Zap"));
             					WeakThis->bIsHitZap = true;
+
+								// ─── [웨이브 피격/방어 타임라인 로깅] ───
+								if (UCombatTimelineLogger::IsSessionActive())
+								{
+									float CurPlayerHP = 0.0f;
+									float CurPlayerMaxHP = 0.0f;
+									FString CurPlayerState = TEXT("Idle");
+									float CurDist = 0.0f;
+									WeakThis->QueryTargetPlayerData(CurPlayerHP, CurPlayerMaxHP, CurPlayerState, CurDist);
+									const float CurrentTime = World->GetTimeSeconds();
+
+									if (CurPlayerState == TEXT("JustGuarding"))
+									{
+										UCombatTimelineLogger::LogHitJustGuard(WeakThis->CurrentGuardAttackActionID, TEXT("GuardWaveZap"), CurrentTime, CurDist, WeakThis->Health, WeakThis->MaxHealth, CurPlayerHP, CurPlayerMaxHP);
+									}
+									else if (CurPlayerState == TEXT("Guarding"))
+									{
+										UCombatTimelineLogger::LogHitGuarded(WeakThis->CurrentGuardAttackActionID, TEXT("GuardWaveZap"), WeakThis->AttackStruct.ZapDamage, CurrentTime, CurDist, WeakThis->Health, WeakThis->MaxHealth, CurPlayerHP, CurPlayerMaxHP);
+									}
+									else
+									{
+										const float EstimatedAfterHP = FMath::Max(0.0f, CurPlayerHP - WeakThis->AttackStruct.ZapDamage);
+										UCombatTimelineLogger::LogHitSuccess(WeakThis->CurrentGuardAttackActionID, TEXT("GuardWaveZap"), WeakThis->AttackStruct.ZapDamage, CurrentTime, CurDist, CurPlayerState, WeakThis->Health, WeakThis->MaxHealth, EstimatedAfterHP, CurPlayerMaxHP);
+									}
+								}
             					
             					UGameplayStatics::ApplyDamage(
 									OverlappedActor,            // 데미지를 받을 대상
@@ -294,6 +676,29 @@ void ABossBlackKnight::StartWaveAttack()
 
 void ABossBlackKnight::NormalAttack()
 {
+	bAxeHitPlayer = false;
+
+	// ─── [기본 공격 선딜레이 시작(Windup) 로깅] ───
+	if (UCombatTimelineLogger::IsSessionActive())
+	{
+		float CurPlayerHP = 0.0f;
+		float CurPlayerMaxHP = 0.0f;
+		FString CurPlayerState = TEXT("Idle");
+		float CurDist = 0.0f;
+		QueryTargetPlayerData(CurPlayerHP, CurPlayerMaxHP, CurPlayerState, CurDist);
+
+		CurrentNormalAttackActionID = UCombatTimelineLogger::LogSkillWindup(
+			TEXT("NormalAttack"),
+			GetWorld()->GetTimeSeconds(),
+			CurDist,
+			CurPlayerState,
+			Health,
+			MaxHealth,
+			CurPlayerHP,
+			CurPlayerMaxHP
+		);
+	}
+
 	if ( NormalAttackMontage )
 	{
 		PlayAnimMontage(NormalAttackMontage);
@@ -302,15 +707,35 @@ void ABossBlackKnight::NormalAttack()
 		
 		bFocusPlayerAfterAttack = false; // 차지 공격 중에는 포커스 비활성화
 		
-		if ( BlackboardComp )
-		{
-			BlackboardComp->SetValueAsFloat("AttackDelay", AttackStruct.NormalAttackDelay); // 행동 딜레이 설정
-		}
+		StartSkillCooldown(TEXT("NormalAttack"));
 	}
 }
 
 void ABossBlackKnight::ChargeAttack()
 {
+	bAxeHitPlayer = false;
+
+	// ─── [차지 공격 선딜레이 시작(Windup) 로깅] ───
+	if (UCombatTimelineLogger::IsSessionActive())
+	{
+		float CurPlayerHP = 0.0f;
+		float CurPlayerMaxHP = 0.0f;
+		FString CurPlayerState = TEXT("Idle");
+		float CurDist = 0.0f;
+		QueryTargetPlayerData(CurPlayerHP, CurPlayerMaxHP, CurPlayerState, CurDist);
+
+		CurrentChargeAttackActionID = UCombatTimelineLogger::LogSkillWindup(
+			TEXT("ChargeAttack"),
+			GetWorld()->GetTimeSeconds(),
+			CurDist,
+			CurPlayerState,
+			Health,
+			MaxHealth,
+			CurPlayerHP,
+			CurPlayerMaxHP
+		);
+	}
+
 	if ( ChargeAttackMontage )
 	{
 		PlayAnimMontage(ChargeAttackMontage);
@@ -319,10 +744,7 @@ void ABossBlackKnight::ChargeAttack()
 		
 		bFocusPlayerAfterAttack = false; // 차지 공격 중에는 포커스 비활성화
 		
-		if ( BlackboardComp )
-		{
-			BlackboardComp->SetValueAsFloat("AttackDelay", AttackStruct.ChargeAttackDelay); // 행동 딜레이 설정
-		}
+		StartSkillCooldown(TEXT("ChargeAttack"));
 	}
 }
 
@@ -431,6 +853,29 @@ void ABossBlackKnight::SpawnRandomZapEffect()
 
 void ABossBlackKnight::ZapAttack()
 {
+	bZapHitPlayer = false;
+
+	// ─── [벼락 공격 선딜레이 시작(Windup) 로깅] ───
+	if (UCombatTimelineLogger::IsSessionActive())
+	{
+		float CurPlayerHP = 0.0f;
+		float CurPlayerMaxHP = 0.0f;
+		FString CurPlayerState = TEXT("Idle");
+		float CurDist = 0.0f;
+		QueryTargetPlayerData(CurPlayerHP, CurPlayerMaxHP, CurPlayerState, CurDist);
+
+		CurrentZapAttackActionID = UCombatTimelineLogger::LogSkillWindup(
+			TEXT("ZapAttack"),
+			GetWorld()->GetTimeSeconds(),
+			CurDist,
+			CurPlayerState,
+			Health,
+			MaxHealth,
+			CurPlayerHP,
+			CurPlayerMaxHP
+		);
+	}
+
 	if ( ZapAttackMontage )
 	{
 		PlayAnimMontage(ZapAttackMontage);
@@ -439,10 +884,7 @@ void ABossBlackKnight::ZapAttack()
 		
 		bFocusPlayerAfterAttack = false; // 잽 공격 중에는 포커스 비활성화
 		
-		if ( BlackboardComp )
-		{
-			BlackboardComp->SetValueAsFloat("AttackDelay", AttackStruct.ZapAttackDelay); // 행동 딜레이 설정 
-		}
+		StartSkillCooldown(TEXT("ZapAttack"));
 	}
 }
 
@@ -490,6 +932,30 @@ void ABossBlackKnight::SpawnZapAttackEffect()
 	// 대미지 판정 범위 설정
 	float DamageRadius = 150.0f; 
 
+	// ─── [벼락 판정 개시(Release) 로깅] ───
+	if (UCombatTimelineLogger::IsSessionActive())
+	{
+		float CurPlayerHP = 0.0f;
+		float CurPlayerMaxHP = 0.0f;
+		FString CurPlayerState = TEXT("Idle");
+		float CurDist = 0.0f;
+		QueryTargetPlayerData(CurPlayerHP, CurPlayerMaxHP, CurPlayerState, CurDist);
+
+		UCombatTimelineLogger::LogSkillRelease(
+			CurrentZapAttackActionID,
+			GetWorld()->GetTimeSeconds(),
+			CurDist,
+			CurPlayerState,
+			Health,
+			MaxHealth,
+			CurPlayerHP,
+			CurPlayerMaxHP,
+			TEXT("Lightning Strike Impact")
+		);
+	}
+
+	bZapHitPlayer = false;
+
 	// 플레이어 감지 및 대미지 적용
 	TArray<FOverlapResult> OverlapResults;
 	FCollisionShape SphereShape = FCollisionShape::MakeSphere(DamageRadius);
@@ -503,6 +969,33 @@ void ABossBlackKnight::SpawnZapAttackEffect()
 			AActor* OverlappedActor = Result.GetActor();
 			if (OverlappedActor && OverlappedActor->ActorHasTag(TEXT("Player")))
 			{
+				bZapHitPlayer = true;
+
+				// ─── [벼락 피격/방어 타임라인 로깅] ───
+				if (UCombatTimelineLogger::IsSessionActive())
+				{
+					float CurPlayerHP = 0.0f;
+					float CurPlayerMaxHP = 0.0f;
+					FString CurPlayerState = TEXT("Idle");
+					float CurDist = 0.0f;
+					QueryTargetPlayerData(CurPlayerHP, CurPlayerMaxHP, CurPlayerState, CurDist);
+					const float CurrentTime = GetWorld()->GetTimeSeconds();
+
+					if (CurPlayerState == TEXT("JustGuarding"))
+					{
+						UCombatTimelineLogger::LogHitJustGuard(CurrentZapAttackActionID, TEXT("ZapAttack"), CurrentTime, CurDist, Health, MaxHealth, CurPlayerHP, CurPlayerMaxHP);
+					}
+					else if (CurPlayerState == TEXT("Guarding"))
+					{
+						UCombatTimelineLogger::LogHitGuarded(CurrentZapAttackActionID, TEXT("ZapAttack"), AttackStruct.ZapAttackDamage, CurrentTime, CurDist, Health, MaxHealth, CurPlayerHP, CurPlayerMaxHP);
+					}
+					else
+					{
+						const float EstimatedAfterHP = FMath::Max(0.0f, CurPlayerHP - AttackStruct.ZapAttackDamage);
+						UCombatTimelineLogger::LogHitSuccess(CurrentZapAttackActionID, TEXT("ZapAttack"), AttackStruct.ZapAttackDamage, CurrentTime, CurDist, CurPlayerState, Health, MaxHealth, EstimatedAfterHP, CurPlayerMaxHP);
+					}
+				}
+
 				UGameplayStatics::ApplyDamage(
 					OverlappedActor,
 					AttackStruct.ZapAttackDamage,         // 잽 공격 대미지
@@ -513,6 +1006,37 @@ void ABossBlackKnight::SpawnZapAttackEffect()
 				UE_LOG(LogTemp, Warning, TEXT("Zap Attack Hit Player!"));
 			}
 		}
+	}
+
+	// ─── [벼락 종료(Missed / Recovery) 로깅] ───
+	if (UCombatTimelineLogger::IsSessionActive())
+	{
+		const float CurrentTime = GetWorld()->GetTimeSeconds();
+		float CurPlayerHP = 0.0f;
+		float CurPlayerMaxHP = 0.0f;
+		FString CurPlayerState = TEXT("Idle");
+		float CurDist = 0.0f;
+		QueryTargetPlayerData(CurPlayerHP, CurPlayerMaxHP, CurPlayerState, CurDist);
+
+		if (!bZapHitPlayer)
+		{
+			UCombatTimelineLogger::LogHitMissed(
+				CurrentZapAttackActionID,
+				TEXT("ZapAttack"),
+				CurrentTime,
+				CurDist,
+				TEXT("Target Evaded Lightning")
+			);
+		}
+
+		UCombatTimelineLogger::LogSkillRecovery(
+			CurrentZapAttackActionID,
+			CurrentTime,
+			Health,
+			MaxHealth,
+			CurPlayerHP,
+			CurPlayerMaxHP
+		);
 	}
 }
 
@@ -543,7 +1067,112 @@ void ABossBlackKnight::InitializeStatsFromDataTable()
 {
 	Super::InitializeStatsFromDataTable();
 
-	// 데이터테이블이 명시적으로 연결되어 있는 경우에만 대미지 스케일링 적용
+	// ─── 1. 범용 통합 전투 밸런스 테이블(DT_BossCombatBalance)에서 스킬 파라미터 주입 ───
+	if (CachedSkillBalanceMap.Num() > 0)
+	{
+		// NormalAttack
+		if (const FBossCombatBalanceRow* Row = FindSkillBalance(TEXT("NormalAttack")))
+		{
+			AttackStruct.NormalAttackWeight = Row->Weight;
+			AttackStruct.NormalAttackDelay = Row->ActionDelay;
+			AttackStruct.NormalAttackDamage = BaseAttackDamage * (Row->DamageMultiplier > 0.0f ? Row->DamageMultiplier : 1.0f);
+		}
+
+		// RushAttack
+		if (const FBossCombatBalanceRow* Row = FindSkillBalance(TEXT("RushAttack")))
+		{
+			AttackStruct.RushAttackWeight = Row->Weight;
+			AttackStruct.RushAttackDelay = Row->ActionDelay;
+			AttackStruct.RushAttackDamage = BaseAttackDamage * (Row->DamageMultiplier > 0.0f ? Row->DamageMultiplier : 1.2f);
+		}
+
+		// Guard
+		if (const FBossCombatBalanceRow* Row = FindSkillBalance(TEXT("Guard")))
+		{
+			AttackStruct.GuardWeight = Row->Weight;
+			AttackStruct.GuardDelay = Row->ActionDelay;
+			AttackStruct.GuardAttackDamage = BaseAttackDamage * (Row->DamageMultiplier > 0.0f ? Row->DamageMultiplier : 1.0f);
+			AttackStruct.ZapDamage = BaseAttackDamage * 0.6f;
+		}
+
+		// ChargeAttack
+		if (const FBossCombatBalanceRow* Row = FindSkillBalance(TEXT("ChargeAttack")))
+		{
+			AttackStruct.ChargeAttackWeight = Row->Weight;
+			AttackStruct.ChargeAttackDelay = Row->ActionDelay;
+			AttackStruct.ChargeAttackDamage = BaseAttackDamage * (Row->DamageMultiplier > 0.0f ? Row->DamageMultiplier : 1.4f);
+		}
+
+		// ZapAttack
+		if (const FBossCombatBalanceRow* Row = FindSkillBalance(TEXT("ZapAttack")))
+		{
+			AttackStruct.ZapAttackWeight = Row->Weight;
+			AttackStruct.ZapAttackDelay = Row->ActionDelay;
+			AttackStruct.ZapAttackDamage = BaseAttackDamage * (Row->DamageMultiplier > 0.0f ? Row->DamageMultiplier : 0.8f);
+		}
+
+		// BaseStat에서 공통 행동 딜레이(CommonAttackDelay) 읽기 (기본값: 1.2초)
+		if (const FBossCombatBalanceRow* BaseStatRow = FindSkillBalance(TEXT("BaseStat")))
+		{
+			if (BaseStatRow->ActionDelay > 0.0f)
+			{
+				CommonAttackDelay = BaseStatRow->ActionDelay;
+			}
+			else if (BaseStatRow->Cooldown > 0.0f)
+			{
+				CommonAttackDelay = BaseStatRow->Cooldown;
+			}
+		}
+
+		// 스킬별 독립 쿨타임 및 고유 행동 딜레이 관리 맵 구성 (스킬 시전 시 AI 가중치 0 처리 -> 쿨타임 종료 시 원복)
+		SkillCooldownMap.Empty();
+
+		auto RegisterSkillCooldown = [this](FName SkillName, FName BBKey, float Cooldown, float ActionDelay, float Weight)
+		{
+			FBossSkillCooldownInfo Info;
+			Info.Cooldown = Cooldown;
+			Info.ActionDelay = ActionDelay;
+			Info.BaseWeight = Weight;
+			Info.BlackboardKey = BBKey;
+			Info.LastCastTime = -999.0f;
+			SkillCooldownMap.Add(SkillName, Info);
+		};
+
+		auto GetSkillCooldown = [this](FName SkillName, float FallbackCooldown) -> float
+		{
+			if (const FBossCombatBalanceRow* Row = FindSkillBalance(SkillName))
+			{
+				if (Row->Cooldown > 0.0f)
+				{
+					return Row->Cooldown;
+				}
+			}
+			return FallbackCooldown;
+		};
+
+		auto GetSkillActionDelay = [this](FName SkillName, float FallbackDelay) -> float
+		{
+			if (const FBossCombatBalanceRow* Row = FindSkillBalance(SkillName))
+			{
+				if (Row->ActionDelay > 0.0f)
+				{
+					return Row->ActionDelay;
+				}
+			}
+			return FallbackDelay;
+		};
+
+		RegisterSkillCooldown(TEXT("NormalAttack"), TEXT("W_NormalAttack"), GetSkillCooldown(TEXT("NormalAttack"), 2.0f), GetSkillActionDelay(TEXT("NormalAttack"), AttackStruct.NormalAttackDelay), AttackStruct.NormalAttackWeight);
+		RegisterSkillCooldown(TEXT("RushAttack"), TEXT("W_RushAttack"), GetSkillCooldown(TEXT("RushAttack"), 5.0f), GetSkillActionDelay(TEXT("RushAttack"), AttackStruct.RushAttackDelay), AttackStruct.RushAttackWeight);
+		RegisterSkillCooldown(TEXT("Guard"), TEXT("W_Guard"), GetSkillCooldown(TEXT("Guard"), 4.0f), GetSkillActionDelay(TEXT("Guard"), AttackStruct.GuardDelay), AttackStruct.GuardWeight);
+		RegisterSkillCooldown(TEXT("ChargeAttack"), TEXT("W_ChargeAttack"), GetSkillCooldown(TEXT("ChargeAttack"), 3.0f), GetSkillActionDelay(TEXT("ChargeAttack"), AttackStruct.ChargeAttackDelay), AttackStruct.ChargeAttackWeight);
+		RegisterSkillCooldown(TEXT("ZapAttack"), TEXT("W_ZapAttack"), GetSkillCooldown(TEXT("ZapAttack"), 2.5f), GetSkillActionDelay(TEXT("ZapAttack"), AttackStruct.ZapAttackDelay), AttackStruct.ZapAttackWeight);
+
+		UE_LOG(LogTemp, Log, TEXT("[BossBlackKnight] Successfully injected all skill balance parameters and cooldowns from DT_BossCombatBalance! (Common Delay: %.1fs)"), CommonAttackDelay);
+		return;
+	}
+
+	// ─── 2. 기존 CombatStatHandle (하위 호환성 및 폴백) ───
 	if (CombatStatHandle.DataTable && !CombatStatHandle.RowName.IsNone())
 	{
 		AttackStruct.NormalAttackDamage = BaseAttackDamage;

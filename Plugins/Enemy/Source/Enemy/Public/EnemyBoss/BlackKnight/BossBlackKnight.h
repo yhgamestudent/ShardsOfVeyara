@@ -90,6 +90,16 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
 	FBossBlackKnightAttackStruct AttackStruct;
+
+	// ─── [스킬별 개별 쿨타임 및 공통 행동 딜레이 시스템] ───
+	UPROPERTY()
+	TMap<FName, FBossSkillCooldownInfo> SkillCooldownMap;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Cooldown")
+	float CommonAttackDelay = 1.2f;
+
+	void StartSkillCooldown(FName SkillName);
+	void UpdateSkillCooldowns();
 	
 	// 무기 공격 범위에 플레이어가 들어왔을 때 호출되는 함수
 	UFUNCTION()
@@ -175,6 +185,17 @@ public:
 	// 잽 생성 타이밍
 	UFUNCTION(BlueprintCallable)
 	void SpawnZapAttackEffect();
+
+	// ─── [전투 타임라인 로깅용 ActionID 추적 변수 및 상태 플래그] ───
+	FString CurrentRushAttackActionID;
+	FString CurrentNormalAttackActionID;
+	FString CurrentChargeAttackActionID;
+	FString CurrentGuardAttackActionID;
+	FString CurrentZapAttackActionID;
+
+	bool bRushHitPlayer = false;
+	bool bAxeHitPlayer = false;
+	bool bZapHitPlayer = false;
 	
 #if WITH_EDITOR
 	// 에디터에서 프로퍼티가 변경될 때 호출됩니다.

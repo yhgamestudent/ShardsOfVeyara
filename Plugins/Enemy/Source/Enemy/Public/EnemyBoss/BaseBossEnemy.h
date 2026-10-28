@@ -54,6 +54,27 @@ struct ENEMY_API FBossCombatBalanceRow : public FTableRowBase
 	float KnockdownDuration = 0.0f;
 };
 
+USTRUCT(BlueprintType)
+struct ENEMY_API FBossSkillCooldownInfo
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cooldown")
+	float Cooldown = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cooldown")
+	float ActionDelay = 1.0f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Cooldown")
+	float LastCastTime = -999.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cooldown")
+	float BaseWeight = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cooldown")
+	FName BlackboardKey = NAME_None;
+};
+
 UCLASS()
 class ENEMY_API ABaseBossEnemy : public ACharacter, public IItemDropInterface, public IInteractionInterface, public ICombatLogParticipantInterface
 {
