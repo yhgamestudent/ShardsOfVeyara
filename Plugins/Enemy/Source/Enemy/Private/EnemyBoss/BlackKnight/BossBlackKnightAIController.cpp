@@ -80,9 +80,11 @@ void ABossBlackKnightAIController::SetBlackboardKey()
 		: 9999.0f;
 	const bool bIsCloseRange = (InitialDist <= 400.0f);
 
-	BlackboardComp->SetValueAsFloat(TEXT("W_RushAttack"), bIsCloseRange ? 0.0f : ControlledEnemy->AttackStruct.RushAttackWeight);
-	BlackboardComp->SetValueAsFloat(TEXT("W_Guard"), bIsCloseRange ? ControlledEnemy->AttackStruct.GuardWeight : 0.0f);
+	// [개선]: 근접(<=400)에서도 돌진(Rush)과 낙뢰(Zap) 가중치를 완전히 0으로 죽이지 않고 개방하여
+	// 근접전 시 백스텝 후 돌진, 발밑 낙뢰 등 다채로운 패턴이 골고루 발동되도록 설정
+	BlackboardComp->SetValueAsFloat(TEXT("W_RushAttack"), bIsCloseRange ? (ControlledEnemy->AttackStruct.RushAttackWeight * 0.6f) : ControlledEnemy->AttackStruct.RushAttackWeight);
+	BlackboardComp->SetValueAsFloat(TEXT("W_Guard"), bIsCloseRange ? ControlledEnemy->AttackStruct.GuardWeight : 2.0f);
 	BlackboardComp->SetValueAsFloat(TEXT("W_NormalAttack"), bIsCloseRange ? ControlledEnemy->AttackStruct.NormalAttackWeight : 0.0f);
 	BlackboardComp->SetValueAsFloat(TEXT("W_ChargeAttack"), ControlledEnemy->AttackStruct.ChargeAttackWeight);
-	BlackboardComp->SetValueAsFloat(TEXT("W_ZapAttack"), bIsCloseRange ? 0.0f : ControlledEnemy->AttackStruct.ZapAttackWeight);
+	BlackboardComp->SetValueAsFloat(TEXT("W_ZapAttack"), bIsCloseRange ? (ControlledEnemy->AttackStruct.ZapAttackWeight * 0.8f) : ControlledEnemy->AttackStruct.ZapAttackWeight);
 }

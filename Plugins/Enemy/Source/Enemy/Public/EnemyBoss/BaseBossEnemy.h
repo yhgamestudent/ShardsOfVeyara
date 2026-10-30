@@ -91,6 +91,9 @@ public:
 	FORCEINLINE float GetHealth() const { return Health; }
 	FORCEINLINE float GetMaxHealth() const { return MaxHealth; }
 
+	/** 플레이어의 패링(저스트 가드)에 의해 공격이 쳐내졌을 때 호출되는 가상 함수 */
+	virtual void OnAttackParried(AActor* ParryingActor) {}
+
 	/** 플레이어(TargetCharacter)의 체력 및 상태 쿼리 헬퍼 */
 	void QueryTargetPlayerData(float& OutPlayerHP, float& OutPlayerMaxHP, FString& OutPlayerState, float& OutDistance) const;
 

@@ -7,6 +7,7 @@
 #include "NiagaraSystem.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameplayLogSubsystem.h"
+#include "EnemyBoss/BaseBossEnemy.h"
 
 UAGSDGuardComponent::UAGSDGuardComponent()
 {
@@ -149,6 +150,12 @@ void UAGSDGuardComponent::HandleJustGuardSuccess(AActor* DamageCauser)
 		}
 	}
 
+	// 🛡️ 보스/공격자에게 패링 성공 통지 (공격 취소 및 비틀거림 경직 유도)
+	if (ABaseBossEnemy* BossEnemy = Cast<ABaseBossEnemy>(ActualAttacker))
+	{
+		BossEnemy->OnAttackParried(OwnerCharacter);
+	}
+
 	// 저스트 가드 성공 시 즉시 가드 상태 해제 후 패리 콤보 시작
 	StopBlock();
 	OwnerCharacter->LastJustGuardSuccessWorldTime = GetWorld()->GetTimeSeconds();
@@ -201,7 +208,8 @@ bool UAGSDGuardComponent::ProcessDamageMitigation(float IncomingDamage, float& O
 	}
 
 	// 1. 저스트 가드(패링) 타이밍: 100% 완전 방어 (대미지 0)
-	if (bIsJustGuardWindow)
+	// 1. 저스트 가드(패링) 타이밍 또는 반격 활성 중: 100% 완전 방어 (대미지 0)
+	if (bIsJustGuardWindow || bJustGuardSuccessful || (OwnerCharacter && OwnerCharacter->bIsJustGuardCounterActive))
 	{
 		OutMitigatedDamage = 0.f;
 

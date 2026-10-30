@@ -89,6 +89,7 @@ public:
 	virtual bool IsSkillOnCooldown(FName SkillOrBlackboardKey) const override;
 	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, 
 		class AController* EventInstigator, AActor* DamageCauser) override;
+	virtual void OnAttackParried(AActor* ParryingActor) override;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
 	FBossBlackKnightAttackStruct AttackStruct;
@@ -104,6 +105,10 @@ public:
 	void UpdateSkillCooldowns();
 	
 	// 무기 공격 범위에 플레이어가 들어왔을 때 호출되는 함수
+	// ─── [도끼 틱 스윕(Sweep) 연속 충돌 검사 시스템 (라이브 코딩 호환: 새 멤버 변수 없음)] ───
+	void TickAxeSweep(float DeltaTime);
+	void HandleAxeHit(AActor* HitActor, const FHitResult& HitResult);
+
 	UFUNCTION()
 	void OnBeginOverlapAxeCollisionSphere(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
 		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);

@@ -824,11 +824,6 @@ float AAGSDCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& 
 		return DamageToApply;
 	}
 	
-	if (DamageToApply >= 0.f)
-	{
-		OnHitReceived(DamageCauser);
-	}
-	
 	const float IncomingDamage = DamageAmount;
 	FString GuardState = TEXT("None");
 
@@ -840,7 +835,7 @@ float AAGSDCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& 
 			const float MitigatedAmount = DamageToApply - MitigatedDamage;
 			DamageToApply = MitigatedDamage;
 
-			GuardState = (GuardComponent->IsJustGuardSuccessful() || GuardComponent->IsJustGuardActive()) ? TEXT("JustGuarded") : TEXT("Guarded");
+			GuardState = (GuardComponent->IsJustGuardSuccessful() || GuardComponent->IsJustGuardActive() || bIsJustGuardCounterActive) ? TEXT("JustGuarded") : TEXT("Guarded");
 
 			if (MitigatedAmount > 0.f)
 			{
@@ -853,6 +848,11 @@ float AAGSDCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& 
 				}
 			}
 		}
+	}
+
+	if (DamageToApply >= 0.f)
+	{
+		OnHitReceived(DamageCauser);
 	}
 	
 	UE_LOG(LogTemp, Warning, TEXT("Player Take Damage : %f"), DamageToApply);
@@ -2230,8 +2230,8 @@ void AAGSDCharacter::ResetCombo()
 	CurrentComboData = nullptr;
 	LastParryAttacker = nullptr;
 
-	// 3. (추가) 수비 시스템 관련 상태도 함께 초기화
-	if (GuardComponent)
+	// 3. (추가) 수비 시스템 관련 상태도 함께 초기화 (단, 저스트 가드 반격기 진입 중에는 패링 성공 상태 보존)
+	if (GuardComponent && !bIsJustGuardCounterActive)
 	{
 		GuardComponent->ResetGuardState();
 	}
@@ -2244,7 +2244,8 @@ void AAGSDCharacter::ResetCombo()
 
 void AAGSDCharacter::OnHitReceived(AActor* DamageCauser)
 {
-	if (GuardComponent && GuardComponent->IsJustGuardActive())
+	const bool bIsUnblockable = DamageCauser && (DamageCauser->ActorHasTag(TEXT("Unblockable")) || DamageCauser->ActorHasTag(TEXT("Trap")));
+	if (GuardComponent && GuardComponent->IsJustGuardActive() && !bIsUnblockable)
 	{
 		GuardComponent->HandleJustGuardSuccess(DamageCauser);
 	}
@@ -4276,13 +4277,14 @@ void AAGSDCharacter::ProcessHitReaction(float DamageAmount, AActor* DamageCauser
 	// - 일반 공격을 맞으면 가드로 든든하게 막아내며 피격 리액션 스킵
 	if (CharacterState == ECharacterState::Block)
 	{
-		if (TargetKnockdownType != EKnockdownType::None)
+		const bool bIsUnblockable = DamageCauser && (DamageCauser->ActorHasTag(TEXT("Unblockable")) || DamageCauser->ActorHasTag(TEXT("Trap")));
+		if (TargetKnockdownType != EKnockdownType::None || bIsUnblockable)
 		{
 			if (GuardComponent)
 			{
-				GuardComponent->StopBlock(); // 가드 강제 해제 (가드 브레이크)
+				GuardComponent->StopBlock(); // 가드 강제 해제 (가드 브레이크 / 가드 무시)
 			}
-			UE_LOG(LogTemp, Log, TEXT("[HitReaction] Guard Broken by Heavy/Knockdown attack!"));
+			UE_LOG(LogTemp, Log, TEXT("[HitReaction] Guard Broken by Heavy/Unblockable attack!"));
 		}
 		else
 		{
