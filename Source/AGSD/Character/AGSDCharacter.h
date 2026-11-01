@@ -27,6 +27,8 @@
 #include "AGSDCharacter.generated.h"
 
 class UAGSDComboGuideComponent;
+class UNiagaraSystem;
+class USoundBase;
 
 USTRUCT(BlueprintType)
 struct FEquipSocketMapping
@@ -217,7 +219,10 @@ protected:
 	class UFadeWidget* FadeWidget;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="PlayerState")
-	int Coin;
+	int32 Coin = 0;
+
+	UFUNCTION(BlueprintPure, Category = "PlayerState")
+	int32 GetCoin() const { return Coin; }
 
 	UFUNCTION(BlueprintCallable, Category = "PlayerState")
 	void AddCoin(int32 Amount);
@@ -481,6 +486,8 @@ public:
 	FORCEINLINE USOVGameInstance* getPlayerGameInstance() const {return GI;};
 
 	FORCEINLINE float getPlayerMaxhealth() const { return MaxHealth;}
+	FORCEINLINE float getHealth() const { return Health; }
+	FORCEINLINE float getPlayerHealth() const { return Health; }
 
 	/** 전투 로그용 플레이어 현재 전투/행동 상태 문자열 반환 (JustGuarding, Guarding, Rolling, Attacking, AttackRecovery, Moving, Idle) */
 	UFUNCTION(BlueprintPure, Category = "Combat|Log")
@@ -640,7 +647,7 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PlayerUI")
 	TSubclassOf<class UHealthBar> WBP_HealthBar;
 
-	FORCEINLINE float getHealth() const {return Health;};
+	
 	
 	// 선입력 및 방향 판정을 위한 원시 입력 벡터 (이동 제한 상태에서도 업데이트됨)
 	FVector LastRawInputVector = FVector::ZeroVector;
@@ -804,6 +811,32 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "PlayerState")
 	void HealthRecovery(float amount);
 
+	/** 체력을 직접 설정하고 UI를 갱신합니다. (치트/디버그/초기화용) */
+	UFUNCTION(BlueprintCallable, Category = "PlayerState")
+	void SetHealth(float NewHealth);
+
+	// ── 회복 이펙트 (Heal VFX / SFX) ──
+
+	/** 체력 회복 시 재생할 나이아가라 시스템 (기본값: NS_Heal_02) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Heal")
+	TObjectPtr<class UNiagaraSystem> HealEffect;
+
+	/** 캐릭터 메시를 따라다니며 재생할지 여부 (true: 메시 부착, false: 발밑 지면 고정) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Heal")
+	bool bAttachHealEffectToMesh = true;
+
+	/** 이펙트 크기 배율 (기본값: 1.0f) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Heal")
+	FVector HealEffectScale = FVector(0.5f);
+
+	/** 회복 효과음 (선택 사항) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|Heal")
+	TObjectPtr<class USoundBase> HealSoundEffect;
+
+	/** 회복 나이아가라 이펙트 및 사운드 재생 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Heal")
+	void PlayHealEffect();
+
 	// ── 글로벌 포션 공유 쿨다운 시스템 ──
 
 	/** 모든 포션이 공유하는 기본 쿨다운 시간(초) */
@@ -829,6 +862,14 @@ public:
 	/** 아이템 데이터가 포션 종류인지 판별하는 헬퍼 함수 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Potion")
 	bool IsPotionItem(const FStruct_ItemData& ItemData) const;
+
+	/** 현재 손에 든 아이템이 좌클릭으로 사용 가능한 아이템(물약, 금괴 등 소모품)인지 판별하고 액션 텍스트 반환 */
+	UFUNCTION(BlueprintPure, Category = "Interaction|ItemUse")
+	bool IsHoldingUsableItem(FText& OutActionText) const;
+
+	/** 좌측 아이템 사용 안내 위젯(LeftItemUseWidget) 갱신 */
+	UFUNCTION(BlueprintCallable, Category = "Interaction|ItemUse")
+	void UpdateLeftItemUseWidget();
 
 	UFUNCTION(BlueprintCallable, Category = "Combat")
 	float GetCurrentAttackDamageMultiplier() const;

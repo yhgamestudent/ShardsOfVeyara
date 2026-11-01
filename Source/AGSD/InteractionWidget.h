@@ -15,13 +15,20 @@ class AGSD_API UInteractionWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
-	UFUNCTION()
+	UFUNCTION(BlueprintCallable, Category = "Interaction")
 	void SetInteractionText(const FText& NewText);
+
+	UFUNCTION(BlueprintCallable, Category = "Interaction")
+	void SetInteractionIcon(class UTexture2D* NewIcon);
+
 	void SetTargetOpacity(float NewOpacity);
 	
 protected:
-	UPROPERTY(meta = (BindWidget))
+	UPROPERTY(meta = (BindWidgetOptional))
 	class UTextBlock* InteractionText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	class UImage* InteractionIcon;
 
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 	virtual void NativeConstruct() override;

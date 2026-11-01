@@ -11,7 +11,7 @@ void UHealthBar::NativeConstruct()
 	if (HealthProgressBar)
 	{
 		// 에디터/블루프린트에 설정된 프로그레스바 기본 Fill 색상 자동 캐싱
-		BaseFillColor = HealthProgressBar->FillColorAndOpacity;
+		BaseFillColor = HealthProgressBar->GetFillColorAndOpacity();
 	}
 
 	// 위젯 생성 시 텍스트를 Collapsed 상태로 초기화

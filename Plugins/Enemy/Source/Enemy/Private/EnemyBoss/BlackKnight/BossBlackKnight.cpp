@@ -399,37 +399,55 @@ float ABossBlackKnight::TakeDamage(float DamageAmount, struct FDamageEvent const
 	const float AppliedDamage = Super::TakeDamage(DamageAmount, DamageEvent, EventInstigator, DamageCauser);
 
 	// ─── [개선: 체력 50% 이하 2페이즈 각성 및 광폭화 낙뢰 폭풍 트리거] ───
-
-	if (Health <= MaxHealth * 0.5f && CommonAttackDelay >= 1.0f && Health > 0.0f)
-
+	if (!bIsPhase2Activated && Health <= MaxHealth * 0.5f && Health > 0.0f)
 	{
+		bIsPhase2Activated = true;
 
-		// 1) 공격 딜레이 1.2s -> 0.65s로 대폭 단축하여 템포 급상승
-
-		CommonAttackDelay = 0.65f;
-
+		// 1) 공격 딜레이를 0.45s로 대폭 단축하여 템포 급상승 (기본 0.6s -> 0.45s)
+		CommonAttackDelay = 0.45f;
 		if (BlackboardComp)
-
 		{
-
 			BlackboardComp->SetValueAsFloat("AttackDelay", CommonAttackDelay);
 
 			// 돌진 및 낙뢰 쿨다운 즉시 해제 및 가중치 폭증
-
 			BlackboardComp->SetValueAsFloat(TEXT("W_RushAttack"), AttackStruct.RushAttackWeight * 1.5f);
-
 			BlackboardComp->SetValueAsFloat(TEXT("W_ZapAttack"), AttackStruct.ZapAttackWeight * 1.5f);
+		}
 
+		// 스킬 쿨다운 맵에서도 즉시 쿨다운 해제
+		if (FBossSkillCooldownInfo* RushInfo = SkillCooldownMap.Find(TEXT("RushAttack")))
+		{
+			RushInfo->bIsOnCooldown = false;
+		}
+		if (FBossSkillCooldownInfo* ZapInfo = SkillCooldownMap.Find(TEXT("ZapAttack")))
+		{
+			ZapInfo->bIsOnCooldown = false;
+		}
+
+		// 타임라인 로거에 페이즈 전이 기록
+		if (UCombatTimelineLogger::IsSessionActive())
+		{
+			float CurPlayerHP = 0.0f;
+			float CurPlayerMaxHP = 0.0f;
+			FString CurPlayerState = TEXT("Idle");
+			float CurDist = 0.0f;
+			QueryTargetPlayerData(CurPlayerHP, CurPlayerMaxHP, CurPlayerState, CurDist);
+
+			UCombatTimelineLogger::LogPhaseTransition(
+				TEXT("Phase2_Enrage"),
+				GetWorld()->GetTimeSeconds(),
+				Health,
+				MaxHealth,
+				CurPlayerHP,
+				CurPlayerMaxHP,
+				TEXT("Boss Enraged: Attack Delay Reduced (0.45s) & Lightning Storm Summoned")
+			);
 		}
 
 		// 2) 2페이즈 각성 낙뢰 폭풍 발동 (반경 800에 7연속 번개 투하)
-
 		SpawnRandomZapEffect();
-
-		UE_LOG(LogTemp, Warning, TEXT("[BossBlackKnight] ★★★ PHASE 2 ENRAGE ACTIVATED! (HP: %.1f / %.1f) - Delay Reduced to 0.65s, Lightning Storm Summoned! ★★★"),
-
+		UE_LOG(LogTemp, Warning, TEXT("[BossBlackKnight] ★★★ PHASE 2 ENRAGE ACTIVATED! (HP: %.1f / %.1f) - Delay Reduced to 0.45s, Lightning Storm Summoned! ★★★"),
 			Health, MaxHealth);
-
 	}
 
 	return AppliedDamage;
@@ -497,11 +515,29 @@ void ABossBlackKnight::OnAttackParried(AActor* ParryingActor)
 	}
 
 	// 4. 스킬 쿨다운 즉시 갱신 및 AI 공격 종료 후 포커스 재설정
-
 	StartSkillCooldown(TEXT("NormalAttack"));
-
 	bFocusPlayerAfterAttack = true;
+}
 
+void ABossBlackKnight::AdjustRangeWeights(UBlackboardComponent* InBlackboardComp, float Distance)
+{
+	if (!InBlackboardComp) return;
+
+	const bool bIsCloseRange = (Distance <= 400.0f);
+	if (bIsCloseRange)
+	{
+		// 근접전 시에도 발밑 낙뢰(W_ZapAttack)와 도약 재돌진(W_RushAttack)이 에셋 기본값에 의해 0으로 잠기지 않도록 보장
+		if (!IsSkillOnCooldown(TEXT("W_ZapAttack")) && !IsSkillOnCooldown(TEXT("ZapAttack")))
+		{
+			const float ZapW = AttackStruct.ZapAttackWeight * (bIsPhase2Activated ? 1.5f : 0.8f);
+			InBlackboardComp->SetValueAsFloat(TEXT("W_ZapAttack"), ZapW);
+		}
+		if (!IsSkillOnCooldown(TEXT("W_RushAttack")) && !IsSkillOnCooldown(TEXT("RushAttack")))
+		{
+			const float RushW = AttackStruct.RushAttackWeight * (bIsPhase2Activated ? 1.5f : 0.6f);
+			InBlackboardComp->SetValueAsFloat(TEXT("W_RushAttack"), RushW);
+		}
+	}
 }
 
 void ABossBlackKnight::HandleAxeHit(AActor* HitActor, const FHitResult& HitResult)
@@ -543,6 +579,11 @@ void ABossBlackKnight::HandleAxeHit(AActor* HitActor, const FHitResult& HitResul
 		if (bWasParried)
 		{
 			UCombatTimelineLogger::LogHitJustGuard(CurrentActionID, CurrentActionName, CurrentTime, CurDist, Health, MaxHealth, CurPlayerHP, CurPlayerMaxHP);
+		}
+		else if (CurPlayerState == TEXT("Rolling"))
+		{
+			// [개선]: 플레이어가 구르기 무적으로 회피 중인 경우, 허위 HIT_SUCCESS 대신 회피 성공(LogHitMissed) 기록
+			UCombatTimelineLogger::LogHitMissed(CurrentActionID, CurrentActionName, CurrentTime, CurDist, TEXT("Player Evaded with Roll"));
 		}
 		else if (!bIsUnblockableAttack && CurPlayerState == TEXT("Guarding"))
 		{

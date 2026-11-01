@@ -4,12 +4,21 @@
 #include "InteractionWidget.h"
 
 #include "Components/TextBlock.h"
+#include "Components/Image.h"
 
 void UInteractionWidget::SetInteractionText(const FText& NewText)
 {
 	if (InteractionText)
 	{
 		InteractionText->SetText(NewText);
+	}
+}
+
+void UInteractionWidget::SetInteractionIcon(UTexture2D* NewIcon)
+{
+	if (InteractionIcon && NewIcon)
+	{
+		InteractionIcon->SetBrushFromTexture(NewIcon);
 	}
 }
 

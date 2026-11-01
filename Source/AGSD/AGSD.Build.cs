@@ -26,7 +26,8 @@ public class AGSD : ModuleRules
 			"Niagara",
 			"NavigationSystem",
 			"PhysicsCore",
-			"MotionWarping"
+			"MotionWarping",
+			"GeometryCollectionEngine"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] 
@@ -37,7 +38,7 @@ public class AGSD : ModuleRules
 			"JsonUtilities"
         });
 
-        // 에디터 빌드일 때만 추가되도록 조건문을 사용합니다.
+        // ?먮뵒??鍮뚮뱶???뚮쭔 異붽??섎룄濡?議곌굔臾몄쓣 ?ъ슜?⑸땲??
         if (Target.bBuildEditor)
         {
             PrivateDependencyModuleNames.Add("UnrealEd");

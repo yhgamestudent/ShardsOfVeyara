@@ -2,6 +2,7 @@
 
 
 #include "AGSDPlayerController.h"
+#include "AGSDWarningNoticeWidget.h"
 #include "EnhancedInputSubsystems.h"
 #include "Engine/LocalPlayer.h"
 #include "InputMappingContext.h"
@@ -17,6 +18,7 @@
 #include "SOVGameInstance.h"
 #include "BaseFlyingPet.h"
 #include "Tutorial/TutorialSubsystem.h"
+#include "Kismet/GameplayStatics.h"
 
 AAGSDPlayerController::AAGSDPlayerController()
 {
@@ -66,6 +68,53 @@ void AAGSDPlayerController::HideInteractionWidget()
 	if (InteractionWidget && InteractionWidget->IsInViewport())
 	{
 		InteractionWidget->SetTargetOpacity(0.0f);
+	}
+}
+
+void AAGSDPlayerController::ShowLeftItemUseWidget(const FText& NewText)
+{
+	TSubclassOf<UInteractionWidget> WidgetClassToUse = WBP_LeftInteractionWidget ? WBP_LeftInteractionWidget : WBP_InteractionWidget;
+	if (!WidgetClassToUse) return;
+
+	if (!LeftInteractionWidget)
+	{
+		LeftInteractionWidget = CreateWidget<UInteractionWidget>(this, WidgetClassToUse);
+	}
+	if (LeftInteractionWidget)
+	{
+		LeftInteractionWidget->SetInteractionText(NewText);
+		LeftInteractionWidget->SetTargetOpacity(1.0f);
+		if (!LeftInteractionWidget->IsInViewport())
+		{
+			LeftInteractionWidget->AddToViewport();
+		}
+	}
+}
+
+void AAGSDPlayerController::HideLeftItemUseWidget()
+{
+	if (LeftInteractionWidget && LeftInteractionWidget->IsInViewport())
+	{
+		LeftInteractionWidget->SetTargetOpacity(0.0f);
+	}
+}
+
+void AAGSDPlayerController::ShowWarningNotice(const FText& Message, float Duration)
+{
+	if (!WBP_WarningNoticeWidget) return;
+
+	if (!WarningNoticeWidget)
+	{
+		WarningNoticeWidget = CreateWidget<UAGSDWarningNoticeWidget>(this, WBP_WarningNoticeWidget);
+	}
+	if (WarningNoticeWidget)
+	{
+		if (!WarningNoticeWidget->IsInViewport())
+		{
+			// 다른 일반 HUD 위젯보다 위(Z-Order 10)에 띄움
+			WarningNoticeWidget->AddToViewport(10);
+		}
+		WarningNoticeWidget->ShowNotice(Message, Duration);
 	}
 }
 
@@ -549,5 +598,50 @@ void AAGSDPlayerController::PrintQuestStatus()
 	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 7.f, FColor::Cyan, Msg);
 }
 
+void AAGSDPlayerController::DamagePlayer(float Amount)
+{
+	APawn* PlayerPawn = GetPawn();
+	if (!PlayerPawn)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Cheat] DamagePlayer: Player pawn not found."));
+		return;
+	}
 
+	UGameplayStatics::ApplyDamage(PlayerPawn, Amount, this, PlayerPawn, UDamageType::StaticClass());
 
+	FString Msg = FString::Printf(TEXT("[Cheat] DamagePlayer: Applied %.1f damage to player."), Amount);
+	UE_LOG(LogTemp, Log, TEXT("%s"), *Msg);
+	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Yellow, Msg);
+}
+
+void AAGSDPlayerController::SetPlayerHealth(float NewHealth)
+{
+	AAGSDCharacter* PlayerChar = Cast<AAGSDCharacter>(GetPawn());
+	if (!PlayerChar)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Cheat] SetPlayerHealth: Player character not found."));
+		return;
+	}
+
+	PlayerChar->SetHealth(NewHealth);
+
+	FString Msg = FString::Printf(TEXT("[Cheat] SetPlayerHealth: Player health set to %.1f / %.1f."), PlayerChar->getHealth(), PlayerChar->getPlayerMaxhealth());
+	UE_LOG(LogTemp, Log, TEXT("%s"), *Msg);
+	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Green, Msg);
+}
+
+void AAGSDPlayerController::KillPlayer()
+{
+	APawn* PlayerPawn = GetPawn();
+	if (!PlayerPawn)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Cheat] KillPlayer: Player pawn not found."));
+		return;
+	}
+
+	UGameplayStatics::ApplyDamage(PlayerPawn, 999999.0f, this, PlayerPawn, UDamageType::StaticClass());
+
+	FString Msg = TEXT("[Cheat] KillPlayer: Player killed.");
+	UE_LOG(LogTemp, Log, TEXT("%s"), *Msg);
+	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Red, Msg);
+}

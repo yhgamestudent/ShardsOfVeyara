@@ -94,6 +94,9 @@ public:
 	/** 플레이어의 패링(저스트 가드)에 의해 공격이 쳐내졌을 때 호출되는 가상 함수 */
 	virtual void OnAttackParried(AActor* ParryingActor) {}
 
+	/** 거리별 분기 시 보스 고유의 가중치 미세 보정을 수행하는 가상 함수 (SOLID OCP) */
+	virtual void AdjustRangeWeights(class UBlackboardComponent* InBlackboardComp, float Distance) {}
+
 	/** 플레이어(TargetCharacter)의 체력 및 상태 쿼리 헬퍼 */
 	void QueryTargetPlayerData(float& OutPlayerHP, float& OutPlayerMaxHP, FString& OutPlayerState, float& OutDistance) const;
 

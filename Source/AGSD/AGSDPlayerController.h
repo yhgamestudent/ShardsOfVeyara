@@ -23,16 +23,36 @@ class AAGSDPlayerController : public APlayerController
 public:
 	AAGSDPlayerController();
 
-	UPROPERTY(EditDefaultsOnly)
+	// [우측] 월드 상호작용 위젯 클래스
+	UPROPERTY(EditDefaultsOnly, Category = "UI|Interaction")
 	TSubclassOf<class UInteractionWidget> WBP_InteractionWidget;
+
+	// [좌측] 손에 든 아이템 사용 안내 위젯 클래스
+	UPROPERTY(EditDefaultsOnly, Category = "UI|Interaction")
+	TSubclassOf<class UInteractionWidget> WBP_LeftInteractionWidget;
+
+	// [상단] 시스템 경고 및 안내 토스트 알림 위젯 클래스
+	UPROPERTY(EditDefaultsOnly, Category = "UI|Notice")
+	TSubclassOf<class UAGSDWarningNoticeWidget> WBP_WarningNoticeWidget;
+
 	UPROPERTY(EditDefaultsOnly)
 	TSubclassOf<class UUserWidget> WBP_ClockWidget;
 
-	UFUNCTION(BlueprintCallable)
+	UFUNCTION(BlueprintCallable, Category = "UI|Interaction")
 	void ShowInteractionWidget(const FText& NewText);
 	
-	void ShowClockWidget();
 	void HideInteractionWidget();
+
+	UFUNCTION(BlueprintCallable, Category = "UI|Interaction")
+	void ShowLeftItemUseWidget(const FText& NewText);
+
+	void HideLeftItemUseWidget();
+
+	/** 화면 상단에 경고/안내 토스트 메시지를 표시합니다. */
+	UFUNCTION(BlueprintCallable, Category = "UI|Notice")
+	void ShowWarningNotice(const FText& Message, float Duration = 1.5f);
+
+	void ShowClockWidget();
 	UFUNCTION(BlueprintCallable)
 	void CutsceneHideClockWidget();
 	UFUNCTION(BlueprintCallable)
@@ -40,6 +60,13 @@ public:
 private:
 	UPROPERTY()
 	class UInteractionWidget* InteractionWidget;
+
+	UPROPERTY()
+	class UInteractionWidget* LeftInteractionWidget;
+
+	UPROPERTY()
+	class UAGSDWarningNoticeWidget* WarningNoticeWidget;
+
 	UPROPERTY()
 	class UUserWidget* ClockWidget;
 	
@@ -176,6 +203,41 @@ public:
 
 	UFUNCTION(Exec, Category = "Cheats")
 	void QuestStatus() { PrintQuestStatus(); }
+
+	// ─── [디버그/테스트용 플레이어 체력 치트 명령어] ───
+
+	/** 
+	 * 플레이어에게 지정한 수치만큼 데미지를 입힙니다.
+	 * 사용법: DamagePlayer <Amount> (예: DamagePlayer 50 또는 Damage 30)
+	 */
+	UFUNCTION(Exec, Category = "Cheats")
+	void DamagePlayer(float Amount = 50.0f);
+
+	UFUNCTION(Exec, Category = "Cheats")
+	void Damage(float Amount = 50.0f) { DamagePlayer(Amount); }
+
+	UFUNCTION(Exec, Category = "Cheats")
+	void Hurt(float Amount = 50.0f) { DamagePlayer(Amount); }
+
+	/** 
+	 * 플레이어 체력을 원하는 수치로 즉시 설정합니다.
+	 * 사용법: SetPlayerHealth <NewHealth> (예: SetPlayerHealth 10 또는 SetHP 20)
+	 */
+	UFUNCTION(Exec, Category = "Cheats")
+	void SetPlayerHealth(float NewHealth);
+
+	UFUNCTION(Exec, Category = "Cheats")
+	void SetHP(float NewHealth) { SetPlayerHealth(NewHealth); }
+
+	/** 
+	 * 플레이어를 즉시 사망시킵니다.
+	 * 사용법: KillPlayer 또는 Suicide
+	 */
+	UFUNCTION(Exec, Category = "Cheats")
+	void KillPlayer();
+
+	UFUNCTION(Exec, Category = "Cheats")
+	void Suicide() { KillPlayer(); }
 
 private:
 	/** 플레이어 캐릭터의 인벤토리 컴포넌트를 가져오는 헬퍼 */

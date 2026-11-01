@@ -67,6 +67,7 @@ EBTNodeResult::Type UBTTask_BossSelectWeight::ExecuteTask(UBehaviorTreeComponent
 		if (Distance <= EffectiveCloseDist) // 근거리
 		{
 			ApplyWeights(CloseRangeWeights);
+			Boss->AdjustRangeWeights(BlackboardComp, Distance);
 			// 로그
 			UE_LOG(LogTemp, Warning, TEXT("Distance: %f - Close Range Weights Applied"), Distance);
 			SelectedRangeName = TEXT("Short Range");
@@ -75,6 +76,7 @@ EBTNodeResult::Type UBTTask_BossSelectWeight::ExecuteTask(UBehaviorTreeComponent
 		else if (Distance > EffectiveCloseDist && Distance <= MidRangeDistance) // 중거리
 		{
 			ApplyWeights(MidRangeWeights);
+			Boss->AdjustRangeWeights(BlackboardComp, Distance);
 			// 로그
 			UE_LOG(LogTemp, Warning, TEXT("Distance: %f - Mid Range Weights Applied"), Distance);
 			SelectedRangeName = TEXT("Mid Range");
@@ -83,6 +85,7 @@ EBTNodeResult::Type UBTTask_BossSelectWeight::ExecuteTask(UBehaviorTreeComponent
 		else // 원거리
 		{
 			ApplyWeights(FarRangeWeights);
+			Boss->AdjustRangeWeights(BlackboardComp, Distance);
 			// 로그
 			UE_LOG(LogTemp, Warning, TEXT("Distance: %f - Far Range Weights Applied"), Distance);
 			SelectedRangeName = TEXT("Long Range");

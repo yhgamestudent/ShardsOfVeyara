@@ -90,6 +90,11 @@ public:
 	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, 
 		class AController* EventInstigator, AActor* DamageCauser) override;
 	virtual void OnAttackParried(AActor* ParryingActor) override;
+	virtual void AdjustRangeWeights(class UBlackboardComponent* InBlackboardComp, float Distance) override;
+
+	/** 2페이즈 광폭화 각성 여부 플래그 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "자체설정|Phase")
+	bool bIsPhase2Activated = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
 	FBossBlackKnightAttackStruct AttackStruct;

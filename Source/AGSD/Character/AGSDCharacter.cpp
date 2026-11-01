@@ -49,6 +49,9 @@
 #include "EnemyProjectile/GroundAttackProjectile.h"
 #include "EnemyBoss/SkeletonMage/BossSkeletonMage.h"
 #include "CombatTimelineLogger.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraSystem.h"
+#include "NiagaraComponent.h"
 #include "Components/WidgetComponent.h"
 #include "Blueprint/UserWidget.h"
 #include "Tribute/TributeUI.h"
@@ -71,6 +74,13 @@ AAGSDCharacter::AAGSDCharacter()
 	// Configure character movement
 	GetCharacterMovement()->bOrientRotationToMovement = true;
 	GetCharacterMovement()->RotationRate = FRotator(0.0f, 500.0f, 0.0f);
+
+	// 회복 나이아가라 이펙트 기본값 설정 (펫 힐 NS_Heal_02 응용)
+	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> HealVFXFinder(TEXT("/Pet/VFXAsset/Heal/Particles/NS_Heal_02.NS_Heal_02"));
+	if (HealVFXFinder.Succeeded())
+	{
+		HealEffect = HealVFXFinder.Object;
+	}
 
 	// Note: For faster iteration times these variables, and many more, can be tweaked in the Character Blueprint
 	// instead of recompiling to adjust them
@@ -1795,6 +1805,10 @@ void AAGSDCharacter::UseEquippedItem()
 			if (bIsPotion && IsPotionOnCooldown())
 			{
 				UE_LOG(LogTemp, Log, TEXT("[Potion] On Cooldown! Remaining: %.1fs"), GetPotionCooldownRemaining());
+				if (AAGSDPlayerController* MyPC = PC ? PC : Cast<AAGSDPlayerController>(GetController()))
+				{
+					MyPC->ShowWarningNotice(FText::FromString(TEXT("물약 재사용 대기 중입니다.")));
+				}
 				return;
 			}
 
@@ -1803,6 +1817,10 @@ void AAGSDCharacter::UseEquippedItem()
 			{
 				if (Health >= MaxHealth)
 				{
+					if (AAGSDPlayerController* MyPC = PC ? PC : Cast<AAGSDPlayerController>(GetController()))
+					{
+						MyPC->ShowWarningNotice(FText::FromString(TEXT("체력이 이미 가득 차 있습니다.")));
+					}
 					return;
 				}
 			}
@@ -1815,6 +1833,9 @@ void AAGSDCharacter::UseEquippedItem()
 			{
 				LastGlobalPotionUseTime = GetWorld()->GetTimeSeconds();
 			}
+
+			// 소모품 사용 후 좌측 위젯 갱신
+			UpdateLeftItemUseWidget();
 
 			// 📜 체력 물약 등 소비 아이템 사용 로깅
 			if (UGameInstance* GameInst = GetGameInstance())
@@ -2607,6 +2628,54 @@ void AAGSDCharacter::AddDamage(float addDamage)
 	}
 }
 
+void AAGSDCharacter::PlayHealEffect()
+{
+	if (HealEffect)
+	{
+		if (bAttachHealEffectToMesh && GetMesh())
+		{
+			if (UNiagaraComponent* NC = UNiagaraFunctionLibrary::SpawnSystemAttached(
+				HealEffect,
+				GetMesh(),
+				NAME_None,
+				FVector::ZeroVector,
+				FRotator::ZeroRotator,
+				EAttachLocation::SnapToTarget,
+				true,
+				true
+			))
+			{
+				NC->SetRelativeScale3D(HealEffectScale);
+			}
+		}
+		else
+		{
+			UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+				GetWorld(),
+				HealEffect,
+				GetActorLocation(),
+				FRotator::ZeroRotator,
+				HealEffectScale,
+				true
+			);
+		}
+	}
+
+	if (HealSoundEffect)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, HealSoundEffect, GetActorLocation());
+	}
+}
+
+void AAGSDCharacter::SetHealth(float NewHealth)
+{
+	Health = FMath::Clamp(NewHealth, 0.0f, MaxHealth);
+	if (HealthBar)
+	{
+		HealthBar->UpdateHealth(Health, MaxHealth);
+	}
+}
+
 void AAGSDCharacter::HealthRecovery(float amount)
 {
 	const float PrevHealth = Health;
@@ -2614,6 +2683,12 @@ void AAGSDCharacter::HealthRecovery(float amount)
 	const float ActualHealed = Health - PrevHealth;
 
 	if (HealthBar) HealthBar->UpdateHealth(Health, MaxHealth);
+
+	// ✨ 실제 회복 시 나이아가라 이펙트 및 사운드 재생
+	if (ActualHealed > 0.0f)
+	{
+		PlayHealEffect();
+	}
 
 	if (UCombatTimelineLogger::IsSessionActive() && ActualHealed > 0.0f)
 	{
@@ -2703,6 +2778,73 @@ bool AAGSDCharacter::IsPotionItem(const FStruct_ItemData& ItemData) const
 	}
 
 	return false;
+}
+
+bool AAGSDCharacter::IsHoldingUsableItem(FText& OutActionText) const
+{
+	if (HoldingItemData.ItemID.IsEmpty())
+	{
+		return false;
+	}
+
+	// 1. UUsableItem 인터페이스를 구현한 클래스인지 검사
+	bool bIsUsable = false;
+	if (HoldingItemData.ItemBPClass)
+	{
+		if (AActor* DefaultActor = Cast<AActor>(HoldingItemData.ItemBPClass->GetDefaultObject()))
+		{
+			if (DefaultActor->Implements<UUsableItem>())
+			{
+				bIsUsable = true;
+			}
+		}
+	}
+
+	// 2. 소모품 타입(EIT_Consumable)이거나 포션 상태인 경우 사용 가능으로 판단
+	if (!bIsUsable)
+	{
+		if (HoldingItemData.ItemType == EItemType::EIT_Consumable ||
+			HoldingItemData.EquipHoldingState == EHoldingState::EHS_Potion ||
+			HoldingItemData.ItemCategory == EHoldingState::EHS_Potion ||
+			IsPotionItem(HoldingItemData))
+		{
+			bIsUsable = true;
+		}
+	}
+
+	if (bIsUsable)
+	{
+		if (IsPotionItem(HoldingItemData))
+		{
+			OutActionText = FText::FromString(TEXT("마시기"));
+		}
+		else
+		{
+			OutActionText = FText::FromString(TEXT("사용하기"));
+		}
+		return true;
+	}
+
+	return false;
+}
+
+void AAGSDCharacter::UpdateLeftItemUseWidget()
+{
+	AAGSDPlayerController* PlayerController = PC ? PC : Cast<AAGSDPlayerController>(GetController());
+	if (!PlayerController)
+	{
+		return;
+	}
+
+	FText ActionText;
+	if (IsHoldingUsableItem(ActionText))
+	{
+		PlayerController->ShowLeftItemUseWidget(ActionText);
+	}
+	else
+	{
+		PlayerController->HideLeftItemUseWidget();
+	}
 }
 //--------------
 
@@ -3139,6 +3281,7 @@ void AAGSDCharacter::UpdateEquippedActor()
 		{
 			LockOnComponent->ToggleLockOn();
 		}
+		UpdateLeftItemUseWidget();
 		return;
 	}
 
@@ -3197,6 +3340,7 @@ void AAGSDCharacter::UpdateEquippedActor()
 	{
 		UpdateBackWeapon();
 		UpdateCharacterStateFromEquip();
+		UpdateLeftItemUseWidget();
 		return;
 	}
 
@@ -3266,6 +3410,7 @@ void AAGSDCharacter::UpdateEquippedActor()
 	// 손 장착 무기 상태가 변경되었으므로 등 뒤 무기도 갱신
 	UpdateBackWeapon();
 	UpdateCharacterStateFromEquip();
+	UpdateLeftItemUseWidget();
 }
 
 void AAGSDCharacter::Input_HotbarScroll(const FInputActionValue& Value)
