@@ -9,6 +9,7 @@
 #include "NiagaraSystem.h"
 #include "Character/AGSDCharacter.h"
 #include "Character/Components/AGSDInteractionComponent.h"
+#include "AGSDPlayerController.h"
 #include "TimerManager.h"
 #include "Engine/DamageEvents.h"
 #include "Variant_Combat/Interfaces/CombatDamageable.h"
@@ -100,7 +101,15 @@ void AAGSDBomb::Interact_Implementation(AAGSDCharacter* player)
 
 void AAGSDBomb::ShowWidget_Implementation(ACharacter* player)
 {
-	// 상호작용 위젯 표시 시 필요한 경우 구현
+	if (bIsIgnited || !player)
+	{
+		return;
+	}
+
+	if (AAGSDPlayerController* PlayerController = Cast<AAGSDPlayerController>(player->GetController()))
+	{
+		PlayerController->ShowInteractionWidget(InteractActionText);
+	}
 }
 
 bool AAGSDBomb::CanInteract_Implementation(AAGSDCharacter* player)
@@ -116,6 +125,18 @@ void AAGSDBomb::Ignite()
 	}
 
 	bIsIgnited = true;
+
+	// 점화 시 위젯 숨김 (이미 점화되었으므로 더 이상 점화 안내 불필요)
+	if (UWorld* World = GetWorld())
+	{
+		if (APlayerController* PC = World->GetFirstPlayerController())
+		{
+			if (AAGSDPlayerController* AGSDPC = Cast<AAGSDPlayerController>(PC))
+			{
+				AGSDPC->HideInteractionWidget();
+			}
+		}
+	}
 
 	// 도화선 불빛 활성화 및 깜빡임 효과 시작
 	if (FuseLight)

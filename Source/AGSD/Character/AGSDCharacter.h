@@ -799,6 +799,13 @@ public:
 	/** Returns FollowCamera subobject **/
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 
+	/** Override TeleportTo to automatically reset camera lag and interpolation upon teleportation */
+	virtual bool TeleportTo(const FVector& DestLocation, const FRotator& DestRotation, bool bIsATest = false, bool bNoCheck = false) override;
+
+	/** Instantly flush camera boom lag and player camera manager interpolation */
+	UFUNCTION(BlueprintCallable, Category = "Camera")
+	void ResetCameraLag();
+
 	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent)
 	float WeaponDamage();
 

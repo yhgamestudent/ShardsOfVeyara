@@ -4,6 +4,9 @@
 #include "EnemyBoss/BaseBossEnemy.h"
 #include "BossWorm.generated.h"
 
+class UNiagaraSystem;
+class UNiagaraComponent;
+
 USTRUCT(BlueprintType)
 struct FBossWormAttackStruct
 {
@@ -166,6 +169,33 @@ public:
 	TSubclassOf<class ABaseStreamProjectile> StreamProjectileClass;
 	// 연사 타이머 핸들
 	FTimerHandle FireBreathTimerHandle; 
+	// 화염 방사 발사 본/소켓 이름 (기본값: TongueMaster)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|화염방사")
+	FName FireBreathSocketName = TEXT("TongueMaster");
+
+	// 화염 방사 상하 발사 각도 (단위: 도, 음수면 아래로 조준, 기본값: -10.0도)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|화염방사", meta = (ClampMin = "-45.0", ClampMax = "45.0"))
+	float FireBreathPitchAngle = -10.0f;
+
+	// 화염 방사 판정 반경 (스피어 트레이스 반지름)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|화염방사")
+	float FireBreathDamageRadius = 120.0f;
+
+	// 화염 방사 유효 사정거리
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|화염방사")
+	float FireBreathRange = 1500.0f;
+
+	// 화염 방사 틱 데미지 주기 (초)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|화염방사")
+	float FireBreathDamageInterval = 0.15f;
+
+	FTimerHandle FireBreathDamageTimerHandle;
+	void HandleFireBreathDamageTick();
+
+	// 화염 방사 디버그 트레이스 시각화 여부 (자체설정 탭)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
+	bool bFireBreathDebug = false;
+
 	void SpawnFireBreathProjectile(); 
 	// 화염 방사 간격
 	UPROPERTY(EditDefaultsOnly, Category = "자체설정")	

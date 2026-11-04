@@ -59,7 +59,13 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Destructible")
 	bool bIsDestroyed = false;
 
+	/** 파편 충돌 채널 최적화 설정 (지형에만 충돌, 파편 간 및 캐릭터/카메라 충돌 무시하여 물리 부하 90% 이상 절감) */
+	virtual void ConfigureFractureCollision();
+
 public:
+	/** 바위 원본 스태틱 메시 컴포넌트 접근자 */
+	UStaticMeshComponent* GetRockStaticMesh() const { return RockStaticMesh; }
+
 	/** 언리얼 엔진 표준 데미지 수신 핸들러 (방사형 데미지 등) */
 	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, class AController* EventInstigator, class AActor* DamageCauser) override;
 

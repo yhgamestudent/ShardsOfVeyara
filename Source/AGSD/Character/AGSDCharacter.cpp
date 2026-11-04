@@ -19,6 +19,7 @@
 #include "Components/SphereComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "Camera/PlayerCameraManager.h"
 #include "GameFramework/Controller.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
@@ -4636,3 +4637,28 @@ void AAGSDCharacter::ResetParticipantStunMetrics()
 }
 
 
+
+void AAGSDCharacter::ResetCameraLag()
+{
+	if (CameraBoom)
+	{
+		// 스프링 암의 이전 프레임 위치/회전 랙 메모리를 현재 위치로 즉시 덮어씌움
+		const FVector CurrentArmOrigin = CameraBoom->GetComponentLocation() + CameraBoom->TargetOffset;
+		CameraBoom->PreviousArmOrigin = CurrentArmOrigin;
+		CameraBoom->PreviousDesiredLoc = CurrentArmOrigin;
+		CameraBoom->PreviousDesiredRot = CameraBoom->GetTargetRotation();
+
+		// 월드 트랜스폼 즉시 갱신
+		CameraBoom->UpdateComponentToWorld();
+	}
+}
+
+bool AAGSDCharacter::TeleportTo(const FVector& DestLocation, const FRotator& DestRotation, bool bIsATest, bool bNoCheck)
+{
+	const bool bSuccess = Super::TeleportTo(DestLocation, DestRotation, bIsATest, bNoCheck);
+	if (bSuccess && !bIsATest)
+	{
+		ResetCameraLag();
+	}
+	return bSuccess;
+}

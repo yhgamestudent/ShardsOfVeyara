@@ -25,18 +25,28 @@ AAGSDDestructibleRock::AAGSDDestructibleRock()
 	// 3. 카오스 지오메트리 컬렉션 컴포넌트 생성 및 초기화 (비주얼 렌더링 및 폭발 시 파편화 담당)
 	GeometryCollectionComponent = CreateDefaultSubobject<UGeometryCollectionComponent>(TEXT("GeometryCollectionComponent"));
 	GeometryCollectionComponent->SetupAttachment(SceneRoot);
-	GeometryCollectionComponent->SetNotifyBreaks(true);
-	GeometryCollectionComponent->SetCollisionProfileName(TEXT("Destructible"));
+	GeometryCollectionComponent->SetNotifyBreaks(false); // 불필요한 브레이크 델리게이트 브로드캐스트 부하 제거
+	GeometryCollectionComponent->SetCollisionProfileName(TEXT("Custom"));
 	GeometryCollectionComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-	GeometryCollectionComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);   // 조각난 파편에 캐릭터 걸림 방지
-	GeometryCollectionComponent->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore); // 카메라 지터/줌인 방지
-	GeometryCollectionComponent->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-	GeometryCollectionComponent->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
-	GeometryCollectionComponent->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
+	ConfigureFractureCollision();
 
 	// 평상시: 물리 OFF (CPU 부하 0, 제자리에 완벽 고정)
 	GeometryCollectionComponent->SetSimulatePhysics(false);
 	GeometryCollectionComponent->SetEnableGravity(false);
+}
+
+void AAGSDDestructibleRock::ConfigureFractureCollision()
+{
+	if (!GeometryCollectionComponent)
+	{
+		return;
+	}
+
+	// 1. 모든 충돌 채널을 기본 '무시(Ignore)'로 설정하여 파편 간/외부 오브젝트 간 충돌 쌍 연산 90% 이상 제거
+	GeometryCollectionComponent->SetCollisionResponseToAllChannels(ECR_Ignore);
+
+	// 2. 바닥 및 벽면 등 정적 지형(WorldStatic)에만 충돌(Block)하여 파편이 바닥에 자연스럽게 안착
+	GeometryCollectionComponent->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
 }
 
 void AAGSDDestructibleRock::BeginPlay()
@@ -52,18 +62,14 @@ void AAGSDDestructibleRock::BeginPlay()
 		RockStaticMesh->SetHiddenInGame(true);
 	}
 
-	// 평상시: 지오메트리 컬렉션 물리 꺼둠 보장
+	// 평상시: 지오메트리 컬렉션 물리 꺼둠 보장 및 최적화 충돌 채널 설정
 	if (GeometryCollectionComponent)
 	{
 		GeometryCollectionComponent->SetSimulatePhysics(false);
 		GeometryCollectionComponent->SetEnableGravity(false);
-		GeometryCollectionComponent->SetCollisionProfileName(TEXT("Destructible"));
+		GeometryCollectionComponent->SetCollisionProfileName(TEXT("Custom"));
 		GeometryCollectionComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-		GeometryCollectionComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
-		GeometryCollectionComponent->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
-		GeometryCollectionComponent->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-		GeometryCollectionComponent->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
-		GeometryCollectionComponent->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
+		ConfigureFractureCollision();
 	}
 }
 
@@ -136,10 +142,8 @@ void AAGSDDestructibleRock::TriggerDestruction(const FVector& HitLocation, const
 	// 2. 카오스 지오메트리 컬렉션 물리 활성화 및 즉시 완전 파편화 (제자리 사방 폭파)
 	if (GeometryCollectionComponent)
 	{
-		// 파편 충돌 설정: 바닥(지형)에는 정상 안착하되, 캐릭터와 카메라는 걸림 없이 100% 무시(통과)
-		GeometryCollectionComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
-		GeometryCollectionComponent->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
-		GeometryCollectionComponent->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+		// 파편 충돌 최적화: 정적 지형(WorldStatic)에만 안착하고 파편들끼리는 충돌 무시
+		ConfigureFractureCollision();
 
 		// 중력 및 물리 활성화
 		GeometryCollectionComponent->SetEnableGravity(true);

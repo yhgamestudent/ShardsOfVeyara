@@ -82,6 +82,10 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Bomb")
 	bool bIsIgnited = false;
 
+	/** 상호작용 위젯에 표시될 안내 텍스트 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bomb|Interaction")
+	FText InteractActionText = FText::FromString(TEXT("폭탄 점화하기"));
+
 public:
 	// --- IInteraction 인터페이스 구현 ---
 	virtual void Interact_Implementation(AAGSDCharacter* player) override;

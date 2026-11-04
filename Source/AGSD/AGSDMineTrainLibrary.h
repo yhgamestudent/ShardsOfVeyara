@@ -7,11 +7,14 @@
 #include "Components/SplineComponent.h"
 #include "AGSDMineTrainLibrary.generated.h"
 
+class UCameraComponent;
+class USceneComponent;
+
 /**
  * UAGSDMineTrainLibrary
  * 
  * 마인 트레인(롤러코스터/광산 카트)의 스플라인 주행, 가속, 중력 물리, 
- * 마지막 구간 감속 판별을 일괄 처리하는 블루프린트 함수 라이브러리입니다.
+ * 마지막 구간 감속 판별 및 속도 연동 동적 카메라를 일괄 처리하는 블루프린트 함수 라이브러리입니다.
  */
 UCLASS()
 class AGSD_API UAGSDMineTrainLibrary : public UBlueprintFunctionLibrary
@@ -53,5 +56,42 @@ public:
 		FRotator& OutNewRotation,
 		bool& bOutIsFinished,
 		bool& bOutIsBraking
+	);
+
+	/**
+	 * 마인 트레인의 현재 주행 속도에 따른 3단계 FOV(감속 줌인 ↔ 기본 ↔ 가속 줌아웃)와
+	 * 카트 회전 시 부드럽게 뒤따라오는 회전 관성 지연(Rotation Lag)을 일괄 처리합니다.
+	 * 
+	 * @param CameraComp 대상 카메라 컴포넌트
+	 * @param ParentComp 카트의 기준 컴포넌트 (회전의 타깃이 되는 Cart 컴포넌트)
+	 * @param CurrentSpeed 현재 카트 주행 속도
+	 * @param DeltaSeconds 프레임 델타 타임
+	 * @param MinSpeed 감속/정지 기준 최저 속도 (기본값 0.0)
+	 * @param BaseSpeed 평상시 순항 기준 기본 속도 (기본값 200.0)
+	 * @param MaxSpeed 최고 질주 기준 최고 속도 (기본값 1200.0)
+	 * @param MinFOV 정지/감속 시 집중 줌인 FOV (기본값 80.0도)
+	 * @param BaseFOV 순항/평상시 기본 FOV (기본값 90.0도)
+	 * @param MaxSpeedFOV 최고 속도 시 광각 질주 FOV (기본값 115.0도)
+	 * @param FOVInterpSpeed FOV 반응 보간 속도 (기본값 3.5f)
+	 * @param RotationLagSpeed 회전 추적 지연 보간 속도 (기본값 6.0f, 값이 작을수록 더 묵직하게 뒤따라옴)
+	 * @param CameraPitchAngle 기본 카메라 Pitch 각도 (기본값 -13.0도)
+	 * @param bEnableRotationLag 회전 관성 지연 활성화 여부 (기본값 true)
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AGSD|MineTrain")
+	static void UpdateMineTrainCameraEffects(
+		UCameraComponent* CameraComp,
+		USceneComponent* ParentComp,
+		double CurrentSpeed,
+		double DeltaSeconds,
+		double MinSpeed = 0.0,
+		double BaseSpeed = 200.0,
+		double MaxSpeed = 1200.0,
+		float MinFOV = 80.0f,
+		float BaseFOV = 90.0f,
+		float MaxSpeedFOV = 115.0f,
+		float FOVInterpSpeed = 3.5f,
+		float RotationLagSpeed = 6.0f,
+		float CameraPitchAngle = -13.0f,
+		bool bEnableRotationLag = true
 	);
 };

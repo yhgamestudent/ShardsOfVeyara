@@ -4,6 +4,10 @@
 #include "EnemyProjectile/BaseStreamProjectile.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
+#include "Kismet/KismetMathLibrary.h"
+#include "Kismet/KismetSystemLibrary.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraComponent.h"
 
 ABaseBurrowEnemy::ABaseBurrowEnemy()
 {
@@ -32,8 +36,21 @@ ABaseBurrowEnemy::ABaseBurrowEnemy()
 	BurrowAttackCollisionSphere->ShapeColor = FColor::Black;
 	BurrowAttackCollisionSphere->SetVisibility(false);
 	BurrowAttackCollisionSphere->SetHiddenInGame(false);
+
+	// 근접 공격 발동 범위 시각화 및 감지용 구체 컴포넌트 (노란색)
+	MeleeAttackRangeSphere = CreateDefaultSubobject<USphereComponent>(TEXT("MeleeAttackRangeSphere"));
+	MeleeAttackRangeSphere->SetupAttachment(RootComponent);
+	MeleeAttackRangeSphere->InitSphereRadius(MeleeAttackRange);
+	MeleeAttackRangeSphere->ShapeColor = FColor::Yellow;
+	MeleeAttackRangeSphere->SetVisibility(true);
+	MeleeAttackRangeSphere->SetHiddenInGame(false); // 에디터 뷰포트 및 인게임에서 원형 선으로 렌더링
+	MeleeAttackRangeSphere->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	MeleeAttackRangeSphere->SetCollisionResponseToAllChannels(ECR_Ignore);
+	MeleeAttackRangeSphere->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 	
 	EnemyType = EEnemyType::EET_Burrow;
+	AttackDelay = 1.2f; // 근접/원거리 공격 사이 기본 대기 시간 1.2초 단축
+	ItemDropTableEnemyID = FName(TEXT("GiantWorm"));
 }
 
 void ABaseBurrowEnemy::BeginPlay()
@@ -82,6 +99,73 @@ float ABaseBurrowEnemy::TakeDamage(float DamageAmount, struct FDamageEvent const
 	return Super::TakeDamage(DamageAmount, DamageEvent, EventInstigator, DamageCauser);
 }
 
+UAnimMontage* ABaseBurrowEnemy::Attack()
+{
+	if (Health <= 0.0f || bIsBurrowing)
+	{
+		return nullptr;
+	}
+
+	ACharacter* Target = TargetCharacter ? TargetCharacter.Get() : UGameplayStatics::GetPlayerCharacter(GetWorld(), 0);
+	if (!Target)
+	{
+		return Super::Attack();
+	}
+
+	// 1. 노란색 원형 콜리전(MeleeAttackRangeSphere) 안에 플레이어가 들어와 있는지 직관적으로 판정
+	bool bIsTargetInMeleeRange = false;
+	if (MeleeAttackRangeSphere)
+	{
+		bIsTargetInMeleeRange = MeleeAttackRangeSphere->IsOverlappingActor(Target);
+	}
+	else
+	{
+		const float HorizontalDist = FVector::Dist2D(GetActorLocation(), Target->GetActorLocation());
+		bIsTargetInMeleeRange = (HorizontalDist <= MeleeAttackRange);
+	}
+
+	UAnimMontage* MontageToPlay = nullptr;
+
+	if (bIsTargetInMeleeRange)
+	{
+		// 노란 원 안에 플레이어가 있으면 근접 공격 실행
+		if (MeleeAttackMontage)
+		{
+			MontageToPlay = MeleeAttackMontage;
+		}
+		else if (AttackMontages.Num() > 0)
+		{
+			MontageToPlay = AttackMontages[0];
+		}
+	}
+	else
+	{
+		// 노란 원 밖(안 맞는 위치)에 플레이어가 있으면 무조건 화염 방사 실행
+		if (FireBreathMontage)
+		{
+			MontageToPlay = FireBreathMontage;
+		}
+		else if (AttackMontages.Num() > 1)
+		{
+			MontageToPlay = AttackMontages[1];
+		}
+		else if (AttackMontages.Num() > 0)
+		{
+			MontageToPlay = AttackMontages[0];
+		}
+	}
+
+	if (MontageToPlay)
+	{
+		PlayAnimMontage(MontageToPlay);
+		bFocusPlayerAfterAttack = false;
+		return MontageToPlay;
+	}
+
+	// 전용 몽타주가 모두 비어있을 경우 부모의 기본 랜덤 공격 실행
+	return Super::Attack();
+}
+
 void ABaseBurrowEnemy::OnBeginOverlapAttackCollisionSphere(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
 	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
@@ -91,17 +175,37 @@ void ABaseBurrowEnemy::OnBeginOverlapAttackCollisionSphere(UPrimitiveComponent* 
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Attack Sphere Overlapped with Player!"));
 
+		ACharacter* PlayerCharacter = Cast<ACharacter>(OtherActor);
+		if (PlayerCharacter)
+		{
+			// 밀어낼 방향 계산 (지렁이 -> 플레이어, 수평)
+			FVector PushDirection = PlayerCharacter->GetActorLocation() - GetActorLocation();
+			PushDirection.Z = 0.0f;
+			if (PushDirection.IsNearlyZero())
+			{
+				PushDirection = GetActorForwardVector();
+			}
+			else
+			{
+				PushDirection.Normalize();
+			}
+
+			// 밀어낼 속도 벡터 계산 (수평 + 수직 띄우기)
+			const FVector LaunchVelocity = PushDirection * MeleeAttackPushForce + FVector(0.f, 0.f, MeleeAttackUpwardForce);
+			PlayerCharacter->LaunchCharacter(LaunchVelocity, true, true);
+		}
+
 		// 로그 기록 로직
 		if (GetMesh()) 
 		{
-			// 스켈레탈 메쉬 에셋 이름 가져오기
 			FString MeshName = GetMesh()->GetSkeletalMeshAsset() ? GetMesh()->GetSkeletalMeshAsset()->GetName() : TEXT("NoMeshAsset");
 		}
 		
-		EnemyLogData.TotalDamageDealt += AttackDamage; // 로그 데이터에 입힌 대미지 누적
+		const float FinalDamage = (MeleeAttackDamage > 0.0f) ? MeleeAttackDamage : AttackDamage;
+		EnemyLogData.TotalDamageDealt += FinalDamage;
 		
-		// 대미지 적용 ( 어택 대미지는 공격 전 가드 공격인지 아님 일반 공격인지에 따라 각각 함수에서 설정 )
-		UGameplayStatics::ApplyDamage(OtherActor, AttackDamage, GetController(),
+		// 대미지 적용
+		UGameplayStatics::ApplyDamage(OtherActor, FinalDamage, GetController(),
 			this, UDamageType::StaticClass());
 		
 		// 다시 콜리전 끄기
@@ -230,18 +334,86 @@ void ABaseBurrowEnemy::FinishBurrow()
 
 void ABaseBurrowEnemy::StartFireBreath()
 {
-	// 이미 발사 중이라면 중복 실행 방지
-	if (GetWorldTimerManager().IsTimerActive(FireBreathTimerHandle)) return;
-	
-	// 0.05초 간격으로 SpawnFireBreathProjectile 함수 반복 호출 (Loop = true)
-	GetWorldTimerManager().SetTimer(FireBreathTimerHandle, this, 
-		&ABaseBurrowEnemy::SpawnFireBreathProjectile, FireBreathInterval, true);
+	// 화염 방사 틱 대미지 판정 타이머 시작
+	if (!GetWorldTimerManager().IsTimerActive(FireBreathDamageTimerHandle))
+	{
+		GetWorldTimerManager().SetTimer(FireBreathDamageTimerHandle, this,
+			&ABaseBurrowEnemy::HandleFireBreathDamageTick, FireBreathDamageInterval, true, 0.0f);
+	}
 }
 
 void ABaseBurrowEnemy::EndFireBreath()
 {
-	// 타이머 정지 (발사 중단)
-	GetWorldTimerManager().ClearTimer(FireBreathTimerHandle);
+	// 화염 방사 틱 대미지 판정 타이머 정지
+	GetWorldTimerManager().ClearTimer(FireBreathDamageTimerHandle);
+}
+
+void ABaseBurrowEnemy::HandleFireBreathDamageTick()
+{
+	FVector StartLocation = FVector::ZeroVector;
+
+	if (GetMesh() && GetMesh()->DoesSocketExist(FireBreathSocketName))
+	{
+		StartLocation = GetMesh()->GetSocketLocation(FireBreathSocketName);
+	}
+	else if (FireBreathPoint)
+	{
+		StartLocation = FireBreathPoint->GetComponentLocation();
+	}
+	else
+	{
+		StartLocation = GetActorLocation();
+	}
+
+	// 발사 방향: 입(TongueMaster) 위치에서 지렁이 액터 전방 기준 상하 각도(Pitch)를 적용하여 발사
+	const FRotator AimRotation = GetActorRotation() + FRotator(FireBreathPitchAngle, 0.0f, 0.0f);
+	const FVector AimDirection = AimRotation.Vector();
+	const FVector EndLocation = StartLocation + (AimDirection * FireBreathRange);
+
+	// 스피어 트레이스로 전방 범위 플레이어 검출 및 디버그 시각화
+	TArray<AActor*> ActorsToIgnore;
+	ActorsToIgnore.Add(this);
+
+	// 자체설정 탭의 bDebugMode 또는 bFireBreathDebug가 켜져 있으면 디버그 트레이스 렌더링
+	const bool bShowDebug = bDebugMode || bFireBreathDebug;
+	const EDrawDebugTrace::Type DebugTraceType = bShowDebug ? EDrawDebugTrace::ForDuration : EDrawDebugTrace::None;
+
+	TArray<FHitResult> HitResults;
+	const bool bHit = UKismetSystemLibrary::SphereTraceMulti(
+		this,
+		StartLocation,
+		EndLocation,
+		FireBreathDamageRadius,
+		UEngineTypes::ConvertToTraceType(ECC_Pawn),
+		false,
+		ActorsToIgnore,
+		DebugTraceType,
+		HitResults,
+		true,
+		FLinearColor::Red,
+		FLinearColor::Green,
+		FireBreathDamageInterval
+	);
+
+	if (bHit)
+	{
+		TSet<AActor*> DamagedActors;
+		for (const FHitResult& Hit : HitResults)
+		{
+			AActor* HitActor = Hit.GetActor();
+			if (HitActor && !DamagedActors.Contains(HitActor) && HitActor->ActorHasTag(FName("Player")))
+			{
+				DamagedActors.Add(HitActor);
+				UGameplayStatics::ApplyDamage(
+					HitActor,
+					FireBreathDamage,
+					GetController(),
+					this,
+					UDamageType::StaticClass()
+				);
+			}
+		}
+	}
 }
 
 void ABaseBurrowEnemy::SpawnFireBreathProjectile()
@@ -271,14 +443,24 @@ void ABaseBurrowEnemy::PostEditChangeProperty(FPropertyChangedEvent& PropertyCha
 	
 	// 변경된 프로퍼티의 이름을 가져옵니다.
 	const FName PropertyName = (PropertyChangedEvent.Property != nullptr) ? PropertyChangedEvent.Property->GetFName() : NAME_None;
+
+	// MeleeAttackRange 프로퍼티가 변경되면 노란색 원형 콜리전의 반지름도 에디터에서 즉시 동기화
+	if (PropertyName == GET_MEMBER_NAME_CHECKED(ABaseBurrowEnemy, MeleeAttackRange))
+	{
+		if (MeleeAttackRangeSphere)
+		{
+			MeleeAttackRangeSphere->SetSphereRadius(MeleeAttackRange);
+		}
+	}
 	
-	// 디버그 모드에 따라 어택, 디텍트, 체이스 범위 구체의 가시성을 설정합니다.
+	// 디버그 모드에 따라 범위 구체의 가시성을 설정합니다.
 	if (PropertyName == GET_MEMBER_NAME_CHECKED(ABaseBurrowEnemy, bDebugMode))
 	{
 		if ( bDebugMode == true )
 		{
 			if ( AttackRangePointSphere ) AttackRangePointSphere->SetVisibility(true);
-			if (BurrowAttackCollisionSphere) BurrowAttackCollisionSphere->SetVisibility(true);
+			if ( BurrowAttackCollisionSphere ) BurrowAttackCollisionSphere->SetVisibility(true);
+			if ( MeleeAttackRangeSphere ) MeleeAttackRangeSphere->SetVisibility(true);
 		}
 		else
 		{
@@ -297,4 +479,4 @@ void ABaseBurrowEnemy::InitializeStatsFromDataTable()
 	{
 		UnburrowAttackDamage = AttackDamage;
 	}
-}
+}

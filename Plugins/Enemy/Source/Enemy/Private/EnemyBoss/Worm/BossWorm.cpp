@@ -10,7 +10,10 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "Kismet/KismetSystemLibrary.h"
 #include "PhysicsEngine/RadialForceComponent.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraComponent.h"
 
 ABossWorm::ABossWorm()
 {
@@ -453,31 +456,126 @@ void ABossWorm::FanFireBreathStart()
 
 void ABossWorm::StartFireBreath()
 {
-	// 이미 발사 중이라면 중복 실행 방지
-	if (GetWorldTimerManager().IsTimerActive(FireBreathTimerHandle)) return;
-	
-	// 0.05초 간격으로 SpawnFireBreathProjectile 함수 반복 호출 (Loop = true)
-	GetWorldTimerManager().SetTimer(FireBreathTimerHandle, this, 
-		&ABossWorm::SpawnFireBreathProjectile, FireBreathInterval, true);
+	// 화염 방사 틱 대미지 판정 타이머 시작
+	if (!GetWorldTimerManager().IsTimerActive(FireBreathDamageTimerHandle))
+	{
+		GetWorldTimerManager().SetTimer(FireBreathDamageTimerHandle, this,
+			&ABossWorm::HandleFireBreathDamageTick, FireBreathDamageInterval, true, 0.0f);
+	}
 }
 
 void ABossWorm::EndFireBreath()
 {
-	// 타이머 정지 (발사 중단)
-	GetWorldTimerManager().ClearTimer(FireBreathTimerHandle);
+	// 화염 방사 틱 대미지 판정 타이머 정지
+	GetWorldTimerManager().ClearTimer(FireBreathDamageTimerHandle);
+}
+
+void ABossWorm::HandleFireBreathDamageTick()
+{
+	FVector StartLocation = FVector::ZeroVector;
+
+	if (GetMesh() && GetMesh()->DoesSocketExist(FireBreathSocketName))
+	{
+		StartLocation = GetMesh()->GetSocketLocation(FireBreathSocketName);
+	}
+	else if (FireBreathPoint)
+	{
+		StartLocation = FireBreathPoint->GetComponentLocation();
+	}
+	else
+	{
+		StartLocation = GetActorLocation();
+	}
+
+	// 발사 방향: 입(TongueMaster) 위치에서 지렁이 액터 전방 기준 상하 각도(Pitch)를 적용하여 발사
+	const FRotator AimRotation = GetActorRotation() + FRotator(FireBreathPitchAngle, 0.0f, 0.0f);
+	const FVector AimDirection = AimRotation.Vector();
+	const FVector EndLocation = StartLocation + (AimDirection * FireBreathRange);
+
+	// 스피어 트레이스로 전방 범위 플레이어 검출 및 디버그 시각화
+	TArray<AActor*> ActorsToIgnore;
+	ActorsToIgnore.Add(this);
+
+	// 자체설정 탭의 bDebugMode 또는 bFireBreathDebug가 켜져 있으면 디버그 트레이스 렌더링
+	const bool bShowDebug = bDebugMode || bFireBreathDebug;
+	const EDrawDebugTrace::Type DebugTraceType = bShowDebug ? EDrawDebugTrace::ForDuration : EDrawDebugTrace::None;
+
+	TArray<FHitResult> HitResults;
+	const bool bHit = UKismetSystemLibrary::SphereTraceMulti(
+		this,
+		StartLocation,
+		EndLocation,
+		FireBreathDamageRadius,
+		UEngineTypes::ConvertToTraceType(ECC_Pawn),
+		false,
+		ActorsToIgnore,
+		DebugTraceType,
+		HitResults,
+		true,
+		FLinearColor::Red,
+		FLinearColor::Green,
+		FireBreathDamageInterval
+	);
+
+	if (bHit)
+	{
+		TSet<AActor*> DamagedActors;
+		for (const FHitResult& Hit : HitResults)
+		{
+			AActor* HitActor = Hit.GetActor();
+			if (HitActor && !DamagedActors.Contains(HitActor) && HitActor->ActorHasTag(FName("Player")))
+			{
+				DamagedActors.Add(HitActor);
+				UGameplayStatics::ApplyDamage(
+					HitActor,
+					AttackStruct.LinearFireBreathDamage,
+					GetController(),
+					this,
+					UDamageType::StaticClass()
+				);
+			}
+		}
+	}
 }
 
 void ABossWorm::SpawnFireBreathProjectile()
 {
-	if (FireBreathPoint && StreamProjectileClass)
+	if (StreamProjectileClass)
 	{
-		// FireBreathPoint는 머리 뼈에 붙어 있으므로, 애니메이션에 따라 위치와 회전이 실시간으로 변함
-		const FVector SpawnLocation = FireBreathPoint->GetComponentLocation();
+		// FireBreathPoint는 머리 뼈/소켓에 부착되어 실시간 위치를 추적
+		FVector SpawnLocation = FVector::ZeroVector;
+		if (GetMesh() && GetMesh()->DoesSocketExist(FireBreathSocketName))
+		{
+			SpawnLocation = GetMesh()->GetSocketLocation(FireBreathSocketName);
+		}
+		else if (FireBreathPoint)
+		{
+			SpawnLocation = FireBreathPoint->GetComponentLocation();
+		}
+		else
+		{
+			SpawnLocation = GetActorLocation();
+		}
 		
-		// 소켓의 회전을 가져오되, Pitch(위아래)와 Roll(좌우기울기)은 0으로 만들어 수평으로 발사
-		FRotator SpawnRotation = FireBreathPoint->GetComponentRotation();
-		SpawnRotation.Pitch = 0.0f; // 바닥으로 박히지 않게 수평 유지
-		SpawnRotation.Roll = 0.0f;  // 기울어지지 않게
+		FRotator SpawnRotation;
+		ACharacter* Target = TargetCharacter ? TargetCharacter.Get() : UGameplayStatics::GetPlayerCharacter(GetWorld(), 0);
+		if (Target)
+		{
+			// 타겟(플레이어 상체)을 향하는 방향 계산
+			const FVector AimDirection = (Target->GetActorLocation() - SpawnLocation).GetSafeNormal();
+			if (FVector::DotProduct(AimDirection, GetActorForwardVector()) > 0.0f)
+			{
+				SpawnRotation = AimDirection.Rotation();
+			}
+			else
+			{
+				SpawnRotation = GetActorForwardVector().Rotation();
+			}
+		}
+		else
+		{
+			SpawnRotation = GetActorForwardVector().Rotation();
+		}
 
 		FActorSpawnParameters SpawnParams;
 		SpawnParams.Owner = this;
@@ -625,4 +723,6 @@ void ABossWorm::InitializeStatsFromDataTable()
 		AttackDamage = BaseAttackDamage;
 	}
 }
+
+
 

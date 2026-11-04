@@ -307,9 +307,15 @@ void ABaseEnemy::SpawnDeadEffectAndDestroy()
 			SpawnLocation, SpawnRotation, SpawnScale);
 	}
 
-	if (TargetCharacter && TargetCharacter->Implements<UItemDropInterface>())
+	AActor* DropReceiver = TargetCharacter;
+	if (!DropReceiver)
 	{
-		IItemDropInterface::Execute_HandleEnemyDeadAndDropItem(TargetCharacter, this);
+		DropReceiver = UGameplayStatics::GetPlayerCharacter(this, 0);
+	}
+
+	if (DropReceiver && DropReceiver->Implements<UItemDropInterface>())
+	{
+		IItemDropInterface::Execute_HandleEnemyDeadAndDropItem(DropReceiver, this);
 	}
 	
 	Destroy(); // 이펙트가 없으면 바로 액터 삭제
