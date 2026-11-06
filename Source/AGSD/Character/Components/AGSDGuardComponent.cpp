@@ -86,7 +86,8 @@ void UAGSDGuardComponent::StopBlock()
 bool UAGSDGuardComponent::IsGuardActive() const
 {
 	if (!OwnerCharacter) return false;
-	return OwnerCharacter->GetCharacterState() == ECharacterState::Block;
+	// ⭐️ 공격 중(bIsAttacking, Mining)일 때는 가드 경감/활성 상태로 인정하지 않음
+	return OwnerCharacter->GetCharacterState() == ECharacterState::Block && !OwnerCharacter->bIsAttacking && !OwnerCharacter->Mining;
 }
 
 
@@ -208,8 +209,8 @@ bool UAGSDGuardComponent::ProcessDamageMitigation(float IncomingDamage, float& O
 	}
 
 	// 1. 저스트 가드(패링) 타이밍: 100% 완전 방어 (대미지 0)
-	// 1. 저스트 가드(패링) 타이밍 또는 반격 활성 중: 100% 완전 방어 (대미지 0)
-	if (bIsJustGuardWindow || bJustGuardSuccessful || (OwnerCharacter && OwnerCharacter->bIsJustGuardCounterActive))
+	// (반격 중 무적은 제거하고 슈퍼아머만 부여하므로 패링 성공 순간의 단발 타격에만 대미지 0 적용)
+	if (bIsJustGuardWindow || bJustGuardSuccessful)
 	{
 		OutMitigatedDamage = 0.f;
 

@@ -304,6 +304,79 @@ struct FHechiLogData
 	}
 };
 
+USTRUCT(BlueprintType)
+struct FBossWormLogData
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FCommonBossLogData Base;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CSV Log")
+	int32 NormalAttackCount = 0;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CSV Log")
+	float NormalAttackDamage = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CSV Log")
+	int32 BurrowCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CSV Log")
+	int32 UnBurrowAttackCount = 0;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CSV Log")
+	float UnBurrowAttackDamage = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CSV Log")
+	int32 LungeAttackCount = 0;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CSV Log")
+	float LungeAttackDamage = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CSV Log")
+	int32 FireBreathCount = 0;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CSV Log")
+	float FireBreathDamage = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CSV Log")
+	int32 SuctionAttackCount = 0;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CSV Log")
+	float SuctionAttackDamage = 0.0f;
+
+	// 플레이어 피격 경직 누적 시간 (초)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CSV Log")
+	float PlayerHitStunDuration = 0.0f;
+
+	// 플레이어 피격 경직 횟수
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CSV Log")
+	int32 PlayerHitStunCount = 0;
+
+	// 플레이어 넉다운 경직 누적 시간 (초)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CSV Log")
+	float PlayerKnockdownDuration = 0.0f;
+
+	// 플레이어 넉다운 횟수
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CSV Log")
+	int32 PlayerKnockdownCount = 0;
+
+	FString ToCSVRow() const
+	{
+		return FString::Printf(TEXT("%s,%d,%.3f,%d,%d,%.3f,%d,%.3f,%d,%.3f,%d,%.3f,%.3f,%d,%.3f,%d"),
+			*Base.ToCSVRow(),
+			NormalAttackCount, NormalAttackDamage,
+			BurrowCount,
+			UnBurrowAttackCount, UnBurrowAttackDamage,
+			LungeAttackCount, LungeAttackDamage,
+			FireBreathCount, FireBreathDamage,
+			SuctionAttackCount, SuctionAttackDamage,
+			PlayerHitStunDuration, PlayerHitStunCount,
+			PlayerKnockdownDuration, PlayerKnockdownCount);
+	}
+
+	static FString GetCSVHeader()
+	{
+		return FString::Printf(TEXT("%s,NormalAttackCount,NormalAttackDamage,BurrowCount,UnBurrowAttackCount,UnBurrowAttackDamage,LungeAttackCount,LungeAttackDamage,FireBreathCount,FireBreathDamage,SuctionAttackCount,SuctionAttackDamage,PlayerHitStunDuration,PlayerHitStunCount,PlayerKnockdownDuration,PlayerKnockdownCount"),
+			*FCommonBossLogData::GetCSVHeader());
+	}
+};
+
 UENUM(BlueprintType)
 enum class ECombatEventType : uint8
 {

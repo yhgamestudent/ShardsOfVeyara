@@ -2,6 +2,7 @@
 
 #include "AIController.h"
 #include "EnemyBoss/Worm/BossWorm.h"
+#include "Kismet/GameplayStatics.h"
 
 UBTTask_WormLungeAttack::UBTTask_WormLungeAttack()
 {
@@ -13,11 +14,24 @@ UBTTask_WormLungeAttack::UBTTask_WormLungeAttack()
 EBTNodeResult::Type UBTTask_WormLungeAttack::ExecuteTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory)
 {
 	AAIController* AIController = OwnerComp.GetAIOwner();
-	ABossWorm* Boss = Cast<ABossWorm>(AIController->GetPawn());
+	ABossWorm* Boss = Cast<ABossWorm>(AIController ? AIController->GetPawn() : nullptr);
 
 	if (Boss == nullptr)
 	{
 		return EBTNodeResult::Failed;
+	}
+
+	// 이중 안전장치: 플레이어와의 거리가 MinLungeDistance 미만이면 근접 런지 실행 방지
+	APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(Boss->GetWorld(), 0);
+	if (PlayerPawn)
+	{
+		const float Dist = FVector::Dist2D(Boss->GetActorLocation(), PlayerPawn->GetActorLocation());
+		if (Dist < Boss->AttackStruct.MinLungeDistance)
+		{
+			UE_LOG(LogTemp, Log, TEXT("[BossWorm AI] Player too close (%.1fcm < %.1fcm). Lunge attack cancelled."),
+				Dist, Boss->AttackStruct.MinLungeDistance);
+			return EBTNodeResult::Failed;
+		}
 	}
 	
 	// 1. 공격 함수 실행 (몽타주 재생 시작)

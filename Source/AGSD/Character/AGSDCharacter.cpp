@@ -142,6 +142,18 @@ AAGSDCharacter::AAGSDCharacter()
 
 	TurnLeft90Montage = nullptr;
 	TurnRight90Montage = nullptr;
+
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> AirborneMontageFinder(TEXT("/Game/Spear/Animation/Sequence/08_Hit/07_Hit_Large_To_Air/AS_Hit_Large_To_Air_Seq1_Montage.AS_Hit_Large_To_Air_Seq1_Montage"));
+	if (AirborneMontageFinder.Succeeded())
+	{
+		AirborneMontage = AirborneMontageFinder.Object;
+	}
+
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> CombatAirborneMontageFinder(TEXT("/Game/Spear/Animation/Sequence/08_Hit/08_Hit_Combat_Large_To_Air/AS_Hit_Combat_Large_To_Air_Seq1_Montage.AS_Hit_Combat_Large_To_Air_Seq1_Montage"));
+	if (CombatAirborneMontageFinder.Succeeded())
+	{
+		CombatAirborneMontage = CombatAirborneMontageFinder.Object;
+	}
 	TurnThresholdAngle = 45.0f;
 	bIsTurning = false;
 	TurnDuration = 0.75f;
@@ -708,6 +720,9 @@ void AAGSDCharacter::BeginPlay()
 
 	// 게임 시작 시 현재 선택된 핫바 슬롯의 아이템을 즉시 장착합니다.
 	UpdateEquippedActor();
+
+	// ⭐️ 플레이어 피격/타겟팅 태그 영구 보장 (에셋 설정 누락이나 변경 방지)
+	Tags.AddUnique(FName("Player"));
 
 	LastLocation = GetActorLocation();
 }
@@ -1657,6 +1672,20 @@ void AAGSDCharacter::ProcessAttackInputWithButton(ESpearAttackInput PressedInput
 	// 피격 경직(Heavy/Knockdown) 중에는 신규 공격 입력 차단
 	if (bIsHitReacting || bIsKnockdown) return;
 
+	// ⭐️ 막기(Block) 상태 중인 경우 일반 공격 입력 완전 차단 (사용자 기획 정책 반영)
+	if (CharacterState == ECharacterState::Block)
+	{
+		// 저스트가드(패링) 성공 상태인 경우에만 가드를 풀고 반격 콤보 시작
+		if (GuardComponent && GuardComponent->IsJustGuardSuccessful())
+		{
+			GuardComponent->StopBlock();
+			StartParryCombo();
+			return;
+		}
+		// 일반 가드 중에는 공격 입력 완전 무시
+		return;
+	}
+
 	// 이미 콤보 결정 대기 중인 경우
 	if (bIsWaitingForComboDecision)
 	{
@@ -1983,6 +2012,19 @@ void AAGSDCharacter::StartNewComboWithInput(ESpearAttackInput Input)
 	if (Mining || bIsRolling) return;
 	// 공중 체공 중(점프 또는 넉백 피격으로 비행 중)에는 지상 평타 입력 무시
 	if (GetCharacterMovement() && GetCharacterMovement()->IsFalling()) return;
+
+	// ⭐️ 신규 공격 개시 시 가드(Block) 상태 잔류 방지: 가드가 켜져 있다면 해제하고 Combat 상태로 정상 전이
+	if (CharacterState == ECharacterState::Block)
+	{
+		if (GuardComponent)
+		{
+			GuardComponent->StopBlock();
+		}
+		else
+		{
+			SetCharacterState(ECharacterState::Combat);
+		}
+	}
 
 	ESpearAttackDirection CurrentDir = GetAttackDirection();
 	Mining = true;
@@ -4373,10 +4415,23 @@ void AAGSDCharacter::ProcessHitReaction(float DamageAmount, AActor* DamageCauser
 	// 5. 피격 대미지 갱신
 	LastHitDamage = DamageAmount;
 
+	// 5-1. 지속 장판 피해(DoT) 판정: 조작 불가 스턴(HitStun) 및 경직 모션 완전 면제! (체력만 감소 후 자유 이동)
+	const bool bIsDamageZone = DamageCauser && (
+		DamageCauser->ActorHasTag(FName("DamageZone")) || 
+		DamageCauser->ActorHasTag(FName("DoT"))
+	);
+
+	if (bIsDamageZone)
+	{
+		UE_LOG(LogTemp, Verbose, TEXT("[HitReaction] DamageZone DoT damage received (%.1f) - Stun/Flinch skipped"), DamageAmount);
+		return;
+	}
+
 	// 6. 스킬 및 투사체로부터 연출 강도(HitIntensity) 및 넉다운 설정(KnockdownType, KnockdownDuration) 추출
 	float ResolvedIntensity = -1.0f;
-	EKnockdownType TargetKnockdownType = (DamageAmount >= 120.0f) ? EKnockdownType::AirborneFloor : EKnockdownType::None;
+	EKnockdownType TargetKnockdownType = EKnockdownType::None; // 기본값은 None (보스 명시적 설정 우선)
 	float TargetKnockdownDuration = KnockdownDuration; // 기본값 (1.2초)
+	bool bHasExplicitReactionSettings = false;
 
 	if (ABaseEnemyProjectile* Proj = Cast<ABaseEnemyProjectile>(DamageCauser))
 	{
@@ -4386,6 +4441,7 @@ void AAGSDCharacter::ProcessHitReaction(float DamageAmount, AActor* DamageCauser
 			TargetKnockdownType = Proj->KnockdownType;
 			TargetKnockdownDuration = Proj->KnockdownDuration;
 		}
+		bHasExplicitReactionSettings = true;
 	}
 	else if (AGroundAttackProjectile* GroundProj = Cast<AGroundAttackProjectile>(DamageCauser))
 	{
@@ -4395,33 +4451,44 @@ void AAGSDCharacter::ProcessHitReaction(float DamageAmount, AActor* DamageCauser
 			TargetKnockdownType = GroundProj->KnockdownType;
 			TargetKnockdownDuration = GroundProj->KnockdownDuration;
 		}
+		bHasExplicitReactionSettings = true;
 	}
 	else if (ABaseBossEnemy* Boss = Cast<ABaseBossEnemy>(DamageCauser))
 	{
-		ResolvedIntensity = Boss->CurrentSkillHitIntensity;
-		if (Boss->bHasExplicitSkillReaction || Boss->CurrentSkillKnockdownType != EKnockdownType::None)
+		if (Boss->bHasExplicitSkillReaction)
 		{
+			ResolvedIntensity = Boss->CurrentSkillHitIntensity;
+			// 보스가 명시적으로 설정한 넉다운 타입을 무조건 최우선 적용 (None이면 진짜 넉다운 없음!)
 			TargetKnockdownType = Boss->CurrentSkillKnockdownType;
 			TargetKnockdownDuration = (Boss->CurrentSkillKnockdownDuration > 0.0f) ? Boss->CurrentSkillKnockdownDuration : KnockdownDuration;
+			bHasExplicitReactionSettings = true;
 		}
 	}
 	else if (DamageCauser && DamageCauser->GetOwner() && DamageCauser->GetOwner()->IsA(ABaseBossEnemy::StaticClass()))
 	{
 		if (ABaseBossEnemy* OwnerBoss = Cast<ABaseBossEnemy>(DamageCauser->GetOwner()))
 		{
-			ResolvedIntensity = OwnerBoss->CurrentSkillHitIntensity;
-			if (OwnerBoss->bHasExplicitSkillReaction || OwnerBoss->CurrentSkillKnockdownType != EKnockdownType::None)
+			if (OwnerBoss->bHasExplicitSkillReaction)
 			{
+				ResolvedIntensity = OwnerBoss->CurrentSkillHitIntensity;
 				TargetKnockdownType = OwnerBoss->CurrentSkillKnockdownType;
 				TargetKnockdownDuration = (OwnerBoss->CurrentSkillKnockdownDuration > 0.0f) ? OwnerBoss->CurrentSkillKnockdownDuration : KnockdownDuration;
+				bHasExplicitReactionSettings = true;
 			}
 		}
 	}
 
+	// 보스의 명시적 설정이 없을 때만 대미지 120 이상 시 에어본 Fallback 적용
+	if (!bHasExplicitReactionSettings && DamageAmount >= 120.0f)
+	{
+		TargetKnockdownType = EKnockdownType::AirborneFloor;
+	}
+
 	// ⭐️ 6-1. 단순 가드(막기) 상태 판정:
+	// - 공격 중(bIsAttacking, Mining)이 아닐 때만 유효 가드로 인정! (공격 중 가드 경직 면역 원천 차단)
 	// - 넉다운 강공격을 맞으면 가드가 깨지며(StopBlock) 넉다운 발생
 	// - 일반 공격을 맞으면 가드로 든든하게 막아내며 피격 리액션 스킵
-	if (CharacterState == ECharacterState::Block)
+	if (CharacterState == ECharacterState::Block && !bIsAttacking && !Mining)
 	{
 		const bool bIsUnblockable = DamageCauser && (DamageCauser->ActorHasTag(TEXT("Unblockable")) || DamageCauser->ActorHasTag(TEXT("Trap")));
 		if (TargetKnockdownType != EKnockdownType::None || bIsUnblockable)
@@ -4439,6 +4506,14 @@ void AAGSDCharacter::ProcessHitReaction(float DamageAmount, AActor* DamageCauser
 		}
 	}
 
+	// ⭐️ 무경직 피격 판정 (보스가 경직 강도 0.0f 및 넉다운 없음을 명시한 경우):
+	// 조작 불가 스턴(HitStun) 및 모션 강제 캔슬 일절 면제! 체력만 감소하고 넉백으로 밀려나는 도중에도 즉시 자유 조작 가능!
+	if (bHasExplicitReactionSettings && ResolvedIntensity <= 0.0f && TargetKnockdownType == EKnockdownType::None)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[HitReaction] Zero-intensity knockback attack received (%.1f) - Stun skipped!"), DamageAmount);
+		return;
+	}
+
 	// 7. 넉다운 분기 처리 (무릎 꿇기 vs 에어본 후 바닥 엎어짐)
 	if (TargetKnockdownType != EKnockdownType::None)
 	{
@@ -4449,7 +4524,14 @@ void AAGSDCharacter::ProcessHitReaction(float DamageAmount, AActor* DamageCauser
 		// ⭐️ 핵심: 넉다운 상태에서는 일반 피격 리액션(bIsHitReacting)을 꺼서
 		// 애님그래프 메인의 Blend Poses(bIsHitReacting)가 MainState(Knockdown)를 가로채지 못하도록 보장!
 		bIsHitReacting = false;
+
+		// 이전 넉다운/피격 타이머 완전 정리 (새 피격 도중 이전 세이프티가 터지는 참사 차단!)
 		GetWorldTimerManager().ClearTimer(HitReactTimerHandle);
+		GetWorldTimerManager().ClearTimer(KnockdownTimerHandle);
+		GetWorldTimerManager().ClearTimer(AirborneApexTimerHandle);
+		GetWorldTimerManager().ClearTimer(AirborneKnockdownPauseTimerHandle);
+		GetWorldTimerManager().ClearTimer(AirborneKnockdownResumeTimerHandle);
+		GetWorldTimerManager().ClearTimer(KneelDurationTimerHandle);
 		EndHitStunTracking();
 		StartKnockdownTracking();
 
@@ -4459,12 +4541,93 @@ void AAGSDCharacter::ProcessHitReaction(float DamageAmount, AActor* DamageCauser
 		bCanCombo = false;
 		bHasBufferedInput = false;
 
-		// 애님그래프 스테이트 머신(Locomotion -> Knockdown) 기상 타이머 가동
-		GetWorldTimerManager().ClearTimer(KnockdownTimerHandle);
-		GetWorldTimerManager().SetTimer(KnockdownTimerHandle, this, &AAGSDCharacter::TriggerKnockdownStandUp, TargetKnockdownDuration, false);
+		// 7-1. 에어본(AirborneFloor)의 경우 몽타주(Start -> Loop -> Landed -> End -> Knockdown(Pause) -> Resume) 파이프라인 가동
+		if (TargetKnockdownType == EKnockdownType::AirborneFloor)
+		{
+			UAnimMontage* SelectedAirborneMontage = GetAirborneMontageToPlay();
+			if (SelectedAirborneMontage)
+			{
+				CurrentActiveAirborneMontage = SelectedAirborneMontage;
+				bIsAirborneMontageActive = true;
+				CurrentTargetKnockdownDuration = TargetKnockdownDuration;
 
-		// 조작 제한 적용 (다운 시간 + 기상 시간 충분히 확보, FinishKnockdown 호출 시 즉시 해제)
-		ApplyHitStun(TargetKnockdownDuration + 5.0f);
+				// ⭐️ 핵심: 에어본 체공 비행 동안 애니메이션의 제자리 루트 모션을 무시하고 물리 포물선 속도 보장!
+				if (UAnimInstance* AnimInst = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr)
+				{
+					AnimInst->SetRootMotionMode(ERootMotionMode::IgnoreRootMotion);
+					UE_LOG(LogTemp, Log, TEXT("[Airborne] RootMotionMode set to IgnoreRootMotion for physics flight!"));
+				}
+
+				PlayAnimMontage(SelectedAirborneMontage);
+
+				// Start 정점(0.58초)에서 물리 낙하 모드로 전환
+				GetWorldTimerManager().ClearTimer(AirborneApexTimerHandle);
+				GetWorldTimerManager().SetTimer(AirborneApexTimerHandle, this, &AAGSDCharacter::OnAirborneApexReached, 0.58f, false);
+
+				// ⭐️ 이중 안전장치: 정상 기상(체공+바닥대기+기상 약 4.2s)을 방해하지 않도록 5.5s 세이프티 가동!
+				const float SafeSafetyDuration = FMath::Max(5.5f, TargetKnockdownDuration + 4.0f);
+				GetWorldTimerManager().ClearTimer(KnockdownTimerHandle);
+				GetWorldTimerManager().SetTimer(KnockdownTimerHandle, this, &AAGSDCharacter::FinishKnockdown, SafeSafetyDuration, false);
+
+				ApplyHitStun(SafeSafetyDuration);
+			}
+			else
+			{
+				// 에어본 몽타주 미할당 시 애님그래프 스테이트 머신 기상 타이머 가동
+				GetWorldTimerManager().ClearTimer(KnockdownTimerHandle);
+				GetWorldTimerManager().SetTimer(KnockdownTimerHandle, this, &AAGSDCharacter::TriggerKnockdownStandUp, TargetKnockdownDuration, false);
+				ApplyHitStun(TargetKnockdownDuration + 1.5f);
+			}
+		}
+		// 7-2. 무릎 꿇기(Kneel)의 경우 단일 몽타주(Start -> Loop 체류 -> End 기상 점프) 파이프라인 가동
+		else if (TargetKnockdownType == EKnockdownType::Kneel)
+		{
+			if (KneelMontage)
+			{
+				CurrentTargetKnockdownDuration = TargetKnockdownDuration;
+				const FName SectionName = GetKneelStartSectionName();
+
+				UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
+				if (AnimInstance)
+				{
+					FOnMontageEnded EndDelegate;
+					EndDelegate.BindUObject(this, &AAGSDCharacter::OnKneelMontageEnded);
+					AnimInstance->Montage_SetEndDelegate(EndDelegate, KneelMontage);
+				}
+
+				PlayAnimMontage(KneelMontage, 1.0f, SectionName);
+
+				// Start(무릎 꿇는 모션 약 0.8초) + TargetKnockdownDuration(Loop 체류 시간) 대기 타이머 가동
+				const float StartMotionEstimatedDuration = 0.8f;
+				const float TotalWaitDuration = StartMotionEstimatedDuration + ((TargetKnockdownDuration > 0.0f) ? TargetKnockdownDuration : 1.2f);
+				GetWorldTimerManager().ClearTimer(KneelDurationTimerHandle);
+				GetWorldTimerManager().SetTimer(KneelDurationTimerHandle, this, &AAGSDCharacter::OnKneelDurationExpired, TotalWaitDuration, false);
+
+				// ⭐️ 이중 안전장치: OnKneelMontageEnded 누락 시에도 강제 스턴 해제
+				const float KneelSafetyDuration = TotalWaitDuration + 2.0f;
+				GetWorldTimerManager().ClearTimer(KnockdownTimerHandle);
+				GetWorldTimerManager().SetTimer(KnockdownTimerHandle, this, &AAGSDCharacter::FinishKnockdown, KneelSafetyDuration, false);
+
+				ApplyHitStun(KneelSafetyDuration);
+				UE_LOG(LogTemp, Log, TEXT("[HitReaction] Kneel Montage Triggered! StartSection: %s, TotalWait: %.2fs (Safety: %.2fs)"),
+					*SectionName.ToString(), TotalWaitDuration, KneelSafetyDuration);
+			}
+			else
+			{
+				// Kneel 몽타주 미할당 시 기존 애님그래프 스테이트 머신 기상 타이머 가동
+				GetWorldTimerManager().ClearTimer(KnockdownTimerHandle);
+				GetWorldTimerManager().SetTimer(KnockdownTimerHandle, this, &AAGSDCharacter::TriggerKnockdownStandUp, TargetKnockdownDuration, false);
+				ApplyHitStun(TargetKnockdownDuration + 1.5f);
+			}
+		}
+		else
+		{
+			// 기타 넉다운 타입 애님그래프 스테이트 머신 기상 타이머 가동
+			GetWorldTimerManager().ClearTimer(KnockdownTimerHandle);
+			GetWorldTimerManager().SetTimer(KnockdownTimerHandle, this, &AAGSDCharacter::TriggerKnockdownStandUp, TargetKnockdownDuration, false);
+			ApplyHitStun(TargetKnockdownDuration + 1.5f);
+		}
+
 		UE_LOG(LogTemp, Log, TEXT("[HitReaction] State Machine KNOCKDOWN Triggered! Type: %d, Duration: %.2fs (WeaponEquipped: %d)"),
 			static_cast<int32>(TargetKnockdownType), TargetKnockdownDuration, HasEquippedWeapon() ? 1 : 0);
 		return;
@@ -4502,8 +4665,70 @@ void AAGSDCharacter::ProcessHitReaction(float DamageAmount, AActor* DamageCauser
 		HitDirectionAngle, HitIntensityValue, LastHitDamage, HitReactDuration);
 }
 
+UAnimMontage* AAGSDCharacter::GetAirborneMontageToPlay(bool bForceInAir) const
+{
+	const bool bHasWeapon = HasEquippedWeapon();
+
+	// 1. 공중에 떠 있는 상태인지 판별 (강제 지정 또는 현재 에어본 중이거나 Falling 상태)
+	bool bIsCurrentlyInAir = bForceInAir || bIsAirborneMontageActive;
+	if (!bIsCurrentlyInAir && GetCharacterMovement())
+	{
+		bIsCurrentlyInAir = GetCharacterMovement()->IsFalling();
+	}
+
+	// 2. 공중 상태일 때의 몽타주 반환 (설정되지 않았을 경우 지상 몽타주로 안전하게 fallback)
+	if (bIsCurrentlyInAir)
+	{
+		if (bHasWeapon && CombatInAirAirborneMontage)
+		{
+			return CombatInAirAirborneMontage;
+		}
+		if (!bHasWeapon && InAirAirborneMontage)
+		{
+			return InAirAirborneMontage;
+		}
+		if (bHasWeapon && CombatAirborneMontage)
+		{
+			return CombatAirborneMontage;
+		}
+		return AirborneMontage;
+	}
+
+	// 3. 지상 상태일 때의 몽타주 반환
+	if (bHasWeapon && CombatAirborneMontage)
+	{
+		return CombatAirborneMontage;
+	}
+	return AirborneMontage;
+}
+
+FName AAGSDCharacter::GetKneelStartSectionName() const
+{
+	if (HasEquippedWeapon())
+	{
+		return FName("Start_Combat");
+	}
+	return FName("Start_Unarmed");
+}
+
+FName AAGSDCharacter::GetKneelEndSectionName() const
+{
+	if (HasEquippedWeapon())
+	{
+		return FName("End_Combat");
+	}
+	return FName("End_Unarmed");
+}
+
 void AAGSDCharacter::ResetHitReact()
 {
+	bIsAirborneMontageActive = false;
+	CurrentActiveAirborneMontage = nullptr;
+	GetWorldTimerManager().ClearTimer(AirborneApexTimerHandle);
+	GetWorldTimerManager().ClearTimer(AirborneKnockdownPauseTimerHandle);
+	GetWorldTimerManager().ClearTimer(AirborneKnockdownResumeTimerHandle);
+	GetWorldTimerManager().ClearTimer(KneelDurationTimerHandle);
+
 	bIsHitReacting = false;
 	bIsKnockdown = false;
 	bKnockdownStandUp = false;
@@ -4515,14 +4740,103 @@ void AAGSDCharacter::ResetHitReact()
 	UE_LOG(LogTemp, Log, TEXT("[HitReaction] Hit reaction reset"));
 }
 
+void AAGSDCharacter::Landed(const FHitResult& Hit)
+{
+	Super::Landed(Hit);
+
+	if (bIsAirborneMontageActive)
+	{
+		bIsAirborneMontageActive = false;
+		GetWorldTimerManager().ClearTimer(AirborneApexTimerHandle);
+
+		UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
+
+		// ⭐️ 지면 착지 즉시 루트 모션 모드 복원
+		if (AnimInstance)
+		{
+			AnimInstance->SetRootMotionMode(ERootMotionMode::RootMotionFromMontagesOnly);
+		}
+
+		UAnimMontage* MontageToJump = CurrentActiveAirborneMontage ? CurrentActiveAirborneMontage : GetAirborneMontageToPlay();
+		if (AnimInstance && MontageToJump)
+		{
+			// 1. 몽타주 종료 델리게이트 바인딩 (기상이 끝나 몽타주 종료 즉시 스턴 해제!)
+			FOnMontageEnded EndDelegate;
+			EndDelegate.BindUObject(this, &AAGSDCharacter::OnAirborneMontageEnded);
+			AnimInstance->Montage_SetEndDelegate(EndDelegate, MontageToJump);
+
+			// 2. 즉시 End(바닥 격돌 및 엎어짐) 섹션으로 점프!
+			AnimInstance->Montage_JumpToSection(FName("End"), MontageToJump);
+			UE_LOG(LogTemp, Log, TEXT("[Airborne] Landed on ground -> Jumped to End section of %s!"), *MontageToJump->GetName());
+
+			// 3. End 섹션 길이(약 1.0초) 후 Knockdown 섹션 진입 타이밍에 일시정지 타이머 가동
+			GetWorldTimerManager().ClearTimer(AirborneKnockdownPauseTimerHandle);
+			GetWorldTimerManager().SetTimer(AirborneKnockdownPauseTimerHandle, this, &AAGSDCharacter::OnAirborneKnockdownPauseReached, 1.0f, false);
+		}
+	}
+}
+
+void AAGSDCharacter::OnAirborneKnockdownPauseReached()
+{
+	UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
+	UAnimMontage* ActiveMontage = CurrentActiveAirborneMontage ? CurrentActiveAirborneMontage : GetAirborneMontageToPlay();
+	if (AnimInstance && ActiveMontage && AnimInstance->Montage_IsPlaying(ActiveMontage))
+	{
+		// 바닥에 완전히 엎어진 채로 몽타주 일시정지!
+		AnimInstance->Montage_Pause(ActiveMontage);
+		UE_LOG(LogTemp, Log, TEXT("[Airborne] Knockdown section reached -> Montage paused for %.2fs"), CurrentTargetKnockdownDuration);
+
+		// 지정된 넉다운 시간 동안 바닥 대기 타이머 가동
+		const float SafeWaitDuration = (CurrentTargetKnockdownDuration > 0.0f) ? CurrentTargetKnockdownDuration : 1.2f;
+		GetWorldTimerManager().ClearTimer(AirborneKnockdownResumeTimerHandle);
+		GetWorldTimerManager().SetTimer(AirborneKnockdownResumeTimerHandle, this, &AAGSDCharacter::OnAirborneKnockdownResume, SafeWaitDuration, false);
+	}
+}
+
+void AAGSDCharacter::OnAirborneKnockdownResume()
+{
+	UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
+	UAnimMontage* ActiveMontage = CurrentActiveAirborneMontage ? CurrentActiveAirborneMontage : GetAirborneMontageToPlay();
+	
+	// ⭐️ 일시정지(Pause)된 몽타주는 Montage_IsPlaying이 false이므로 무조건 Resume 호출!
+	if (AnimInstance && ActiveMontage)
+	{
+		AnimInstance->Montage_Resume(ActiveMontage);
+		UE_LOG(LogTemp, Log, TEXT("[Airborne] Knockdown duration expired -> Montage resumed for StandUp motion (%s)"), *ActiveMontage->GetName());
+	}
+	else
+	{
+		FinishKnockdown();
+	}
+}
+
+void AAGSDCharacter::OnAirborneMontageEnded(UAnimMontage* Montage, bool bInterrupted)
+{
+	UE_LOG(LogTemp, Log, TEXT("[Airborne] Airborne Montage ended (Interrupted: %d) -> Instant Knockdown Finish!"), bInterrupted ? 1 : 0);
+	GetWorldTimerManager().ClearTimer(AirborneKnockdownPauseTimerHandle);
+	GetWorldTimerManager().ClearTimer(AirborneKnockdownResumeTimerHandle);
+	CurrentActiveAirborneMontage = nullptr;
+	FinishKnockdown();
+}
+
+void AAGSDCharacter::OnAirborneApexReached()
+{
+	if (bIsAirborneMontageActive && GetCharacterMovement())
+	{
+		// 루트 모션 위치 제어에서 물리 중력 낙하로 전환
+		GetCharacterMovement()->SetMovementMode(MOVE_Falling);
+		UE_LOG(LogTemp, Log, TEXT("[Airborne] Apex reached -> Falling mode activated"));
+	}
+}
+
 void AAGSDCharacter::TriggerKnockdownStandUp()
 {
 	bKnockdownStandUp = true;
 	UE_LOG(LogTemp, Log, TEXT("[HitReaction] Knockdown duration finished -> Stand up triggered (bKnockdownStandUp = true)"));
 
-	// 기상 애니메이션 끝의 FinishKnockdown 애님 노티파이를 대기 (노티파이 누락 대비 5.0초 세이프티 타이머 설정)
+	// 기상 애니메이션 끝의 FinishKnockdown 애님 노티파이를 대기 (노티파이 누락 대비 2.0초 세이프티 타이머 설정)
 	GetWorldTimerManager().ClearTimer(KnockdownTimerHandle);
-	GetWorldTimerManager().SetTimer(KnockdownTimerHandle, this, &AAGSDCharacter::FinishKnockdown, 5.0f, false);
+	GetWorldTimerManager().SetTimer(KnockdownTimerHandle, this, &AAGSDCharacter::FinishKnockdown, 2.0f, false);
 }
 
 void AAGSDCharacter::FinishKnockdown()
@@ -4531,10 +4845,46 @@ void AAGSDCharacter::FinishKnockdown()
 	bIsKnockdown = false;
 	bKnockdownStandUp = false;
 	CurrentKnockdownType = EKnockdownType::None;
+
+	// ⭐️ 넉다운 종료 시 루트 모션 모드 확실히 복원
+	if (UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr)
+	{
+		AnimInstance->SetRootMotionMode(ERootMotionMode::RootMotionFromMontagesOnly);
+	}
+
 	GetWorldTimerManager().ClearTimer(KnockdownTimerHandle);
+	GetWorldTimerManager().ClearTimer(AirborneKnockdownPauseTimerHandle);
+	GetWorldTimerManager().ClearTimer(AirborneKnockdownResumeTimerHandle);
+	GetWorldTimerManager().ClearTimer(KneelDurationTimerHandle);
 	ClearHitStun();
 	ResetHitReact();
-	UE_LOG(LogTemp, Log, TEXT("[HitReaction] Knockdown stand up complete -> Restored locomotion state"));
+	UE_LOG(LogTemp, Log, TEXT("[HitReaction] Knockdown finish complete -> Restored locomotion state"));
+}
+
+void AAGSDCharacter::OnKneelDurationExpired()
+{
+	UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
+	if (AnimInstance && KneelMontage && AnimInstance->Montage_IsPlaying(KneelMontage))
+	{
+		const FName TargetEndSection = GetKneelEndSectionName();
+		AnimInstance->Montage_JumpToSection(TargetEndSection, KneelMontage);
+		UE_LOG(LogTemp, Log, TEXT("[Kneel] Kneel Duration expired -> Jumped to End section: %s"), *TargetEndSection.ToString());
+	}
+	else
+	{
+		FinishKnockdown();
+	}
+}
+
+void AAGSDCharacter::OnKneelMontageEnded(UAnimMontage* Montage, bool bInterrupted)
+{
+	if (Montage == KneelMontage)
+	{
+		GetWorldTimerManager().ClearTimer(KneelDurationTimerHandle);
+		FinishKnockdown();
+		ClearHitStun();
+		UE_LOG(LogTemp, Log, TEXT("[Kneel] Kneel Montage Ended -> Stun cleared immediately! (Interrupted: %d)"), bInterrupted ? 1 : 0);
+	}
 }
 
 void AAGSDCharacter::ApplyHitStun(float Duration)
@@ -4566,6 +4916,154 @@ void AAGSDCharacter::ToggleGodMode()
 		GEngine->AddOnScreenDebugMessage(-1, 3.5f, bIsGodMode ? FColor::Green : FColor::Red, FString::Printf(TEXT("[치트] God Mode: %s"), *StatusStr));
 	}
 	UE_LOG(LogTemp, Warning, TEXT("[Cheat] God Mode is now: %s"), *StatusStr);
+}
+
+void AAGSDCharacter::Cheat_Airborne(float UpwardForce, float BackwardForce, float Duration)
+{
+	UE_LOG(LogTemp, Warning, TEXT("[Cheat] Cheat_Airborne Triggered! (Up: %.1f, Back: %.1f, Duration: %.2fs)"), UpwardForce, BackwardForce, Duration);
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Cyan, FString::Printf(TEXT("[치트] Airborne 발동 (Up: %.0f, Back: %.0f, Duration: %.1fs)"), UpwardForce, BackwardForce, Duration));
+	}
+
+	// 1. 진행 중인 몽타주 및 공격 액션 즉시 취소
+	StopAnimMontage();
+	bIsAttacking = false;
+	bIsRecovering = false;
+	bCanCombo = false;
+	bHasBufferedInput = false;
+
+	// 2. 캐릭터 후방 + 상방 물리 런치 (힘이 부여된 경우에만 실행)
+	if (UpwardForce > 0.0f || BackwardForce > 0.0f)
+	{
+		FVector BackwardDir = -GetActorForwardVector();
+		BackwardDir.Z = 0.0f;
+		BackwardDir.Normalize();
+		FVector LaunchVel = (BackwardDir * BackwardForce) + FVector(0.0f, 0.0f, UpwardForce);
+		LaunchCharacter(LaunchVel, true, true);
+	}
+
+	// 3. 에어본 넉다운 상태 및 플래그 갱신
+	CurrentKnockdownType = EKnockdownType::AirborneFloor;
+	bIsKnockdown = true;
+	bKnockdownStandUp = false;
+	bIsHitReacting = false;
+
+	// 4. 피격 추적 및 타이머 재설정
+	GetWorldTimerManager().ClearTimer(HitReactTimerHandle);
+	GetWorldTimerManager().ClearTimer(KnockdownTimerHandle);
+	GetWorldTimerManager().ClearTimer(AirborneApexTimerHandle);
+	GetWorldTimerManager().ClearTimer(AirborneKnockdownPauseTimerHandle);
+	GetWorldTimerManager().ClearTimer(AirborneKnockdownResumeTimerHandle);
+	GetWorldTimerManager().ClearTimer(KneelDurationTimerHandle);
+	EndHitStunTracking();
+	StartKnockdownTracking();
+
+	// 5. 에어본 몽타주가 존재하면 Start -> Loop -> End 몽타주 파이프라인 가동
+	UAnimMontage* SelectedMontage = GetAirborneMontageToPlay();
+	if (SelectedMontage)
+	{
+		CurrentActiveAirborneMontage = SelectedMontage;
+		bIsAirborneMontageActive = true;
+		CurrentTargetKnockdownDuration = (Duration > 0.0f) ? Duration : KnockdownDuration;
+
+		// ⭐️ 에어본 체공 비행 동안 애니메이션 루트 모션을 무시하고 물리 포물선 속도 보장
+		if (UAnimInstance* AnimInst = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr)
+		{
+			AnimInst->SetRootMotionMode(ERootMotionMode::IgnoreRootMotion);
+		}
+
+		PlayAnimMontage(SelectedMontage);
+
+		// Start 정점(0.58초)에서 물리 낙하 모드로 전환하는 타이머
+		GetWorldTimerManager().ClearTimer(AirborneApexTimerHandle);
+		GetWorldTimerManager().SetTimer(AirborneApexTimerHandle, this, &AAGSDCharacter::OnAirborneApexReached, 0.58f, false);
+
+		// ⭐️ 이중 안전장치: 최대 5.5초 뒤 강제 스턴 해제
+		const float SafeSafetyDuration = FMath::Max(5.5f, CurrentTargetKnockdownDuration + 4.0f);
+		GetWorldTimerManager().ClearTimer(KnockdownTimerHandle);
+		GetWorldTimerManager().SetTimer(KnockdownTimerHandle, this, &AAGSDCharacter::FinishKnockdown, SafeSafetyDuration, false);
+
+		ApplyHitStun(SafeSafetyDuration);
+	}
+	else
+	{
+		// Fallback: 몽타주가 없을 경우 기존 타이머 기반 전이
+		const float SafeDuration = (Duration > 0.0f) ? Duration : KnockdownDuration;
+		GetWorldTimerManager().ClearTimer(KnockdownTimerHandle);
+		GetWorldTimerManager().SetTimer(KnockdownTimerHandle, this, &AAGSDCharacter::TriggerKnockdownStandUp, SafeDuration, false);
+		ApplyHitStun(SafeDuration + 1.5f);
+	}
+}
+
+void AAGSDCharacter::Cheat_Kneel(float Duration)
+{
+	UE_LOG(LogTemp, Warning, TEXT("[Cheat] Cheat_Kneel Triggered! (Duration: %.2fs)"), Duration);
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Orange, FString::Printf(TEXT("[치트] Kneel 발동 (Duration: %.1fs)"), Duration));
+	}
+
+	// 1. 진행 중인 몽타주 및 공격 액션 즉시 취소
+	StopAnimMontage();
+	bIsAttacking = false;
+	bIsRecovering = false;
+	bCanCombo = false;
+	bHasBufferedInput = false;
+
+	// 2. 무릎 꿇기 넉다운 상태 및 플래그 갱신
+	CurrentKnockdownType = EKnockdownType::Kneel;
+	bIsKnockdown = true;
+	bKnockdownStandUp = false;
+	bIsHitReacting = false;
+
+	// 3. 피격 추적 및 타이머 재설정
+	GetWorldTimerManager().ClearTimer(HitReactTimerHandle);
+	EndHitStunTracking();
+	StartKnockdownTracking();
+
+	const float SafeDuration = (Duration > 0.0f) ? Duration : KnockdownDuration;
+	CurrentTargetKnockdownDuration = SafeDuration;
+
+	// 4. Kneel 몽타주가 존재하면 무장/비무장 섹션 분기 몽타주 파이프라인 가동
+	if (KneelMontage)
+	{
+		const FName SectionName = GetKneelStartSectionName();
+
+		UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
+		if (AnimInstance)
+		{
+			FOnMontageEnded EndDelegate;
+			EndDelegate.BindUObject(this, &AAGSDCharacter::OnKneelMontageEnded);
+			AnimInstance->Montage_SetEndDelegate(EndDelegate, KneelMontage);
+		}
+
+		PlayAnimMontage(KneelMontage, 1.0f, SectionName);
+
+		// Start 모션(약 0.8초) + Loop 체류 시간(SafeDuration) 대기 타이머 가동
+		const float StartMotionEstimatedDuration = 0.8f;
+		const float TotalWaitDuration = StartMotionEstimatedDuration + SafeDuration;
+		GetWorldTimerManager().ClearTimer(KneelDurationTimerHandle);
+		GetWorldTimerManager().SetTimer(KneelDurationTimerHandle, this, &AAGSDCharacter::OnKneelDurationExpired, TotalWaitDuration, false);
+
+		// ⭐️ 이중 안전장치: 넉다운 체류 후 최대 2초 뒤 강제 스턴 해제
+		const float KneelSafetyDuration = TotalWaitDuration + 2.0f;
+		GetWorldTimerManager().ClearTimer(KnockdownTimerHandle);
+		GetWorldTimerManager().SetTimer(KnockdownTimerHandle, this, &AAGSDCharacter::FinishKnockdown, KneelSafetyDuration, false);
+
+		ApplyHitStun(KneelSafetyDuration);
+		UE_LOG(LogTemp, Log, TEXT("[Cheat] Kneel Montage Triggered! StartSection: %s, TotalWait: %.2fs (Safety: %.2fs)"),
+			*SectionName.ToString(), TotalWaitDuration, KneelSafetyDuration);
+	}
+	else
+	{
+		// Fallback: 몽타주 미할당 시 애님그래프 스테이트 머신 기상 타이머 가동
+		GetWorldTimerManager().ClearTimer(KnockdownTimerHandle);
+		GetWorldTimerManager().SetTimer(KnockdownTimerHandle, this, &AAGSDCharacter::TriggerKnockdownStandUp, SafeDuration, false);
+
+		// 5. 조작 불가 스턴 적용
+		ApplyHitStun(SafeDuration + 5.0f);
+	}
 }
 
 void AAGSDCharacter::StartHitStunTracking()

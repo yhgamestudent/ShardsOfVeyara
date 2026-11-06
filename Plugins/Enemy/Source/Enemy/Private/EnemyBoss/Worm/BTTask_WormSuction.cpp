@@ -3,6 +3,7 @@
 #include "AIController.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "EnemyBoss/Worm/BossWorm.h"
+#include "Kismet/GameplayStatics.h"
 
 UBTTask_WormSuction::UBTTask_WormSuction()
 {
@@ -14,11 +15,24 @@ UBTTask_WormSuction::UBTTask_WormSuction()
 EBTNodeResult::Type UBTTask_WormSuction::ExecuteTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory)
 {
 	AAIController* AIController = OwnerComp.GetAIOwner();
-	ABossWorm* Boss = Cast<ABossWorm>(AIController->GetPawn());
+	ABossWorm* Boss = Cast<ABossWorm>(AIController ? AIController->GetPawn() : nullptr);
 
 	if (Boss == nullptr)
 	{
 		return EBTNodeResult::Failed;
+	}
+
+	// 이중 안전장치: 플레이어가 이미 근접에 있으면 석션 실행 방지 (0.3초 캔슬 ➔ 평타 중첩 버그 원천 차단)
+	APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(Boss->GetWorld(), 0);
+	if (PlayerPawn)
+	{
+		const float Dist = FVector::Dist2D(Boss->GetActorLocation(), PlayerPawn->GetActorLocation());
+		if (Dist < Boss->AttackStruct.MinLungeDistance)
+		{
+			UE_LOG(LogTemp, Log, TEXT("[BossWorm AI] Player already too close (%.1fcm < %.1fcm). Suction cancelled to prevent overlap."),
+				Dist, Boss->AttackStruct.MinLungeDistance);
+			return EBTNodeResult::Failed;
+		}
 	}
 	
 	// 1. 공격 함수 실행 (몽타주 재생 시작)

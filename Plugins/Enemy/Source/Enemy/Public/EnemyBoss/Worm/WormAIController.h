@@ -15,5 +15,7 @@ protected:
 	virtual void SetBlackboardKey() override;
 
 public:
+	virtual void Tick(float DeltaTime) override;
+
 	class ABossWorm* ControlledEnemy;
 };

@@ -179,3 +179,47 @@ void UCSVLog::AddHechiLog(const FHechiLogData& LogData)
 		FILEWRITE_Append
 	);
 }
+
+void UCSVLog::AddBossWormLog(const FBossWormLogData& LogData)
+{
+	// 저장 경로 설정 (Saved/LogData/Worm.csv)
+	const FString Directory = FPaths::ProjectSavedDir() / TEXT("LogData");
+	const FString FileName = TEXT("Worm.csv");
+	const FString FilePath = Directory / FileName;
+
+	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+
+	// 디렉토리 자동 생성
+	if (!PlatformFile.DirectoryExists(*Directory))
+	{
+		PlatformFile.CreateDirectoryTree(*Directory);
+	}
+
+	bool bFileExists = PlatformFile.FileExists(*FilePath);
+	FString FinalOutputString = TEXT("");
+
+	// 새 파일이면 헤더 추가
+	if (!bFileExists)
+	{
+		FinalOutputString += FBossWormLogData::GetCSVHeader() + TEXT("\n");
+	}
+
+	// 데이터 백업 및 예외 처리
+	FBossWormLogData FinalData = LogData;
+	if (FinalData.Base.BossID.IsEmpty())
+	{
+		FinalData.Base.BossID = TEXT("BossWorm");
+	}
+
+	// CSV 행 변환 및 누적
+	FinalOutputString += FinalData.ToCSVRow() + TEXT("\n");
+
+	// 파일에 추가 저장
+	FFileHelper::SaveStringToFile(
+		FinalOutputString,
+		*FilePath,
+		FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM,
+		&IFileManager::Get(),
+		FILEWRITE_Append
+	);
+}

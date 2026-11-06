@@ -4,6 +4,9 @@
 #include "EnemyProjectile/DamageZoneProjectile.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
+#include "CombatTimelineLogger.h"
+#include "CombatLogParticipantInterface.h"
+#include "EnemyBoss/BaseBossEnemy.h"
 
 ABossWormProjectile::ABossWormProjectile()
 {
@@ -11,6 +14,11 @@ ABossWormProjectile::ABossWormProjectile()
 	
 	// 중력 영향 받도록 설정
 	ProjectileMovement->ProjectileGravityScale = 1.0f;
+
+	// 불구덩이 곡사 투사체 첫 폭발/착탄 시 에어본 넉다운 적용
+	KnockdownType = EKnockdownType::AirborneFloor;
+	KnockdownDuration = 1.2f;
+	HitIntensity = 1.0f;
 }
 
 void ABossWormProjectile::CreateHitEffect()
@@ -59,6 +67,53 @@ void ABossWormProjectile::OnOverlapBegin(UPrimitiveComponent* OverlappedComponen
 	if (bIsPlayer)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Projectile hit Player: %s"), *OtherActor->GetName());
+
+		bHasHitPlayer = true;
+
+		// 타임라인 로깅 및 피해 판정
+		const FString EffectiveActionName = !ActionName.IsEmpty() ? ActionName : TEXT("RangedAttack");
+		const FString EffectiveActionID = !ActionID.IsEmpty() ? ActionID : EffectiveActionName;
+
+		float PlayerHP = 0.0f;
+		float PlayerMaxHP = 0.0f;
+		FString PlayerState = TEXT("Idle");
+		if (const ICombatLogParticipantInterface* Participant = Cast<ICombatLogParticipantInterface>(OtherActor))
+		{
+			PlayerHP = Participant->GetParticipantHealth();
+			PlayerMaxHP = Participant->GetParticipantMaxHealth();
+			PlayerState = Participant->GetParticipantCombatState();
+		}
+
+		float BossHP = 0.0f;
+		float BossMaxHP = 0.0f;
+		if (const ICombatLogParticipantInterface* BossParticipant = Cast<ICombatLogParticipantInterface>(GetOwner()))
+		{
+			BossHP = BossParticipant->GetParticipantHealth();
+			BossMaxHP = BossParticipant->GetParticipantMaxHealth();
+		}
+
+		const float Dist = FVector::Dist(GetActorLocation(), OtherActor->GetActorLocation());
+		const float CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+
+		if (PlayerState == TEXT("JustGuarding"))
+		{
+			UCombatTimelineLogger::LogHitJustGuard(EffectiveActionID, EffectiveActionName, CurrentTime, Dist, BossHP, BossMaxHP, PlayerHP, PlayerMaxHP);
+		}
+		else if (PlayerState == TEXT("Guarding"))
+		{
+			UCombatTimelineLogger::LogHitGuarded(EffectiveActionID, EffectiveActionName, Damage, CurrentTime, Dist, BossHP, BossMaxHP, PlayerHP, PlayerMaxHP);
+		}
+		else
+		{
+			const float EstimatedAfterHP = FMath::Max(0.0f, PlayerHP - Damage);
+			UCombatTimelineLogger::LogHitSuccess(EffectiveActionID, EffectiveActionName, Damage, CurrentTime, Dist, PlayerState, BossHP, BossMaxHP, EstimatedAfterHP, PlayerMaxHP);
+		}
+
+		if (ABaseBossEnemy* BossOwner = Cast<ABaseBossEnemy>(GetOwner()))
+		{
+			BossOwner->CommonBossLogData.TotalDamageDealt += Damage;
+		}
+
 		UGameplayStatics::ApplyDamage(
 		   OtherActor,
 		   Damage, // 헤더 파일에 선언된 대미지 변수

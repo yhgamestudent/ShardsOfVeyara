@@ -25,6 +25,9 @@ ADamageZoneProjectile::ADamageZoneProjectile()
 	// 눈에 보이지 않게 설정 
 	OverlapMesh->SetVisibility(false);
 	
+	// 지속 장판 피해 판별용 태그 등록 (피격 시 조작 불가 스턴/경직 면제)
+	Tags.Add(FName("DamageZone"));
+	Tags.Add(FName("DoT"));
 }
 
 void ADamageZoneProjectile::BeginPlay()

@@ -787,7 +787,10 @@ void UGameplayLogSubsystem::RecordBossClear(const FString& BossName, float Battl
 			{
 				if (BossName.Contains(Pair.Key) || Pair.Key.Contains(BossName) ||
 					(BossName.Contains(TEXT("SkeletonMage")) && Pair.Key.Contains(TEXT("Forest"))) ||
-					(BossName.Contains(TEXT("Assassin")) && Pair.Key.Contains(TEXT("Dungeon"))))
+					(BossName.Contains(TEXT("BlackKnight")) && Pair.Key.Contains(TEXT("Dungeon"))) ||
+					(BossName.Contains(TEXT("Assassin")) && Pair.Key.Contains(TEXT("Dungeon"))) ||
+					(BossName.Contains(TEXT("BossWorm")) && Pair.Key.Contains(TEXT("Cave"))) ||
+					(BossName.Contains(TEXT("Worm")) && Pair.Key.Contains(TEXT("Cave"))))
 				{
 					StartTime = const_cast<float*>(&Pair.Value);
 					break;
@@ -933,7 +936,10 @@ void UGameplayLogSubsystem::SnapshotStageFirstClear(const FString& StageName, co
 			{
 				if (Pair.Key.Contains(BossName) || BossName.Contains(Pair.Key) ||
 					(BossName.Contains(TEXT("SkeletonMage")) && Pair.Key.Contains(TEXT("Forest"))) ||
-					(BossName.Contains(TEXT("Assassin")) && Pair.Key.Contains(TEXT("Dungeon"))))
+					(BossName.Contains(TEXT("BlackKnight")) && Pair.Key.Contains(TEXT("Dungeon"))) ||
+					(BossName.Contains(TEXT("Assassin")) && Pair.Key.Contains(TEXT("Dungeon"))) ||
+					(BossName.Contains(TEXT("BossWorm")) && Pair.Key.Contains(TEXT("Cave"))) ||
+					(BossName.Contains(TEXT("Worm")) && Pair.Key.Contains(TEXT("Cave"))))
 				{
 					BossTime = Pair.Value;
 					break;
@@ -1617,7 +1623,8 @@ FString UGameplayLogSubsystem::GenerateCSVString() const
 			{
 				if (BossPair.Key.Contains(StageName) ||
 					(StageName.Contains(TEXT("Forest")) && (BossPair.Key.Contains(TEXT("SkeletonMage")) || BossPair.Key.Contains(TEXT("Forest")))) ||
-					(StageName.Contains(TEXT("Dungeon")) && (BossPair.Key.Contains(TEXT("Assassin")) || BossPair.Key.Contains(TEXT("Dungeon")))))
+					(StageName.Contains(TEXT("Dungeon")) && (BossPair.Key.Contains(TEXT("BlackKnight")) || BossPair.Key.Contains(TEXT("Assassin")) || BossPair.Key.Contains(TEXT("Dungeon")))) ||
+					(StageName.Contains(TEXT("Cave")) && (BossPair.Key.Contains(TEXT("BossWorm")) || BossPair.Key.Contains(TEXT("Worm")) || BossPair.Key.Contains(TEXT("Cave")))))
 				{
 					StageBossTime += BossPair.Value;
 				}
@@ -1715,7 +1722,8 @@ FString UGameplayLogSubsystem::GenerateCSVString() const
 			for (const auto& BossPair : LogData.BossBattleTimes)
 			{
 				if (BossPair.Key.Contains(StageName) ||
-					(StageName.Contains(TEXT("Dungeon")) && (BossPair.Key.Contains(TEXT("Assassin")) || BossPair.Key.Contains(TEXT("Dungeon")))))
+					(StageName.Contains(TEXT("Dungeon")) && (BossPair.Key.Contains(TEXT("BlackKnight")) || BossPair.Key.Contains(TEXT("Assassin")) || BossPair.Key.Contains(TEXT("Dungeon")))) ||
+					(StageName.Contains(TEXT("Cave")) && (BossPair.Key.Contains(TEXT("BossWorm")) || BossPair.Key.Contains(TEXT("Worm")) || BossPair.Key.Contains(TEXT("Cave")))))
 				{
 					StageBossTime += BossPair.Value;
 				}
@@ -1887,7 +1895,8 @@ FString UGameplayLogSubsystem::GenerateCSVString() const
 			{
 				if (BossPair.Key.Contains(StageName) ||
 					(StageName.Contains(TEXT("Forest")) && (BossPair.Key.Contains(TEXT("SkeletonMage")) || BossPair.Key.Contains(TEXT("Forest")))) ||
-					(StageName.Contains(TEXT("Dungeon")) && (BossPair.Key.Contains(TEXT("Assassin")) || BossPair.Key.Contains(TEXT("Dungeon")))))
+					(StageName.Contains(TEXT("Dungeon")) && (BossPair.Key.Contains(TEXT("BlackKnight")) || BossPair.Key.Contains(TEXT("Assassin")) || BossPair.Key.Contains(TEXT("Dungeon")))) ||
+					(StageName.Contains(TEXT("Cave")) && (BossPair.Key.Contains(TEXT("BossWorm")) || BossPair.Key.Contains(TEXT("Worm")) || BossPair.Key.Contains(TEXT("Cave")))))
 				{
 					StageBossTime += BossPair.Value;
 				}
@@ -2268,11 +2277,11 @@ FString UGameplayLogSubsystem::GenerateCSVString() const
 	bool bDungeonBossReached = false;
 	for (const auto& Pair : LogData.BossEnterCounts)
 	{
-		if (Pair.Key.Contains(TEXT("Assassin")) || Pair.Key.Contains(TEXT("Dungeon"))) { bDungeonBossReached = true; break; }
+		if (Pair.Key.Contains(TEXT("BlackKnight")) || Pair.Key.Contains(TEXT("Assassin")) || Pair.Key.Contains(TEXT("Dungeon"))) { bDungeonBossReached = true; break; }
 	}
 	for (const auto& Pair : LogData.BossBattleTimes)
 	{
-		if (Pair.Key.Contains(TEXT("Assassin")) || Pair.Key.Contains(TEXT("Dungeon"))) { bDungeonBossReached = true; break; }
+		if (Pair.Key.Contains(TEXT("BlackKnight")) || Pair.Key.Contains(TEXT("Assassin")) || Pair.Key.Contains(TEXT("Dungeon"))) { bDungeonBossReached = true; break; }
 	}
 	float Progress_7_DungeonReach = bDungeonBossReached ? 100.0f : FMath::Clamp(((float)DungeonClearedGimmicks / (float)TotalDungeonGimmicks) * 100.0f, 0.0f, 100.0f);
 
@@ -2294,12 +2303,12 @@ FString UGameplayLogSubsystem::GenerateCSVString() const
 	int32 DungeonBossEnter = 0;
 	for (const auto& Pair : LogData.BossEnterCounts)
 	{
-		if (Pair.Key.Contains(TEXT("Assassin")) || Pair.Key.Contains(TEXT("Dungeon"))) { DungeonBossEnter += Pair.Value; }
+		if (Pair.Key.Contains(TEXT("BlackKnight")) || Pair.Key.Contains(TEXT("Assassin")) || Pair.Key.Contains(TEXT("Dungeon"))) { DungeonBossEnter += Pair.Value; }
 	}
 	int32 DungeonBossClear = 0;
 	for (const auto& Pair : LogData.BossClearCounts)
 	{
-		if (Pair.Key.Contains(TEXT("Assassin")) || Pair.Key.Contains(TEXT("Dungeon"))) { DungeonBossClear += Pair.Value; }
+		if (Pair.Key.Contains(TEXT("BlackKnight")) || Pair.Key.Contains(TEXT("Assassin")) || Pair.Key.Contains(TEXT("Dungeon"))) { DungeonBossClear += Pair.Value; }
 	}
 	for (const auto& ClearedStage : ClearedBossStages)
 	{
@@ -2309,7 +2318,7 @@ FString UGameplayLogSubsystem::GenerateCSVString() const
 	float DungeonBossMinHP = 1.0f;
 	for (const auto& Pair : LogData.BossMinHealthRatios)
 	{
-		if (Pair.Key.Contains(TEXT("Assassin")) || Pair.Key.Contains(TEXT("Dungeon")))
+		if (Pair.Key.Contains(TEXT("BlackKnight")) || Pair.Key.Contains(TEXT("Assassin")) || Pair.Key.Contains(TEXT("Dungeon")))
 		{
 			DungeonBossMinHP = FMath::Min(DungeonBossMinHP, Pair.Value);
 		}
@@ -2327,6 +2336,65 @@ FString UGameplayLogSubsystem::GenerateCSVString() const
 	CSV += FString::Printf(TEXT("%s,GoalAchievement,ClearRate,8_Dungeon_DefeatBoss,%.1f\n"), *SessionID, ClearRate_8_DungeonBoss);
 	CSV += FString::Printf(TEXT("%s,GoalAchievement,AttemptCount,8_Dungeon_DefeatBoss,%d\n"), *SessionID, Attempt_8_DungeonBoss);
 	CSV += FString::Printf(TEXT("%s,GoalAchievement,ClearCount,8_Dungeon_DefeatBoss,%d\n"), *SessionID, DungeonBossClear);
+
+	// ─── [9. 동굴: 보스 도달] ───
+	bool bCaveBossReached = false;
+	for (const auto& Pair : LogData.StageGimmickClearCounts)
+	{
+		if (Pair.Key.Contains(TEXT("Cave"))) { bCaveBossReached = true; break; }
+	}
+	for (const auto& Pair : LogData.BossEnterCounts)
+	{
+		if (Pair.Key.Contains(TEXT("BossWorm")) || Pair.Key.Contains(TEXT("Worm")) || Pair.Key.Contains(TEXT("Cave"))) { bCaveBossReached = true; break; }
+	}
+	float Progress_9_CaveReach = bCaveBossReached ? 100.0f : 0.0f;
+	int32 CaveRespawns = 0;
+	for (const auto& Pair : LogData.StageFallRespawnCounts)
+	{
+		if (Pair.Key.Contains(TEXT("Cave"))) { CaveRespawns += Pair.Value; }
+	}
+	int32 Attempt_9_CaveReach = 1 + CaveRespawns;
+
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,ProgressPercent,9_Cave_ReachBoss,%.1f\n"), *SessionID, Progress_9_CaveReach);
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,AttemptCount,9_Cave_ReachBoss,%d\n"), *SessionID, Attempt_9_CaveReach);
+
+	// ─── [10. 동굴: 보스 격파] ───
+	int32 CaveBossEnter = 0;
+	for (const auto& Pair : LogData.BossEnterCounts)
+	{
+		if (Pair.Key.Contains(TEXT("BossWorm")) || Pair.Key.Contains(TEXT("Worm")) || Pair.Key.Contains(TEXT("Cave"))) { CaveBossEnter += Pair.Value; }
+	}
+	int32 CaveBossClear = 0;
+	for (const auto& Pair : LogData.BossClearCounts)
+	{
+		if (Pair.Key.Contains(TEXT("BossWorm")) || Pair.Key.Contains(TEXT("Worm")) || Pair.Key.Contains(TEXT("Cave"))) { CaveBossClear += Pair.Value; }
+	}
+	for (const auto& ClearedStage : ClearedBossStages)
+	{
+		if (ClearedStage.Contains(TEXT("Cave")) || ClearedStage.Contains(TEXT("Worm"))) { CaveBossClear = FMath::Max(CaveBossClear, 1); }
+	}
+
+	float CaveBossMinHP = 1.0f;
+	for (const auto& Pair : LogData.BossMinHealthRatios)
+	{
+		if (Pair.Key.Contains(TEXT("BossWorm")) || Pair.Key.Contains(TEXT("Worm")) || Pair.Key.Contains(TEXT("Cave")))
+		{
+			CaveBossMinHP = FMath::Min(CaveBossMinHP, Pair.Value);
+		}
+	}
+	if (CaveBossClear > 0)
+	{
+		CaveBossMinHP = 0.0f;
+	}
+	float Progress_10_CaveBoss = (CaveBossClear > 0) ? 100.0f : ((bCaveBossReached || CaveBossEnter > 0) ? FMath::Clamp((1.0f - CaveBossMinHP) * 100.0f, 0.0f, 100.0f) : 0.0f);
+	int32 Attempt_10_CaveBoss = FMath::Max(CaveBossEnter, CaveBossClear);
+	if (Attempt_10_CaveBoss == 0 && bCaveBossReached) { Attempt_10_CaveBoss = 1; }
+	float ClearRate_10_CaveBoss = (Attempt_10_CaveBoss > 0) ? (((float)CaveBossClear / (float)Attempt_10_CaveBoss) * 100.0f) : 0.0f;
+
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,ProgressPercent,10_Cave_DefeatBoss,%.1f\n"), *SessionID, Progress_10_CaveBoss);
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,ClearRate,10_Cave_DefeatBoss,%.1f\n"), *SessionID, ClearRate_10_CaveBoss);
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,AttemptCount,10_Cave_DefeatBoss,%d\n"), *SessionID, Attempt_10_CaveBoss);
+	CSV += FString::Printf(TEXT("%s,GoalAchievement,ClearCount,10_Cave_DefeatBoss,%d\n"), *SessionID, CaveBossClear);
 
 	return CSV;
 }

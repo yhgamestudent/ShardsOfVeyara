@@ -19,7 +19,7 @@ struct FBossWormAttackStruct
 	UPROPERTY( EditAnywhere, BlueprintReadWrite, Category = "자체설정")
 	float UnBurrowWeight = 0.0f;
 	UPROPERTY( EditAnywhere, BlueprintReadWrite, Category = "자체설정")
-	float RangedAttackWeight = 4.0f;
+	float RangedAttackWeight = 6.0f;
 	UPROPERTY( EditAnywhere, BlueprintReadWrite, Category = "자체설정")
 	float LungeAttackWeight = 3.0f;
 	UPROPERTY( EditAnywhere, BlueprintReadWrite, Category = "자체설정")
@@ -30,44 +30,71 @@ struct FBossWormAttackStruct
 	float SuctionAttackWeight = 3.0f;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
-	float NormalAttackDamage = 25.0f;
+	float NormalAttackDamage = 220.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
-	float NormalAttackDelay = 3.0f;
+	float NormalAttackDelay = 1.2f;
 	
 	UPROPERTY( EditAnywhere, BlueprintReadWrite, Category = "자체설정")
-	float BurrowDelay = 5.0f;
+	float BurrowDelay = 3.2f;
 	
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
-	float UnBurrowAttackDamage = 30.0f;
+	float UnBurrowAttackDamage = 275.0f;
 	UPROPERTY( EditAnywhere, BlueprintReadWrite, Category = "자체설정")
-	float UnBurrowAttackDelay = 3.0f;
-	
-	UPROPERTY( EditAnywhere, BlueprintReadWrite, Category = "자체설정")
-	float RangedAttackDelay = 4.0f;
+	float UnBurrowAttackDelay = 1.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
+	float UnBurrowPushForce = 2200.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
+	float UnBurrowPushUpwardForce = 850.0f;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
-	float LungeAttackDamage = 35.0f;
+	float RangedAttackDamage = 220.0f;
 	UPROPERTY( EditAnywhere, BlueprintReadWrite, Category = "자체설정")
-	float LungeAttackDelay = 5.0f;
+	float RangedAttackDelay = 1.8f;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
-	float LinearFireBreathDamage = 4.f;
+	float LungeAttackDamage = 330.0f;
 	UPROPERTY( EditAnywhere, BlueprintReadWrite, Category = "자체설정")
-	float LinearFireBreathDelay = 2.0f;
+	float LungeAttackDelay = 1.8f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
+	float MinLungeDistance = 400.0f;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
-	float FanFireBreathDamage = 3.f;
+	float LinearFireBreathDamage = 44.0f;
 	UPROPERTY( EditAnywhere, BlueprintReadWrite, Category = "자체설정")
-	float FanFireBreathDelay = 2.0f;
+	float LinearFireBreathDelay = 1.2f;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
-	float SuctionAttackDamage = 41.f;
+	float FanFireBreathDamage = 35.2f;
 	UPROPERTY( EditAnywhere, BlueprintReadWrite, Category = "자체설정")
-	float SuctionAttackDelay = 3.0f;
+	float FanFireBreathDelay = 1.2f;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
+	float SuctionAttackDamage = 396.0f;
+	UPROPERTY( EditAnywhere, BlueprintReadWrite, Category = "자체설정")
+	float SuctionAttackDelay = 1.8f;
 	// 빨아들이는 힘 = 음수가 빨아들이는거임
 	UPROPERTY(EditAnywhere, Category = "자체설정")
 	float SuctionForce = -700000.f;
+
+	// 스킬별 피격 인텐시티 (HitIntensity: 0.0=약피격, 1.0=강피격)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|피격인텐시티")
+	float NormalAttackHitIntensity = 0.6f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|피격인텐시티")
+	float LungeAttackHitIntensity = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|피격인텐시티")
+	float LinearFireBreathHitIntensity = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|피격인텐시티")
+	float FanFireBreathHitIntensity = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|피격인텐시티")
+	float SuctionAttackHitIntensity = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정|피격인텐시티")
+	float UnBurrowAttackHitIntensity = 1.0f;
 };
 
 UCLASS()
@@ -76,7 +103,8 @@ class ENEMY_API ABossWorm : public ABaseBossEnemy
 	GENERATED_BODY()
 	
 protected:
-	class USphereComponent* AttackCollisionSphere = nullptr;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "자체설정|Collision")
+	class UShapeComponent* AttackCollisionComp = nullptr;
 	class USceneComponent* FireBreathPoint = nullptr;
 	
 	UPROPERTY(VisibleAnywhere)
@@ -90,6 +118,7 @@ public:
 	virtual void Tick(float DeltaTime) override;
 	virtual void Die() override;
 	virtual void InitializeStatsFromDataTable() override;
+	virtual void EndBattleLog() override;
 	
 	UFUNCTION()
 	void OnBeginOverlapAttackCollisionSphere(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
@@ -235,6 +264,18 @@ public:
 	UPROPERTY(VisibleAnywhere)
 	class URadialForceComponent* SuctionRadialForceComp;
 	
+	UPROPERTY(BlueprintReadOnly, Category = "Combat|Log")
+	FBossWormLogData BossWormLogData;
+
+	// 타임라인 로깅용 현재 활성 ActionID 추적 변수
+	FString CurrentNormalAttackActionID;
+	FString CurrentLungeAttackActionID;
+	FString CurrentBurrowActionID;
+	FString CurrentUnBurrowActionID;
+	FString CurrentFireBreathActionID;
+	FString CurrentSuctionActionID;
+	FString CurrentRangedAttackActionID;
+
 #if WITH_EDITOR
 	// 에디터에서 프로퍼티가 변경될 때 호출됩니다.
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;

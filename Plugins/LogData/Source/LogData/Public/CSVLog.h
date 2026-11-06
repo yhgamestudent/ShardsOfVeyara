@@ -54,4 +54,10 @@ public:
 		
 	);
 	
+
+	/** 보스 웜 로그 */
+	UFUNCTION(BlueprintCallable, Category = "LogData_CSVLogger", Meta = (AutoCreateRefTerm = "LogData"))
+	static void AddBossWormLog(
+		const FBossWormLogData& LogData
+	);
 };

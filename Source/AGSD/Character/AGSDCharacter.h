@@ -1120,12 +1120,113 @@ public:
 	UFUNCTION(Exec, Category = "Combat|Debug")
 	void God() { ToggleGodMode(); }
 
+	// ─── [디버그/테스트용 상태 제어 치트] ───
+	/**
+	 * 콘솔창(~) 치트 명령어: 캐릭터를 공중으로 띄우고(Airborne) 바닥에 엎어지는 넉다운 상태로 전이
+	 * @param UpwardForce 위쪽으로 띄우는 힘 (기본값 0)
+	 * @param BackwardForce 뒤쪽으로 밀어내는 힘 (기본값 0)
+	 * @param Duration 바닥에 누워있는 시간(초, 기본값 1.2초)
+	 */
+	UFUNCTION(Exec, BlueprintCallable, Category = "Combat|Debug")
+	void Cheat_Airborne(float UpwardForce = 0.0f, float BackwardForce = 0.0f, float Duration = 1.2f);
+
+	/**
+	 * 콘솔창(~) 치트 명령어: 캐릭터를 무릎 꿇기(Kneel) 넉다운 상태로 전이
+	 * @param Duration 무릎을 꿇고 있는 시간(초, 기본값 1.2초)
+	 */
+	UFUNCTION(Exec, BlueprintCallable, Category = "Combat|Debug")
+	void Cheat_Kneel(float Duration = 1.2f);
+
+	/** 단축 콘솔 명령어: Airborne [UpwardForce] [BackwardForce] [Duration] */
+	UFUNCTION(Exec, Category = "Combat|Debug")
+	void Airborne(float UpwardForce = 0.0f, float BackwardForce = 0.0f, float Duration = 1.2f) { Cheat_Airborne(UpwardForce, BackwardForce, Duration); }
+
+	/** 단축 콘솔 명령어: Kneel [Duration] */
+	UFUNCTION(Exec, Category = "Combat|Debug")
+	void Kneel(float Duration = 1.2f) { Cheat_Kneel(Duration); }
+
 protected:
 	/** 넉다운 기본 유지 시간 (스킬에서 설정되지 않았을 때의 기본값, 초) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|HitReaction")
 	float KnockdownDuration = 1.2f;
 
+	// ─── [에어본 몽타주 낙하 및 착지 시스템] ───
+	/** 맨손 에어본 피격/넉다운 몽타주 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Montage")
+	class UAnimMontage* AirborneMontage = nullptr;
+
+	/** 무기 장착(Combat) 에어본 피격/넉다운 몽타주 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Montage")
+	class UAnimMontage* CombatAirborneMontage = nullptr;
+
+	/** 공중 맨손 에어본 피격/넉다운 몽타주 (공중에 떠 있거나 점프 중 피격 시 재생) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Montage")
+	class UAnimMontage* InAirAirborneMontage = nullptr;
+
+	/** 공중 무기 장착(Combat) 에어본 피격/넉다운 몽타주 (공중에 떠 있거나 점프 중 피격 시 재생) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Montage")
+	class UAnimMontage* CombatInAirAirborneMontage = nullptr;
+
+	// ─── [무릎 꿇기(Kneel) 단일 몽타주 시스템] ───
+	/** 무릎 꿇기(Kneel) 피격/넉다운 몽타주 (무장/비무장 섹션 통합 단일 몽타주) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Montage")
+	class UAnimMontage* KneelMontage = nullptr;
+
+	/** 무기 착용 상태에 따른 Kneel 시작 섹션 이름 반환 (비무장: Start_Unarmed, 무장: Start_Combat) */
+	FName GetKneelStartSectionName() const;
+
+	/** 무기 착용 상태에 따른 Kneel 기상(End) 섹션 이름 반환 (비무장: End_Unarmed, 무장: End_Combat) */
+	FName GetKneelEndSectionName() const;
+
+	/** 현재 재생 중인 에어본 몽타주 추적 포인터 */
+	UPROPERTY(Transient)
+	class UAnimMontage* CurrentActiveAirborneMontage = nullptr;
+
+	/** 무기 착용 상태 및 공중 여부에 따른 에어본 몽타주 선택 헬퍼 */
+	UAnimMontage* GetAirborneMontageToPlay(bool bForceInAir = false) const;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|HitReaction")
+	bool bIsAirborneMontageActive = false;
+
+	/** 지면 착지 감지 오버라이드 */
+	virtual void Landed(const FHitResult& Hit) override;
+
+	/** 최고점 도달 시 물리 중력/낙하 개시 함수 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|HitReaction")
+	void OnAirborneApexReached();
+
+	/** 애님 노티파이 바인딩 핸들러 */
+	UFUNCTION()
+	void AnimNotify_AirborneStartFall() { OnAirborneApexReached(); }
+
 	FTimerHandle HitStunTimerHandle;
 	FTimerHandle HitReactTimerHandle;
 	FTimerHandle KnockdownTimerHandle;
+	FTimerHandle AirborneApexTimerHandle;
+	FTimerHandle AirborneKnockdownPauseTimerHandle;
+	FTimerHandle AirborneKnockdownResumeTimerHandle;
+	FTimerHandle KneelDurationTimerHandle;
+
+	/** 현재 에어본/Kneel 넉다운에 적용된 대기 지속시간 */
+	float CurrentTargetKnockdownDuration = 1.2f;
+
+	/** End 섹션 종료 시점에 몽타주 일시정지(바닥 누워있기 대기) */
+	UFUNCTION()
+	void OnAirborneKnockdownPauseReached();
+
+	/** 넉다운 시간 경과 후 몽타주 재개(기상 모션 재생) */
+	UFUNCTION()
+	void OnAirborneKnockdownResume();
+
+	/** 에어본 몽타주 종료 델리게이트 (기상 종료 즉시 스턴 해제) */
+	UFUNCTION()
+	void OnAirborneMontageEnded(class UAnimMontage* Montage, bool bInterrupted);
+
+	/** Kneel 넉다운 지속시간 만료 시 무장 상태에 맞는 End 섹션(End_Unarmed / End_Combat)으로 점프 */
+	UFUNCTION()
+	void OnKneelDurationExpired();
+
+	/** Kneel 몽타주 종료 델리게이트 (기상 종료 즉시 스턴 해제) */
+	UFUNCTION()
+	void OnKneelMontageEnded(class UAnimMontage* Montage, bool bInterrupted);
 };
