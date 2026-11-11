@@ -42,7 +42,7 @@ public:
 	int CurrentDay = 1;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldState")
-	float CurrentTime = 360.f;
+	float CurrentTime = 600.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WorldState")
 	TMap<FString, FStruct_WorldChestData> ChestMap;

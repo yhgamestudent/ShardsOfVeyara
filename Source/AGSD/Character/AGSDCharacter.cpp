@@ -418,6 +418,27 @@ void AAGSDCharacter::Tick(float DeltaSeconds)
 		}
 	}
 
+	// --- [UI 상태 변화 감지 및 위젯 동기화] ---
+	const bool bCurrentUIActive = IsAnyUIActive();
+	if (bCurrentUIActive != bLastAnyUIActive)
+	{
+		bLastAnyUIActive = bCurrentUIActive;
+		if (bCurrentUIActive)
+		{
+			// UI가 열렸을 때: 상호작용 및 아이템 사용 위젯 즉시 숨김
+			if (AAGSDPlayerController* PlayerController = PC ? PC : Cast<AAGSDPlayerController>(GetController()))
+			{
+				PlayerController->HideLeftItemUseWidget();
+				PlayerController->HideInteractionWidget();
+			}
+		}
+		else
+		{
+			// UI가 닫혔을 때: 손에 든 아이템에 맞춰 좌측 위젯 복원
+			UpdateLeftItemUseWidget();
+		}
+	}
+
 	// --- [상호작용 업데이트] ---
 	if (InteractionComponent)
 	{
@@ -783,10 +804,10 @@ void AAGSDCharacter::WakeUp()
 		FadeWidget->SetTargetOpacity(0.f);
 	}
 
-	// 1. 하루 경과 처리 (오전 6시 = 360분 기상)
+	// 1. 하루 경과 처리 (오전 6시 = 600.f 기상)
 	if (AFarmingGameMode* GM = Cast<AFarmingGameMode>(GetWorld()->GetAuthGameMode()))
 	{
-		GM->NextDay(360.f);
+		GM->NextDay(600.f);
 	}
 
 	// 2. 최대 체력(풀피) 회복 및 조작 활성화
@@ -1348,6 +1369,12 @@ void AAGSDCharacter::StartRoll()
 	bIsRolling = true;
 	bIsRollInvincible = true;
 
+	// [구르기 루트 모션 보장]: 애님그래프 State Machine의 BS_Roll 블렌드스페이스 루트 모션 추출 보장
+	if (UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr)
+	{
+		AnimInstance->SetRootMotionMode(ERootMotionMode::RootMotionFromEverything);
+	}
+
 	GetWorldTimerManager().ClearTimer(RollInvincibleTimerHandle);
 	GetWorldTimerManager().SetTimer(RollInvincibleTimerHandle, this, &AAGSDCharacter::EndRollInvincible, RollInvincibleDuration, false);
 	UE_LOG(LogTemp, Log, TEXT("[Roll] Roll started: 40-frame (%.3fs) Invincibility activated"), RollInvincibleDuration);
@@ -1830,6 +1857,7 @@ void AAGSDCharacter::UseEquippedItem()
 		if (DefaultActor && DefaultActor->Implements<UUsableItem>())
 		{
 			const bool bIsPotion = IsPotionItem(HoldingItemData);
+			const bool bIsCrop = IsCropItem(HoldingItemData);
 
 			// ⏳ 글로벌 포션 쿨다운 검사: 어떤 포션이든 쿨다운 중이면 모든 포션 사용 불가
 			if (bIsPotion && IsPotionOnCooldown())
@@ -1842,8 +1870,8 @@ void AAGSDCharacter::UseEquippedItem()
 				return;
 			}
 
-			// 🛡️ 체력 물약인 경우: 체력이 이미 가득 차 있다면 사용 차단 (아이템 낭비 및 로그 데이터 왜곡 방지)
-			if (bIsPotion)
+			// 🛡️ 체력 물약 또는 작물인 경우: 체력이 이미 가득 차 있다면 사용 차단 (아이템 낭비 및 로그 데이터 왜곡 방지)
+			if (bIsPotion || bIsCrop)
 			{
 				if (Health >= MaxHealth)
 				{
@@ -2823,6 +2851,28 @@ bool AAGSDCharacter::IsPotionItem(const FStruct_ItemData& ItemData) const
 	return false;
 }
 
+bool AAGSDCharacter::IsCropItem(const FStruct_ItemData& ItemData) const
+{
+	if (ItemData.ItemID.IsEmpty())
+	{
+		return false;
+	}
+
+	if (ItemData.EquipHoldingState == EHoldingState::EHS_Crop ||
+		ItemData.ItemCategory == EHoldingState::EHS_Crop ||
+		HoldingState == EHoldingState::EHS_Crop)
+	{
+		return true;
+	}
+
+	if (ItemData.ItemID.Contains(TEXT("Crop")))
+	{
+		return true;
+	}
+
+	return false;
+}
+
 bool AAGSDCharacter::IsHoldingUsableItem(FText& OutActionText) const
 {
 	if (HoldingItemData.ItemID.IsEmpty())
@@ -2876,6 +2926,13 @@ void AAGSDCharacter::UpdateLeftItemUseWidget()
 	AAGSDPlayerController* PlayerController = PC ? PC : Cast<AAGSDPlayerController>(GetController());
 	if (!PlayerController)
 	{
+		return;
+	}
+
+	// ⭐️ 인벤토리가 열려있거나, 대화 중이거나, 팝업 UI/상자가 열려있는 경우 좌측 사용하기 위젯을 숨김
+	if (IsAnyUIActive())
+	{
+		PlayerController->HideLeftItemUseWidget();
 		return;
 	}
 
@@ -2960,6 +3017,14 @@ bool AAGSDCharacter::IsInDialogue() const
 	}
 
 	return false;
+}
+
+bool AAGSDCharacter::IsAnyUIActive() const
+{
+	return IsInDialogue() ||
+		(PlayerHUDRef && PlayerHUDRef->IsInventoryOpen()) ||
+		ActiveCloseableUI.IsValid() ||
+		(OpenedChest != nullptr);
 }
 
 void AAGSDCharacter::SetMyPet_Implementation(AActor* NewPet)
@@ -3261,6 +3326,22 @@ void AAGSDCharacter::SetHoldingActorHidden(bool bNewHidden)
 	{
 		HoldingActor->SetActorHiddenInGame(bNewHidden);
 	}
+
+	// 손에 든 무기를 숨길 때 등 뒤에 거치된 무기들도 함께 원자적으로 숨김/복원
+	SetBackWeaponHidden(bNewHidden);
+}
+
+void AAGSDCharacter::SetBackWeaponHidden(bool bNewHidden)
+{
+	bBackWeaponsHidden = bNewHidden;
+
+	for (auto& Pair : BackWeaponActors)
+	{
+		if (IsValid(Pair.Value))
+		{
+			Pair.Value->SetActorHiddenInGame(bNewHidden);
+		}
+	}
 }
 
 // ═══════════════════════════════════════════════════
@@ -3458,6 +3539,9 @@ void AAGSDCharacter::UpdateEquippedActor()
 
 void AAGSDCharacter::Input_HotbarScroll(const FInputActionValue& Value)
 {
+	// ⭐️ 넉다운(무릎 꿇기, 에어본 다운) 또는 피격 경직 중에는 핫바 교체 불가
+	if (bIsKnockdown || bIsHitReacting) return;
+
 	float ScrollValue = Value.Get<float>();
 	if (FMath::IsNearlyZero(ScrollValue)) return;
 
@@ -3478,6 +3562,9 @@ void AAGSDCharacter::Input_SelectHotbar(const FInputActionValue& Value)
 		LastHotbarInputIndex = -1;
 		return;
 	}
+
+	// ⭐️ 넉다운(무릎 꿇기, 에어본 다운) 또는 피격 경직 중에는 핫바 교체 불가
+	if (bIsKnockdown || bIsHitReacting) return;
 
 	int32 TargetIndex = FMath::RoundToInt(KeyValue);
 
@@ -3702,6 +3789,13 @@ void AAGSDCharacter::RegisterCloseableUI(UUserWidget* NewUI)
 		}
 
 		UE_LOG(LogTemp, Log, TEXT("RegisterCloseableUI - Successfully registered: %s (ActionCategory: %s)"), *NewUI->GetName(), *CurrentActionCategory);
+
+		// ⭐️ 팝업 UI가 열리면 아이템 사용 안내 및 상호작용 안내 위젯 즉시 숨김
+		if (AAGSDPlayerController* PlayerController = PC ? PC : Cast<AAGSDPlayerController>(GetController()))
+		{
+			PlayerController->HideLeftItemUseWidget();
+			PlayerController->HideInteractionWidget();
+		}
 	}
 }
 
@@ -3712,6 +3806,9 @@ void AAGSDCharacter::UnregisterCloseableUI(UUserWidget* UI)
 		ActiveCloseableUI = nullptr;
 		SetCurrentActionCategory(TEXT(""));
 		UE_LOG(LogTemp, Log, TEXT("UnregisterCloseableUI - Successfully unregistered"));
+
+		// ⭐️ UI가 닫히면 손에 든 아이템에 맞춰 좌측 위젯 복원
+		UpdateLeftItemUseWidget();
 	}
 }
 
@@ -3889,6 +3986,9 @@ void AAGSDCharacter::UpdateBackWeapon()
 						// 등 뒤 소켓에 부착
 						FAttachmentTransformRules AttachRules(EAttachmentRule::SnapToTarget, true);
 						NewBackActor->AttachToComponent(GetMesh(), AttachRules, Mapping.BackSocketName);
+
+						// 현재 등 뒤 무기가 숨김 상태라면 새로 스폰된 액터도 숨김 처리
+						NewBackActor->SetActorHiddenInGame(bBackWeaponsHidden);
 
 						BackWeaponActors.Add(WeaponType, NewBackActor);
 					}
@@ -4427,6 +4527,14 @@ void AAGSDCharacter::ProcessHitReaction(float DamageAmount, AActor* DamageCauser
 		return;
 	}
 
+	// [미니언 공격 배제]: 소환 미니언 등의 일반 몬스터 공격에 대해서는 플레이어 슈퍼아머 유지 (피격 리액션/스턴 면제)
+	const bool bIsMinion = DamageCauser && (DamageCauser->IsA(ABaseEnemy::StaticClass()) && !DamageCauser->IsA(ABaseBossEnemy::StaticClass()));
+	if (bIsMinion)
+	{
+		UE_LOG(LogTemp, Verbose, TEXT("[HitReaction] Minion attack received (Damage: %.1f) - Player Super Armor maintained"), DamageAmount);
+		return;
+	}
+
 	// 6. 스킬 및 투사체로부터 연출 강도(HitIntensity) 및 넉다운 설정(KnockdownType, KnockdownDuration) 추출
 	float ResolvedIntensity = -1.0f;
 	EKnockdownType TargetKnockdownType = EKnockdownType::None; // 기본값은 None (보스 명시적 설정 우선)
@@ -4464,7 +4572,7 @@ void AAGSDCharacter::ProcessHitReaction(float DamageAmount, AActor* DamageCauser
 			bHasExplicitReactionSettings = true;
 		}
 	}
-	else if (DamageCauser && DamageCauser->GetOwner() && DamageCauser->GetOwner()->IsA(ABaseBossEnemy::StaticClass()))
+	else if (DamageCauser && DamageCauser->GetOwner() && DamageCauser->GetOwner()->IsA(ABaseBossEnemy::StaticClass()) && !DamageCauser->IsA(ABaseEnemy::StaticClass()))
 	{
 		if (ABaseBossEnemy* OwnerBoss = Cast<ABaseBossEnemy>(DamageCauser->GetOwner()))
 		{
@@ -4506,11 +4614,11 @@ void AAGSDCharacter::ProcessHitReaction(float DamageAmount, AActor* DamageCauser
 		}
 	}
 
-	// ⭐️ 무경직 피격 판정 (보스가 경직 강도 0.0f 및 넉다운 없음을 명시한 경우):
-	// 조작 불가 스턴(HitStun) 및 모션 강제 캔슬 일절 면제! 체력만 감소하고 넉백으로 밀려나는 도중에도 즉시 자유 조작 가능!
-	if (bHasExplicitReactionSettings && ResolvedIntensity <= 0.0f && TargetKnockdownType == EKnockdownType::None)
+	// ⭐️ 무경직 피격 판정 (보스가 경직 강도 음수 및 넉다운 없음을 명시한 경우):
+	// 피격 강도가 0.0f인 경우에도 일반 피격 모션을 정상 재생하며, 음수(< 0.0f)일 때만 스킵!
+	if (bHasExplicitReactionSettings && ResolvedIntensity < 0.0f && TargetKnockdownType == EKnockdownType::None)
 	{
-		UE_LOG(LogTemp, Log, TEXT("[HitReaction] Zero-intensity knockback attack received (%.1f) - Stun skipped!"), DamageAmount);
+		UE_LOG(LogTemp, Log, TEXT("[HitReaction] Negative-intensity attack received (%.1f) - Stun skipped!"), DamageAmount);
 		return;
 	}
 
@@ -4585,6 +4693,8 @@ void AAGSDCharacter::ProcessHitReaction(float DamageAmount, AActor* DamageCauser
 			if (KneelMontage)
 			{
 				CurrentTargetKnockdownDuration = TargetKnockdownDuration;
+				// ⭐️ Kneel 시작 당시의 무장 상태를 기억하여 기상 시 동일 트랙 보장
+				bKneelStartedWithWeapon = HasEquippedWeapon();
 				const FName SectionName = GetKneelStartSectionName();
 
 				UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
@@ -4713,7 +4823,8 @@ FName AAGSDCharacter::GetKneelStartSectionName() const
 
 FName AAGSDCharacter::GetKneelEndSectionName() const
 {
-	if (HasEquippedWeapon())
+	// ⭐️ Kneel 시작 당시 무장을 들고 있었으면 무조건 End_Combat, 비무장이었으면 무조건 End_Unarmed 반환
+	if (bKneelStartedWithWeapon)
 	{
 		return FName("End_Combat");
 	}
@@ -4732,7 +4843,15 @@ void AAGSDCharacter::ResetHitReact()
 	bIsHitReacting = false;
 	bIsKnockdown = false;
 	bKnockdownStandUp = false;
+	bKneelStartedWithWeapon = false;
 	CurrentKnockdownType = EKnockdownType::None;
+
+	// [루트 모션 모드 복원]: 구르기(BS_Roll) 블렌드스페이스 이동 복원
+	if (UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr)
+	{
+		AnimInstance->SetRootMotionMode(ERootMotionMode::RootMotionFromEverything);
+	}
+
 	GetWorldTimerManager().ClearTimer(HitReactTimerHandle);
 	GetWorldTimerManager().ClearTimer(KnockdownTimerHandle);
 	EndHitStunTracking();
@@ -4751,27 +4870,39 @@ void AAGSDCharacter::Landed(const FHitResult& Hit)
 
 		UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
 
-		// ⭐️ 지면 착지 즉시 루트 모션 모드 복원
+		// ⭐️ 지면 착지 즉시 루트 모션 모드 복원 (Everything으로 복원하여 구르기 블렌드스페이스 루트 모션 보장)
 		if (AnimInstance)
 		{
-			AnimInstance->SetRootMotionMode(ERootMotionMode::RootMotionFromMontagesOnly);
+			AnimInstance->SetRootMotionMode(ERootMotionMode::RootMotionFromEverything);
 		}
 
 		UAnimMontage* MontageToJump = CurrentActiveAirborneMontage ? CurrentActiveAirborneMontage : GetAirborneMontageToPlay();
 		if (AnimInstance && MontageToJump)
 		{
-			// 1. 몽타주 종료 델리게이트 바인딩 (기상이 끝나 몽타주 종료 즉시 스턴 해제!)
+			CurrentActiveAirborneMontage = MontageToJump;
+
+			// 1. 몽타주 종료 델리게이트 바인딩 (Knockdown 기상까지 모두 완료되었을 때 호출)
 			FOnMontageEnded EndDelegate;
 			EndDelegate.BindUObject(this, &AAGSDCharacter::OnAirborneMontageEnded);
 			AnimInstance->Montage_SetEndDelegate(EndDelegate, MontageToJump);
 
-			// 2. 즉시 End(바닥 격돌 및 엎어짐) 섹션으로 점프!
-			AnimInstance->Montage_JumpToSection(FName("End"), MontageToJump);
-			UE_LOG(LogTemp, Log, TEXT("[Airborne] Landed on ground -> Jumped to End section of %s!"), *MontageToJump->GetName());
+			// 2. 지면 착지 즉시 End(바닥 충돌 및 엎어짐) 섹션 실행 (에셋의 End -> Knockdown 연결 보존!)
+			PlayAnimMontage(MontageToJump, 1.0f, FName("End"));
 
-			// 3. End 섹션 길이(약 1.0초) 후 Knockdown 섹션 진입 타이밍에 일시정지 타이머 가동
+			// 3. End 섹션 길이 계산: 끝나기 직전 프레임(약 0.08초 전)에 일시정지 타이머 가동
+			float EndSectionLength = 0.4f;
+			const int32 EndSecIndex = MontageToJump->GetSectionIndex(FName("End"));
+			if (EndSecIndex != INDEX_NONE)
+			{
+				EndSectionLength = MontageToJump->GetSectionLength(EndSecIndex);
+			}
+			const float PauseDelay = FMath::Max(0.05f, EndSectionLength - 0.08f);
+
 			GetWorldTimerManager().ClearTimer(AirborneKnockdownPauseTimerHandle);
-			GetWorldTimerManager().SetTimer(AirborneKnockdownPauseTimerHandle, this, &AAGSDCharacter::OnAirborneKnockdownPauseReached, 1.0f, false);
+			GetWorldTimerManager().SetTimer(AirborneKnockdownPauseTimerHandle, this, &AAGSDCharacter::OnAirborneKnockdownPauseReached, PauseDelay, false);
+
+			UE_LOG(LogTemp, Log, TEXT("[Airborne] Landed on ground -> Playing End section of %s (Length: %.3fs, Pause in %.3fs)"),
+				*MontageToJump->GetName(), EndSectionLength, PauseDelay);
 		}
 	}
 }
@@ -4780,11 +4911,11 @@ void AAGSDCharacter::OnAirborneKnockdownPauseReached()
 {
 	UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
 	UAnimMontage* ActiveMontage = CurrentActiveAirborneMontage ? CurrentActiveAirborneMontage : GetAirborneMontageToPlay();
-	if (AnimInstance && ActiveMontage && AnimInstance->Montage_IsPlaying(ActiveMontage))
+	if (AnimInstance && ActiveMontage)
 	{
-		// 바닥에 완전히 엎어진 채로 몽타주 일시정지!
+		// End 섹션 끝 프레임(바닥에 완전히 엎어진 포즈)에서 몽타주 일시정지!
 		AnimInstance->Montage_Pause(ActiveMontage);
-		UE_LOG(LogTemp, Log, TEXT("[Airborne] Knockdown section reached -> Montage paused for %.2fs"), CurrentTargetKnockdownDuration);
+		UE_LOG(LogTemp, Log, TEXT("[Airborne] End section finished -> Montage paused on floor for Knockdown duration (%.2fs)"), CurrentTargetKnockdownDuration);
 
 		// 지정된 넉다운 시간 동안 바닥 대기 타이머 가동
 		const float SafeWaitDuration = (CurrentTargetKnockdownDuration > 0.0f) ? CurrentTargetKnockdownDuration : 1.2f;
@@ -4798,11 +4929,11 @@ void AAGSDCharacter::OnAirborneKnockdownResume()
 	UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
 	UAnimMontage* ActiveMontage = CurrentActiveAirborneMontage ? CurrentActiveAirborneMontage : GetAirborneMontageToPlay();
 	
-	// ⭐️ 일시정지(Pause)된 몽타주는 Montage_IsPlaying이 false이므로 무조건 Resume 호출!
 	if (AnimInstance && ActiveMontage)
 	{
+		// ⭐️ 일시정지만 해제하면 에셋의 End -> Knockdown 연결을 따라 자연스럽게 기상(누워있다 일어나는 모션)으로 진행!
 		AnimInstance->Montage_Resume(ActiveMontage);
-		UE_LOG(LogTemp, Log, TEXT("[Airborne] Knockdown duration expired -> Montage resumed for StandUp motion (%s)"), *ActiveMontage->GetName());
+		UE_LOG(LogTemp, Log, TEXT("[Airborne] Knockdown duration expired -> Montage resumed to Knockdown section of %s"), *ActiveMontage->GetName());
 	}
 	else
 	{
@@ -4846,10 +4977,10 @@ void AAGSDCharacter::FinishKnockdown()
 	bKnockdownStandUp = false;
 	CurrentKnockdownType = EKnockdownType::None;
 
-	// ⭐️ 넉다운 종료 시 루트 모션 모드 확실히 복원
+	// ⭐️ 넉다운 종료 시 루트 모션 모드 확실히 복원 (Everything으로 복원하여 구르기 블렌드스페이스 정상화)
 	if (UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr)
 	{
-		AnimInstance->SetRootMotionMode(ERootMotionMode::RootMotionFromMontagesOnly);
+		AnimInstance->SetRootMotionMode(ERootMotionMode::RootMotionFromEverything);
 	}
 
 	GetWorldTimerManager().ClearTimer(KnockdownTimerHandle);
@@ -4867,8 +4998,19 @@ void AAGSDCharacter::OnKneelDurationExpired()
 	if (AnimInstance && KneelMontage && AnimInstance->Montage_IsPlaying(KneelMontage))
 	{
 		const FName TargetEndSection = GetKneelEndSectionName();
-		AnimInstance->Montage_JumpToSection(TargetEndSection, KneelMontage);
-		UE_LOG(LogTemp, Log, TEXT("[Kneel] Kneel Duration expired -> Jumped to End section: %s"), *TargetEndSection.ToString());
+
+		// ⭐️ JumpToSection은 0초 하드 점프라 뚝 끊기지만, PlayAnimMontage로 End 섹션을 새로 재생하면
+		// 몽타주 내장 Blend In Time(0.2~0.25초)을 통해 현재 Loop 포즈에서 End 기상 포즈로 부드럽게 크로스페이드(블렌드 인)됩니다!
+		PlayAnimMontage(KneelMontage, 1.0f, TargetEndSection);
+
+		// 2중 안전장치: End 섹션 완료 후 뒤의 섹션으로 넘어가지 않고 즉시 종료되도록 보장
+		AnimInstance->Montage_SetNextSection(TargetEndSection, NAME_None, KneelMontage);
+
+		FOnMontageEnded EndDelegate;
+		EndDelegate.BindUObject(this, &AAGSDCharacter::OnKneelMontageEnded);
+		AnimInstance->Montage_SetEndDelegate(EndDelegate, KneelMontage);
+
+		UE_LOG(LogTemp, Log, TEXT("[Kneel] Kneel Duration expired -> Smooth Blend-In to End section: %s"), *TargetEndSection.ToString());
 	}
 	else
 	{
@@ -5028,6 +5170,7 @@ void AAGSDCharacter::Cheat_Kneel(float Duration)
 	// 4. Kneel 몽타주가 존재하면 무장/비무장 섹션 분기 몽타주 파이프라인 가동
 	if (KneelMontage)
 	{
+		bKneelStartedWithWeapon = HasEquippedWeapon();
 		const FName SectionName = GetKneelStartSectionName();
 
 		UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;

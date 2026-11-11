@@ -140,7 +140,7 @@ struct FSaveData : public FTableRowBase
 	{
 		PlayerSessionID = TEXT("Unknown");
 		CurrentDay = 1;
-		CurrentTime = 360.f;
+		CurrentTime = 600.f;
 		ShardsAmount = 0;
 		Coin = 0;
 		Damage = 100.0f;

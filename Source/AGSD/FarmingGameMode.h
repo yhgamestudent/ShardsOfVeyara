@@ -24,8 +24,12 @@ public:
 	void NextDay(float time);
 	
 protected:
+	/** 하루의 실제 현실 시간 길이 (초 단위, 기본값: 500.0f = 8분 20초) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Time", meta = (ClampMin = "10.0"))
+	float DayLengthInSeconds = 500.0f;
+
 	UPROPERTY(EditDefaultsOnly, Category = "Time")
-	float TimeScale = 48.f;
+	float TimeScale = 4.8f;
 
 	UPROPERTY(EditAnywhere, Category = "Time")
 	float NextDayStartTime = 600.f;

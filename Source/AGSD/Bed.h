@@ -40,7 +40,7 @@ protected:
 	class AAGSDCharacter* TargetPlayer;
 
 	UPROPERTY(EditAnywhere)
-	float WakeUpTime = 360.f;
+	float WakeUpTime = 600.f;
 	
 private:
 	//콜리전 박스

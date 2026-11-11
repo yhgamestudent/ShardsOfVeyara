@@ -22,6 +22,21 @@ void UAGSDInteractionComponent::UpdateInteractionState(float DeltaSeconds)
 {
 	if (!OwnerCharacter) return;
 
+	// ⭐️ 대화 중이거나 인벤토리/상자/팝업 UI가 열려있는 동안에는 상호작용 위젯 및 하이라이트 표시 차단
+	if (OwnerCharacter->IsAnyUIActive())
+	{
+		if (CurrentInteractableActor != nullptr)
+		{
+			SetHighLight(CurrentInteractableActor, false);
+			CurrentInteractableActor = nullptr;
+		}
+		if (AAGSDPlayerController* PC = OwnerCharacter->getPlayerController())
+		{
+			PC->HideInteractionWidget();
+		}
+		return;
+	}
+
 	AActor* MinDistanceActor = MinDistActor();
 
 	if (CurrentInteractableActor == MinDistanceActor)

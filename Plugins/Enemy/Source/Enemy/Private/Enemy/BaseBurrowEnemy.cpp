@@ -29,21 +29,21 @@ ABaseBurrowEnemy::ABaseBurrowEnemy()
 	AttackRangePointSphere->SetupAttachment(MeleeAttackPoint); // AttackPoint에 부착
 	AttackRangePointSphere->ShapeColor = FColor::Purple;
 	AttackRangePointSphere->SetVisibility(false);
-	AttackRangePointSphere->SetHiddenInGame(false);
+	AttackRangePointSphere->SetHiddenInGame(true);
 	
 	BurrowAttackCollisionSphere = CreateDefaultSubobject<USphereComponent>(TEXT("BurrowAttackCollisionSphere"));
 	BurrowAttackCollisionSphere->SetupAttachment(RootComponent);
 	BurrowAttackCollisionSphere->ShapeColor = FColor::Black;
 	BurrowAttackCollisionSphere->SetVisibility(false);
-	BurrowAttackCollisionSphere->SetHiddenInGame(false);
+	BurrowAttackCollisionSphere->SetHiddenInGame(true);
 
 	// 근접 공격 발동 범위 시각화 및 감지용 구체 컴포넌트 (노란색)
 	MeleeAttackRangeSphere = CreateDefaultSubobject<USphereComponent>(TEXT("MeleeAttackRangeSphere"));
 	MeleeAttackRangeSphere->SetupAttachment(RootComponent);
 	MeleeAttackRangeSphere->InitSphereRadius(MeleeAttackRange);
 	MeleeAttackRangeSphere->ShapeColor = FColor::Yellow;
-	MeleeAttackRangeSphere->SetVisibility(true);
-	MeleeAttackRangeSphere->SetHiddenInGame(false); // 에디터 뷰포트 및 인게임에서 원형 선으로 렌더링
+	MeleeAttackRangeSphere->SetVisibility(false);
+	MeleeAttackRangeSphere->SetHiddenInGame(true);
 	MeleeAttackRangeSphere->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 	MeleeAttackRangeSphere->SetCollisionResponseToAllChannels(ECR_Ignore);
 	MeleeAttackRangeSphere->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
@@ -56,6 +56,24 @@ ABaseBurrowEnemy::ABaseBurrowEnemy()
 void ABaseBurrowEnemy::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// 디버그 모드 상태에 따른 범위 구체 가시성 초기 동기화
+	const bool bShowDebugSphere = bDebugMode;
+	if (AttackRangePointSphere)
+	{
+		AttackRangePointSphere->SetVisibility(bShowDebugSphere);
+		AttackRangePointSphere->SetHiddenInGame(!bShowDebugSphere);
+	}
+	if (BurrowAttackCollisionSphere)
+	{
+		BurrowAttackCollisionSphere->SetVisibility(bShowDebugSphere);
+		BurrowAttackCollisionSphere->SetHiddenInGame(!bShowDebugSphere);
+	}
+	if (MeleeAttackRangeSphere)
+	{
+		MeleeAttackRangeSphere->SetVisibility(bShowDebugSphere);
+		MeleeAttackRangeSphere->SetHiddenInGame(!bShowDebugSphere);
+	}
 	
 	TArray<USphereComponent*> SphereComps;
 	GetComponents<USphereComponent>(SphereComps);
@@ -456,16 +474,21 @@ void ABaseBurrowEnemy::PostEditChangeProperty(FPropertyChangedEvent& PropertyCha
 	// 디버그 모드에 따라 범위 구체의 가시성을 설정합니다.
 	if (PropertyName == GET_MEMBER_NAME_CHECKED(ABaseBurrowEnemy, bDebugMode))
 	{
-		if ( bDebugMode == true )
+		const bool bShow = bDebugMode;
+		if (AttackRangePointSphere)
 		{
-			if ( AttackRangePointSphere ) AttackRangePointSphere->SetVisibility(true);
-			if ( BurrowAttackCollisionSphere ) BurrowAttackCollisionSphere->SetVisibility(true);
-			if ( MeleeAttackRangeSphere ) MeleeAttackRangeSphere->SetVisibility(true);
+			AttackRangePointSphere->SetVisibility(bShow);
+			AttackRangePointSphere->SetHiddenInGame(!bShow);
 		}
-		else
+		if (BurrowAttackCollisionSphere)
 		{
-			if ( AttackRangePointSphere ) AttackRangePointSphere->SetVisibility(false);
-			if ( BurrowAttackCollisionSphere ) BurrowAttackCollisionSphere->SetVisibility(false);
+			BurrowAttackCollisionSphere->SetVisibility(bShow);
+			BurrowAttackCollisionSphere->SetHiddenInGame(!bShow);
+		}
+		if (MeleeAttackRangeSphere)
+		{
+			MeleeAttackRangeSphere->SetVisibility(bShow);
+			MeleeAttackRangeSphere->SetHiddenInGame(!bShow);
 		}
 	}
 }

@@ -8,6 +8,9 @@
 #include "GameFramework/Actor.h"
 #include "ShardsAltar.generated.h"
 
+class UCameraComponent;
+class USoundBase;
+
 UCLASS()
 class AGSD_API AShardsAltar : public AActor, public IInteraction
 {
@@ -34,6 +37,9 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Altar")
 	class USceneComponent* DimensionMarbleRoot;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Altar|Cutscene")
+	UCameraComponent* CutsceneCameraComp;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Altar")
 	int32 ShardsAmount = 0;
 
@@ -42,11 +48,72 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Altar")
 	class UNiagaraSystem* ShardEffect;
+
+	// ─── [구슬 소환 연출 이펙트 및 사운드] ───
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Altar|Effects")
+	class UNiagaraSystem* ShardSpawnBurstEffect;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Altar|Effects")
+	class USoundBase* ShardSpawnSound;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Altar|Effects")
+	FVector SpawnEffectScale = FVector(1.0f);
 	
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Altar")
 	FRotator RotationSpeed = FRotator(0.f, -10.f, 0.f);
 
+	// ─── [시네마틱 컷신 연출 설정] ───
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Altar|Cutscene")
+	bool bEnableCutscene = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Altar|Cutscene")
+	bool bUseManualCutsceneCameraTransform = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Altar|Cutscene", meta = (ClampMin = "0.1"))
+	float CutsceneBlendInDuration = 1.2f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Altar|Cutscene", meta = (ClampMin = "0.0"))
+	float CutsceneHoldDuration = 1.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Altar|Cutscene", meta = (ClampMin = "0.1"))
+	float CutsceneBlendOutDuration = 1.2f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Altar|Cutscene", meta = (ClampMin = "0.05"))
+	float RewardPopDuration = 0.35f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Altar|Cutscene")
+	FName RegularDialogueID = FName("AltarShardOffered_Regular");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Altar|Cutscene")
+	FName FinalDialogueID = FName("AltarShardOffered_Final");
+
 	USOVGameInstance* GI;
+
+	// ─── [컷신 단계별 함수] ───
+	void StartOfferingCutscene(AAGSDCharacter* Player);
+
+	UFUNCTION()
+	void OnCutsceneBlendInFinished();
+
+	UFUNCTION()
+	void UpdateRewardPopScale();
+
+	UFUNCTION()
+	void StartCutsceneBlendOut();
+
+	UFUNCTION()
+	void RestorePlayerAfterCutscene();
+
+	void PlayShardSpawnEffects(const FVector& Location, const FRotator& Rotation);
+
+private:
+	TWeakObjectPtr<AAGSDCharacter> CachedPlayerCharacter;
+	TWeakObjectPtr<APlayerController> CachedPlayerController;
+	TWeakObjectPtr<UStaticMeshComponent> NewlySpawnedShardMesh;
+
+	FTimerHandle CutsceneTimerHandle;
+	FTimerHandle RewardPopTimerHandle;
+	float PopElapsedTime = 0.0f;
 
 public:	
 	//오버랩 시작 시 작동할 함수
@@ -62,9 +129,10 @@ public:
 	virtual bool CanInteract_Implementation(AAGSDCharacter* player) override;
 	virtual FString GetInteractionActionType_Implementation(AAGSDCharacter* player) override;
 	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Altar")
 	FText InteractActionText = FText::FromString(TEXT("조각보기"));
 
 	FORCEINLINE int32 getShardsAmount() { return ShardsAmount; }
 
-	void SpawnShards(int32 i);
+	UStaticMeshComponent* SpawnShards(int32 i);
 };

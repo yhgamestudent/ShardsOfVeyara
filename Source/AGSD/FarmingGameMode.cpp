@@ -23,17 +23,18 @@ void AFarmingGameMode::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
-	// 원래 시간 로직
-	//HandleTimeIncrement(DeltaSeconds * TimeScale);
-	// x4 용 시간 로직
-	HandleTimeIncrement(DeltaSeconds * TimeScale * 0.1f);
+	// 하루 총 게임 시간(GameHoursPerDay=2400)을 DayLengthInSeconds(기본 500초 = 8분 20초) 동안 균일하게 진행
+	const float EffectiveTimeScale = (DayLengthInSeconds > 0.0f) ? (GameHoursPerDay / DayLengthInSeconds) : TimeScale;
+	HandleTimeIncrement(DeltaSeconds * EffectiveTimeScale);
 }
 
 void AFarmingGameMode::NextDay(float time)
 {
+	if (!GameState) return;
 	GameState->SetCurrentTime(time);
 	Reset = false;
 	GameState->AdvanceDay();
+	GameState->OnSecondChangedDelegate.Broadcast(time);
 }
 
 void AFarmingGameMode::HandleTimeIncrement(float time)

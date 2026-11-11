@@ -651,7 +651,8 @@ void ABossWorm::RangedAttack()
 			CurPlayerState,
 			Health,
 			MaxHealth,
-			AttackStruct.RangedAttackDelay
+			CurPlayerHP,
+			CurPlayerMaxHP
 		);
 	}
 }
@@ -735,9 +736,21 @@ void ABossWorm::ShootRangedProjectile()
                     ProjMoveComp->MaxSpeed = LaunchVelocity.Size();
                 }
 
+                float CurDist = 0.0f;
+                float CurPlayerHP = 0.0f;
+                float CurPlayerMaxHP = 0.0f;
+                FString CurPlayerState = TEXT("Idle");
+                QueryTargetPlayerData(CurPlayerHP, CurPlayerMaxHP, CurPlayerState, CurDist);
+
                 UCombatTimelineLogger::LogSkillRelease(
                     CurrentRangedAttackActionID,
                     GetWorld()->GetTimeSeconds(),
+                    CurDist,
+                    CurPlayerState,
+                    Health,
+                    MaxHealth,
+                    CurPlayerHP,
+                    CurPlayerMaxHP,
                     TEXT("RangedProjectile_Fired")
                 );
             }

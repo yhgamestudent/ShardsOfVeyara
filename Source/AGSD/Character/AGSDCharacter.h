@@ -322,6 +322,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "HoldingState")
 	void SetHoldingActorHidden(bool bNewHidden);
 
+	/** 상호작용(잡초 뽑기, 요리 등) 중 등 뒤에 거치된 무기들을 임시로 숨기거나 복원 */
+	UFUNCTION(BlueprintCallable, Category = "HoldingState")
+	void SetBackWeaponHidden(bool bNewHidden);
+
+	/** 등 뒤 무기 임시 숨김 여부 플래그 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "HoldingState")
+	bool bBackWeaponsHidden = false;
+
 	// ── 플레이어 UI 및 HUD ──
 
 	/** 생성할 PlayerHUD 위젯 클래스 */
@@ -748,6 +756,16 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Pet")
 	bool IsInDialogue() const;
 
+	/** 대화, 인벤토리, 상자, 팝업 창 등 게임플레이 외 모달 UI가 활성화되어 있는지 여부 */
+	UFUNCTION(BlueprintPure, Category = "UI")
+	bool IsAnyUIActive() const;
+
+private:
+	/** 이전 프레임의 UI 활성 상태 (인터랙션 위젯 및 사용하기 위젯 가시성 동기화용) */
+	bool bLastAnyUIActive = false;
+
+public:
+
 	UFUNCTION(BlueprintCallable, Category = "Pet")
 	void SetPet(class ABaseFlyingPet* NewPet);
 
@@ -869,6 +887,10 @@ public:
 	/** 아이템 데이터가 포션 종류인지 판별하는 헬퍼 함수 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Potion")
 	bool IsPotionItem(const FStruct_ItemData& ItemData) const;
+
+	/** 아이템 데이터가 작물(농작물 수확물) 종류인지 판별하는 헬퍼 함수 */
+	UFUNCTION(BlueprintPure, Category = "Farming|Crop")
+	bool IsCropItem(const FStruct_ItemData& ItemData) const;
 
 	/** 현재 손에 든 아이템이 좌클릭으로 사용 가능한 아이템(물약, 금괴 등 소모품)인지 판별하고 액션 텍스트 반환 */
 	UFUNCTION(BlueprintPure, Category = "Interaction|ItemUse")
@@ -1177,6 +1199,10 @@ protected:
 
 	/** 무기 착용 상태에 따른 Kneel 기상(End) 섹션 이름 반환 (비무장: End_Unarmed, 무장: End_Combat) */
 	FName GetKneelEndSectionName() const;
+
+	/** 무릎 꿇기(Kneel) 녹다운 시작 당시 무기를 장착하고 있었는지 여부 (기상 트랙 일관성 보장) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Knockdown")
+	bool bKneelStartedWithWeapon = false;
 
 	/** 현재 재생 중인 에어본 몽타주 추적 포인터 */
 	UPROPERTY(Transient)

@@ -811,7 +811,7 @@ void ABaseFlyingPet::CheckSurroundingEnemy()
 			
 			// 미믹 몬스터 또는 버로우 몬스터는 무시
 			if (Actor->ActorHasTag("Mimic") || Actor->ActorHasTag("Burrow") 
-				|| Actor->ActorHasTag("Trans")) continue;
+				|| Actor->ActorHasTag("Trans") || Actor->ActorHasTag("Dummy")) continue;
 			
 			// Boss 태그 
 			if (Actor->ActorHasTag("Boss"))

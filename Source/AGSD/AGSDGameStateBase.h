@@ -43,5 +43,5 @@ protected:
 	int32 CurrentDay = 1;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Time")
-	float CurrentTime = 360.f;
+	float CurrentTime = 600.f;
 };
