@@ -136,8 +136,43 @@ public:
 	void AttackEnd_WeaponCollision();
 	
 	// 애님 노티파이에서 공격 대미지 설정
+	// DT_BossCombatBalance에 현재 패턴 행(DamageMultiplier > 0)이 있으면 노티파이 값 대신 BaseAttackDamage × 배율 사용
 	UFUNCTION(BlueprintCallable)
 	void SetAttackDamage(float DamageToApply);
+
+	/** DT_BossCombatBalance 연동: BossID 기본값 */
+	virtual FName GetDefaultBalanceBossID() const override { return FName(TEXT("Boss_MagicSwordMan")); }
+
+	/** 현재 실행 중인 패턴의 밸런스 행 이름 (SetAttackDamage에서 대미지 산출에 사용) */
+	FName CurrentBalanceAction = NAME_None;
+
+	/**
+	 * 패턴 시작: 현재 행 기록 + 피격 리액션(강도/넉다운) 적용
+	 * @param bStartNewAction true면 전투 타임라인에 새 스킬 시전(SKILL_WINDUP)을 기록 (같은 패턴의 후속 판정이면 false)
+	 */
+	void BeginBalanceAction(FName ActionName, float DefaultHitIntensity, EKnockdownType DefaultKnockdownType = EKnockdownType::None, float DefaultKnockdownDuration = 0.0f, bool bStartNewAction = true);
+
+	// ─── [전투 타임라인 로그 (CombatTimelineLogger) - 다른 보스와 동일 포맷] ───
+	/** 현재 패턴의 타임라인 ActionID (예: CloseAttack_#3) */
+	FString CurrentActionID;
+	/** 현재 패턴의 로그용 이름 */
+	FString CurrentActionLogName;
+	/** 이번 무기 판정 구간에서 플레이어 적중 여부 (빗나감 기록용) */
+	bool bWeaponHitThisSwing = false;
+	/** 궁극기 틱 대미지 누적 (틱마다 기록하면 로그가 넘치므로 판정 종료 시 1회 기록) */
+	float PowerAttackTickDamageAccum = 0.0f;
+
+	/** SKILL_WINDUP 기록 */
+	void LogActionWindup(const FString& ActionName);
+	/** SKILL_RELEASE 기록 (판정 발생) */
+	void LogActionRelease(const FString& Details = TEXT(""));
+	/** 플레이어 상태에 따라 HIT_SUCCESS / HIT_GUARDED / HIT_JUST_GUARD / HIT_MISSED(구르기) 기록 */
+	void LogPlayerHitResult(const FString& ActionName, float Damage, const FString& Details = TEXT(""));
+	/** 판정 종료: 적중 못했으면 HIT_MISSED, 이어서 SKILL_RECOVERY 기록 */
+	void LogActionEnd(bool bHitPlayer, const FString& MissReason);
+
+	/** 행이 있으면 BaseAttackDamage × DamageMultiplier, 없으면 Fallback */
+	float GetBalanceDamage(FName ActionName, float FallbackDamage) const;
 	// 공격 가중치 구조체
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
 	FBossMagicSwordManAttackStruct AttackStruct;

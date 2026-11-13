@@ -15,15 +15,15 @@ struct FPetPositionSettings
 
 	// 앞뒤 오프셋 aka 거리 ( -는 앞쪽, +는 뒤쪽)
 	UPROPERTY(EditAnywhere)
-	float Distance;
+	float Distance = 0.0f;
 
 	// 상하 오프셋 (-는 아래, +는 위)
 	UPROPERTY(EditAnywhere)
-	float UpOffset;
+	float UpOffset = 0.0f;
 
 	// 좌우 오프셋 (-는 왼쪽, +는 오른쪽)
 	UPROPERTY( EditAnywhere )
-	float SideOffset;;
+	float SideOffset = 0.0f;
 };
 
 // 델리게이트 선언 , 인자값은 FName DialogueID (대화 ID)

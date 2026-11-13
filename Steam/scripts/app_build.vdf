@@ -1,0 +1,24 @@
+"AppBuild"
+{
+	// Shards of Veyara - Steamworks app build
+	"AppID" "5373670"
+	"Desc" "Shipping Build (Windows 64-bit)"
+
+	// Folder that contains the packaged build (relative to this file)
+	"ContentRoot" "..\content\"
+
+	// steamcmd logs / cache
+	"BuildOutput" "..\output\"
+
+	// Branch to set live automatically after upload. Leave empty to set it live manually in Steamworks.
+	// Example for a test branch created in Steamworks: "beta"
+	"SetLive" ""
+
+	// "1" = dry run (writes the file list to output\ without uploading)
+	"Preview" "0"
+
+	"Depots"
+	{
+		"5373671" "depot_build_windows.vdf"
+	}
+}
