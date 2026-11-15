@@ -180,6 +180,9 @@ protected:
 	/** 특정 스킬의 밸런스 데이터 조회 헬퍼 */
 	const FBossCombatBalanceRow* FindSkillBalance(FName ActionName) const;
 
+	/** BossLogId/CombatStatHandle이 비어 있어도 DT_BossCombatBalance 행을 찾을 수 있도록 보스별 기본 BossID 제공 */
+	virtual FName GetDefaultBalanceBossID() const { return NAME_None; }
+
 	// 데이터테이블로부터 전투 스탯을 읽어와 초기화합니다
 	UFUNCTION(BlueprintCallable, Category="자체설정|전투스탯")
 	virtual void InitializeStatsFromDataTable();

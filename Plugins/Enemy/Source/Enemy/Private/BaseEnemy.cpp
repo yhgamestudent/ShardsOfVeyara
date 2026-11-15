@@ -313,7 +313,7 @@ void ABaseEnemy::SpawnDeadEffectAndDestroy()
 		DropReceiver = UGameplayStatics::GetPlayerCharacter(this, 0);
 	}
 
-	if (DropReceiver && DropReceiver->Implements<UItemDropInterface>())
+	if (!bSuppressItemDrop && DropReceiver && DropReceiver->Implements<UItemDropInterface>())
 	{
 		IItemDropInterface::Execute_HandleEnemyDeadAndDropItem(DropReceiver, this);
 	}

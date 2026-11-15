@@ -536,7 +536,8 @@ void ABaseBossEnemy::StartBattleLog()
 	QueryTargetPlayerData(PlayerHP, PlayerMaxHP, TargetCombatState, PlayerDistance);
 
 	UCombatTimelineLogger::StartCombatSession(
-		BossLogId.IsEmpty() ? TEXT("SkeletonMage") : BossLogId,
+		!BossLogId.IsEmpty() ? BossLogId
+			: (!GetDefaultBalanceBossID().IsNone() ? GetDefaultBalanceBossID().ToString() : FString(TEXT("SkeletonMage"))),
 		BattleStartTime,
 		MaxHealth,
 		PlayerMaxHP,
@@ -675,7 +676,9 @@ void ABaseBossEnemy::InitializeStatsFromDataTable()
 		TArray<FBossCombatBalanceRow*> AllRows;
 		BalanceTable->GetAllRows<FBossCombatBalanceRow>(TEXT("ABaseBossEnemy::InitializeStatsFromDataTable"), AllRows);
 
-		const FName TargetBossId = BossLogId.IsEmpty() ? FName(TEXT("Boss_Dungeon_SkeletonMage")) : FName(*BossLogId);
+		const FName DefaultBossId = GetDefaultBalanceBossID();
+		const FName TargetBossId = !BossLogId.IsEmpty() ? FName(*BossLogId)
+			: (!DefaultBossId.IsNone() ? DefaultBossId : FName(TEXT("Boss_Dungeon_SkeletonMage")));
 		bool bFoundBaseStat = false;
 
 		for (const FBossCombatBalanceRow* Row : AllRows)
@@ -683,7 +686,9 @@ void ABaseBossEnemy::InitializeStatsFromDataTable()
 			if (!Row) continue;
 
 			// 현재 보스 ID와 일치하거나, CombatStatHandle의 행 이름과 일치하는 행 필터링
-			if (Row->BossID == TargetBossId || (!CombatStatHandle.RowName.IsNone() && Row->BossID == CombatStatHandle.RowName))
+			if (Row->BossID == TargetBossId
+				|| (!DefaultBossId.IsNone() && Row->BossID == DefaultBossId)
+				|| (!CombatStatHandle.RowName.IsNone() && Row->BossID == CombatStatHandle.RowName))
 			{
 				if (Row->ActionName == TEXT("BaseStat"))
 				{

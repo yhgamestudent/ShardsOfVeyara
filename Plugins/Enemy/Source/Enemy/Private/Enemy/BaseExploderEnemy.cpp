@@ -3,6 +3,9 @@
 #include "NiagaraFunctionLibrary.h"
 #include "Components/SphereComponent.h"
 #include "Kismet/GameplayStatics.h"
+#include "AIController.h"
+#include "Navigation/PathFollowingComponent.h"
+#include "GameFramework/CharacterMovementComponent.h"
 
 ABaseExploderEnemy::ABaseExploderEnemy()
 {
@@ -16,8 +19,84 @@ ABaseExploderEnemy::ABaseExploderEnemy()
 	EnemyType = EEnemyType::EET_Exploder;
 }
 
+void ABaseExploderEnemy::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		HopMoveSpeed = MoveComp->MaxWalkSpeed > 0.0f ? MoveComp->MaxWalkSpeed : MoveSpeed;
+	}
+}
+
+void ABaseExploderEnemy::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	if (!bUseHopMovement)
+	{
+		return;
+	}
+
+	// 점프 공중 구간에서만 이동 허용, 착지/대기 구간에서는 제자리 (MaxWalkSpeed 0 → 감속 정지)
+	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+	if (!MoveComp)
+	{
+		return;
+	}
+
+	MoveComp->MaxWalkSpeed = bHopMoveWindowActive ? HopMoveSpeed : 0.0f;
+
+	// 공중 구간은 짧아서 가속(MaxAcceleration)으로는 목표 속도에 도달하기 전에 끝남
+	// → 구간 동안 경로 방향으로 수평 속도를 즉시 HopMoveSpeed로 설정 (톡 튀어나가는 점프)
+	if (bHopMoveWindowActive && IsAIRequestingMove())
+	{
+		const AAIController* AIController = Cast<AAIController>(GetController());
+		const UPathFollowingComponent* PathComp = AIController ? AIController->GetPathFollowingComponent() : nullptr;
+
+		FVector HopDir = PathComp ? PathComp->GetCurrentDirection() : FVector::ZeroVector;
+		HopDir.Z = 0.0f;
+		if (HopDir.Normalize())
+		{
+			MoveComp->Velocity.X = HopDir.X * HopMoveSpeed;
+			MoveComp->Velocity.Y = HopDir.Y * HopMoveSpeed;
+		}
+	}
+}
+
+FVector ABaseExploderEnemy::GetVelocity() const
+{
+	const FVector RealVelocity = Super::GetVelocity();
+
+	// 실제 속도가 0이어도 AI가 이동 중이면 애님(Speed)에 이동 속도를 전달해 점프 루프 유지
+	if (bUseHopMovement && IsAIRequestingMove() && RealVelocity.SizeSquared2D() < FMath::Square(HopMoveSpeed))
+	{
+		return GetActorForwardVector() * HopMoveSpeed + FVector(0.0f, 0.0f, RealVelocity.Z);
+	}
+
+	return RealVelocity;
+}
+
+bool ABaseExploderEnemy::IsAIRequestingMove() const
+{
+	if (const AAIController* AIController = Cast<AAIController>(GetController()))
+	{
+		return AIController->GetMoveStatus() == EPathFollowingStatus::Moving;
+	}
+	return false;
+}
+
 void ABaseExploderEnemy::Explode()
 {
+	// 이미 플레이어에게 처치된 상태면 폭발/중복 사망 처리하지 않음 (처치 드롭 유지)
+	if (Health <= 0.f)
+	{
+		return;
+	}
+
+	// 살아있는 상태에서의 자폭 → 플레이어가 직접 잡은 게 아니므로 아이템 드롭 없음
+	bSuppressItemDrop = true;
+
 	// 한 프레임 오버랩 검사: ExplosionRangeSphere와 겹치는 액터들을 가져와 태그로 필터링
 	if (ExplosionRangeSphere)
 	{

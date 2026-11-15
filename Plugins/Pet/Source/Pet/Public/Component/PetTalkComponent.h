@@ -21,13 +21,13 @@ public:
 	FText SpeakerName;
 	// 펫 아이콘 (비워두면 컴포넌트 기본값 사용 가능)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
-	class UTexture2D* PetIcon;
+	class UTexture2D* PetIcon = nullptr;
 	// 함께 재생할 음성
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
-	USoundBase* VoiceAudio;
+	USoundBase* VoiceAudio = nullptr;
 	// [추가사항] 함께 재생할 애니메이션 몽타주
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
-	class UAnimMontage* MontageToPlay;
+	class UAnimMontage* MontageToPlay = nullptr;
 	// 다음 대화 ID == 만약 대화의 끝이라면 None으로 둠(칸 다 비우면 자동으로 None 처리됨)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "자체설정")
 	FName NextDialogueID;

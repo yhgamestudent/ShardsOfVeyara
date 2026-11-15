@@ -1,0 +1,19 @@
+"DepotBuild"
+{
+	// Windows depot
+	"DepotID" "5373671"
+
+	// Upload everything under content\ to the install folder root
+	"FileMapping"
+	{
+		"LocalPath" "*"
+		"DepotPath" "."
+		"Recursive" "1"
+	}
+
+	// Excluded files
+	"FileExclusion" "*.pdb"
+	"FileExclusion" "Manifest_DebugFiles_*.txt"
+	"FileExclusion" "*\Saved\*"
+	"FileExclusion" ".keep"
+}

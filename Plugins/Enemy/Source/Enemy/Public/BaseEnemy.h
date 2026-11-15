@@ -176,6 +176,8 @@ public:
 	float DeadEffectScale = 1.0f;
 	// 죽음 처리 함수
 	virtual void Die();
+	// true면 사망 시 아이템 드롭(및 처치 보고)을 하지 않음 - 자폭 등 플레이어가 직접 처치하지 않은 경우
+	bool bSuppressItemDrop = false;
 	// 죽음 몽타주 끝난 후 호출되는 함수 - 애님 노티파이에서 호출
 	UFUNCTION(BlueprintCallable)
 	virtual void AfterDieMontageEnd();

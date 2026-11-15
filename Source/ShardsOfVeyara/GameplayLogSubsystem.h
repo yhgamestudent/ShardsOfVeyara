@@ -1,0 +1,1002 @@
+#pragma once
+
+
+
+#include "CoreMinimal.h"
+
+#include "Subsystems/GameInstanceSubsystem.h"
+
+#include "Struct_GameplayLogData.h"
+
+#include "GameplayLogSubsystem.generated.h"
+
+
+
+struct FDamageEvent;
+
+
+
+// 로그 업로드 완료 델리게이트 (성공 여부, 응답 메시지)
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnLogUploadCompleted, bool, bSuccess, const FString&, ResponseMessage);
+
+
+
+
+
+/**
+
+ * 게임 플레이 중 발생하는 각종 이벤트 로그를 중앙에서 관리하는 서브시스템입니다.
+
+ */
+
+UCLASS()
+
+class SHARDSOFVEYARA_API UGameplayLogSubsystem : public UGameInstanceSubsystem
+
+{
+
+	GENERATED_BODY()
+
+
+
+public:
+
+	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
+
+	virtual void Deinitialize() override;
+
+
+
+	// 세이브 및 로드에 사용될 실제 로그 데이터 구조체
+
+	UPROPERTY(BlueprintReadWrite, Category = "GameplayLog")
+
+	FGameplayLogData LogData;
+
+
+
+	// 전체 로그 데이터 반환/덮어쓰기 (세이브 및 로드용)
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+
+	FGameplayLogData GetLogData() const { return LogData; }
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+
+	void SetLogData(const FGameplayLogData& InLogData) { LogData = InLogData; }
+
+
+
+	// 새 게임 시작 시 호출 — 새 UUID로 세션 ID를 초기화합니다
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+
+	void InitNewSession();
+
+
+
+	// 현재 세션 ID 조회
+
+	UFUNCTION(BlueprintPure, Category = "GameplayLog")
+
+	FString GetPlayerSessionID() const { return LogData.PlayerSessionID; }
+
+	
+
+	// 현재 맵(Stage) 이름 조회 (지정되지 않았을 시 현재 월드에서 자동 추출)
+
+	UFUNCTION(BlueprintPure, Category = "GameplayLog")
+
+	FString GetTargetStageName(const FString& InStageName = TEXT("")) const;
+
+
+
+	// ==========================================
+
+	// 로깅 헬퍼 함수들 (블루프린트 및 C++에서 호출 가능)
+
+	// ==========================================
+
+
+
+	// 1. 잡초 방지로 인한 작물 성장 지연 기간 추가
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+
+	void AddCropGrowthDelayDueToWeeds(float DelaySeconds, const FString& StageName = TEXT(""));
+
+
+
+	// 2. 날짜 전환 시점의 플레이어 위치 기록
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+
+	void RecordPlayerPositionAtDateChange(int32 Day, FVector Position);
+
+
+
+	// 3. 실패한 물약 제조 횟수 증가
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+
+	void IncrementFailedPotionCrafting();
+
+
+
+	// 4. 공격 시 사용한 콤보 기록
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+
+	void RecordUsedCombo(const FString& ComboName, const FString& StageName = TEXT(""));
+
+
+
+	// 5. 끝까지 진행한 콤보 기록
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+
+	void RecordCompletedCombo(const FString& ComboName, const FString& StageName = TEXT(""));
+
+
+
+	// 6. 작물 별 풍요/성장 비약 사용 기록
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+
+	void RecordElixirUsageOnCrop(const FString& CropName, const FString& StageName = TEXT(""));
+
+
+
+	// 7. 획득한 코인 갯수 추가
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+
+	void AddAcquiredCoins(int32 Amount, const FString& StageName = TEXT(""));
+
+
+
+	// 8. 소모한 골드량 추가
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+
+	void AddConsumedCoins(int32 Amount, const FString& StageName = TEXT(""));
+
+
+
+	// 8-1. NPC 거래로 인한 코인 소모 상세 기록 (어디서, 어떤 NPC와, 어떤 거래/아이템, 얼마)
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Economy")
+
+	void RecordNPCTransaction(const FString& NPCName, const FString& ItemOrDetail, int32 CoinCost, int32 Quantity = 1, const FString& StageName = TEXT(""));
+
+
+
+	// 9. 맵 별 클리어 시간 기록
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+
+	void RecordMapClearTime(const FString& MapName, float TimeSeconds);
+
+
+
+	// 10. 가드로 경감한 피해량 누적
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+
+	void AddDamageMitigatedByGuard(float MitigatedDamage, const FString& StageName = TEXT(""));
+
+
+
+	// 11. 게임 총 플레이 시간 누적
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+
+	void AddPlayTime(float TimeSeconds);
+
+
+
+	// 12. 일시정지 횟수 증가
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+
+	void IncrementPauseCount(const FString& StageName = TEXT(""));
+
+
+
+	// 13. 아이템 획득 횟수 증가
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+
+	void IncrementItemsAcquiredCount(const FString& StageName = TEXT(""));
+
+
+
+	// 14. 아이템 버리기 횟수 증가
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+
+	void IncrementItemsDiscardedCount(const FString& StageName = TEXT(""));
+
+
+
+	// 15. 인벤토리 가득 참 발생 횟수 증가
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+
+	void IncrementInventoryFullOccurrence(const FString& StageName = TEXT(""));
+
+
+
+	// 15-1. 인벤토리(가방) 열람 횟수 증가
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Inventory")
+
+	void IncrementInventoryOpenCount(const FString& StageName = TEXT(""));
+
+
+
+	// 16. NPC별 대화 횟수 증가
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+
+	void RecordNPCDialogue(const FString& NPCName, const FString& StageName = TEXT(""));
+
+
+
+	// 17. 몬스터 종류별 처치 수 증가
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+
+	void RecordMonsterKill(const FString& MonsterName, const FString& StageName = TEXT(""));
+
+
+
+	// 18. 작물 종류별 수확 수량 및 수확 행동 횟수 추가
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Farming")
+
+	void RecordCropHarvest(const FString& CropName, int32 Amount, const FString& StageName = TEXT(""));
+
+
+
+	// 작물 심기 행동 횟수 및 시각 기록
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Farming")
+
+	void RecordCropPlant(const FString& CropOrSeedName = TEXT(""), const FString& StageName = TEXT(""));
+
+
+
+	// 상호작용 행동 시행 횟수 기록 (IInteraction 연동)
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Interaction")
+
+	void RecordInteractionAction(const FString& ActionType, const FString& StageName = TEXT(""));
+
+
+
+	// 19. 가드 사용 횟수 증가
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Combat")
+
+	void IncrementGuardUsageCount(const FString& StageName = TEXT(""));
+
+
+
+	// 구르기(회피) 사용 횟수 증가
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Combat")
+
+	void IncrementRollUsageCount(const FString& StageName = TEXT(""));
+
+
+
+	// 체력 물약 사용 횟수 기록
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Combat")
+
+	void RecordHealthPotionUsage(const FString& PotionName = TEXT("HealthPotion"), const FString& StageName = TEXT(""));
+
+
+
+	// ==========================================
+
+	// 📌 9대 가설 & 18종 차트 로깅 헬퍼 함수
+
+	// ==========================================
+
+
+
+	// 20. 맵별 플레이 체류 시간 누적 (내부에서 탐험/보스/기타 상태에 맞춰 자동 세분화 누적)
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Stage")
+
+	void AddStagePlayTime(const FString& StageName, float DeltaSeconds);
+
+
+
+	// 20-1. 세분화된 플레이 시간 직접 누적 (탐험 / 보스전 / 기타)
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Time")
+
+	void AddCategorizedPlayTime(const FString& StageName, float DeltaSeconds);
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Time")
+
+	void AddExplorationPlayTime(const FString& StageName, float DeltaSeconds);
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Time")
+
+	void AddBossPlayTime(const FString& StageName, float DeltaSeconds);
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Time")
+
+	void AddEtcPlayTime(const FString& StageName, float DeltaSeconds);
+
+
+
+	// 맵 카테고리 판별 헬퍼 함수
+
+	UFUNCTION(BlueprintPure, Category = "GameplayLog|Stage")
+
+	bool IsEtcStage(const FString& StageName = TEXT("")) const;
+
+
+
+	UFUNCTION(BlueprintPure, Category = "GameplayLog|Stage")
+
+	bool IsExplorationStage(const FString& StageName = TEXT("")) const;
+
+
+
+	// 실시간 보스전 활성 상태 조회 및 수동 제어
+
+	UFUNCTION(BlueprintPure, Category = "GameplayLog|Boss")
+
+	bool IsBossBattleActive() const { return bIsBossBattleActive; }
+
+
+
+	UFUNCTION(BlueprintPure, Category = "GameplayLog|Boss")
+
+	FString GetActiveBossName() const { return CurrentActiveBossName; }
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Boss")
+
+	void SetBossBattleActive(bool bActive, const FString& BossName = TEXT(""));
+
+
+
+	// 스테이지별 보스 처치 완료 여부 조회 및 설정 (보스 처치 후 포탈 타기 전까지는 '기타' 시간으로 누적)
+
+	UFUNCTION(BlueprintPure, Category = "GameplayLog|Boss")
+
+	bool IsStageBossCleared(const FString& StageName = TEXT("")) const;
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Boss")
+
+	void SetStageBossCleared(const FString& StageName = TEXT(""), bool bCleared = true);
+
+
+
+	// 21. 맵별 포탈 도달 소요 시간 기록
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Stage")
+
+	void RecordStageClearPortalTime(const FString& StageName, float TimeSeconds);
+
+
+
+	// 22. 맵별 플레이어 이동거리 누적 (내부에서 탐험/보스/기타 상태에 맞춰 자동 세분화 누적)
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Stage")
+
+	void AddStageMovementDistance(const FString& StageName, float DistanceMeters);
+
+
+
+	// 22-1. 세분화된 이동거리 직접 누적 (탐험 / 보스전 / 기타)
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Distance")
+
+	void AddCategorizedMovementDistance(const FString& StageName, float DistanceMeters);
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Distance")
+
+	void AddExplorationMovementDistance(const FString& StageName, float DistanceMeters);
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Distance")
+
+	void AddBossMovementDistance(const FString& StageName, float DistanceMeters);
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Distance")
+
+	void AddEtcMovementDistance(const FString& StageName, float DistanceMeters);
+
+
+
+	// 23. 맵별 + 오브젝트별 상호작용 키 입력 횟수 증가
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Stage")
+
+	void IncrementStageInteraction(const FString& StageName, const FString& ActorName);
+
+
+
+	// 24. 맵별 낙사/낙하 발생 및 체크포인트 리스폰 기록
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Stage")
+
+	void RecordStageFallRespawn(const FString& StageName, FVector FallLocation);
+
+
+
+	// 25. 튜토리얼 스킵 및 대화 지문 넘기기/정상 완독/전체 스킵 기록
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Tutorial")
+
+	void IncrementTutorialFullSkip();
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Tutorial")
+
+	void IncrementDialogueFullSkip(const FString& StageName = TEXT(""));
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Tutorial")
+
+	void IncrementDialogueLineSkip(const FString& StageName = TEXT(""));
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Tutorial")
+
+	void IncrementDialogueLineRead(const FString& StageName = TEXT(""));
+
+
+
+	// 26. UI 옵션 변경 및 대화 로그 재확인
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|UI")
+
+	void IncrementOptionChange(const FString& StageName = TEXT(""));
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|UI")
+
+	void IncrementDialogueLogRecheck(const FString& StageName = TEXT(""));
+
+
+
+	// 27. 사망 기록 (사망 원인 & 위치)
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Combat")
+
+	void RecordPlayerDeath(const FString& StageName, const FString& DeathReason, FVector DeathLocation);
+
+
+
+	// 28. 점프 / 대시 입력 수 증가
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Controls")
+
+	void IncrementStageJump(const FString& StageName);
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Controls")
+
+	void IncrementStageDash(const FString& StageName);
+
+
+
+	// 29. 기믹 파훼 및 보스 패턴 회피
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Gimmick")
+
+	void IncrementStageGimmickClear(const FString& StageName, const FString& GimmickType = TEXT(""));
+
+	
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Gimmick")
+
+	void RecordGimmickStart(const FString& GimmickName, const FString& StageName = TEXT(""), float TimeSeconds = 0.0f);
+
+	
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Gimmick")
+
+	void RecordGimmickClear(const FString& GimmickName, const FString& StageName = TEXT(""), float TimeSeconds = 0.0f);
+
+	
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Gimmick")
+
+	void IncrementBossPatternDodge(const FString& StageName);
+
+
+
+	// 30. 보스전 입장 / 사망 / 클리어
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Boss")
+
+	void RecordBossEnter(const FString& BossName);
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Boss")
+
+	void RecordBossDeath(const FString& BossName);
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Boss")
+
+	void RecordBossClear(const FString& BossName, float BattleTimeSeconds = 0.0f, int32 LootAcquiredCount = 0);
+
+
+
+	// 보스 체력 비율 갱신 (보스 체력 감소율 산출용)
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Boss")
+
+	void UpdateBossHealthRatio(const FString& BossName, float CurrentHealthRatio);
+
+
+
+	// 31. 포션 소모 & 체력 잔량
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
+
+	void RecordPotionUsage(const FString& StageName, const FString& PotionType);
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
+
+	void UpdateLatestHealthPercent(float HealthPercent);
+
+
+
+	// 32. 봉헌 제단 이용
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
+
+	void IncrementTributeAltarUsage(const FString& StageName = TEXT(""));
+
+
+
+	// 33. 가해 딜량 vs 피격 딜량 누적
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Combat")
+
+	void AddStageDamageDealt(const FString& StageName, float Damage);
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Combat")
+
+	void AddStageDamageTaken(const FString& StageName, float Damage);
+
+
+
+	// 34. 최초 1회차 완주 스냅샷 기록 (First Clear Snapshot)
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|FirstClear")
+
+	void SnapshotStageFirstClear(const FString& StageName = TEXT(""), const FString& BossName = TEXT(""));
+
+
+
+	// ==========================================
+
+	// 📌 누적 막대 그래프(Stacked Bar Chart) 정밀 로깅 함수
+
+	// ==========================================
+
+
+
+	// 36. 숲 맵 체크포인트 도달 및 구간별 소요 시간 & 이동거리 자동 계산
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Time")
+
+	void RecordCheckpointReach(int32 CheckpointIndex, const FString& StageName = TEXT(""), float CustomDeltaSeconds = 0.0f, float CustomDeltaDistance = 0.0f);
+
+
+
+	// 37. 던전 맵 기믹 방 진입 / 퇴장(클리어) 타이머 & 이동거리 측정
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Time")
+
+	void StartGimmickRoom(const FString& RoomName, const FString& StageName = TEXT(""));
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Time")
+
+	void EndGimmickRoom(const FString& RoomName, const FString& StageName = TEXT(""), bool bMarkAsCleared = true, float CustomDurationSeconds = 0.0f, float CustomDistanceMeters = 0.0f);
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Time")
+
+	void RecordGimmickRoomTime(const FString& RoomName, float DurationSeconds, const FString& StageName = TEXT(""));
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Spatial")
+
+	void RecordGimmickRoomDistance(const FString& RoomName, float DistanceMeters, const FString& StageName = TEXT(""));
+
+
+
+	UFUNCTION(BlueprintPure, Category = "GameplayLog|Time")
+
+	bool IsGimmickRoomCleared(const FString& RoomName, const FString& StageName = TEXT("")) const;
+
+
+
+	// 38. 맵별 6대 행동 소요 시간 누적 (Movement, Airborne, Combat, Interaction, PuzzleOrGimmick, UI_Pause)
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Time")
+
+	void AddStageActionDuration(const FString& ActionCategory, float DeltaSeconds, const FString& StageName = TEXT(""));
+
+
+
+	// 39. 성공한 물약 제작 수 & 취침 횟수 & 클리어 플래그
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
+
+	void IncrementSuccessfulPotionCrafting(int32 Amount = 1);
+
+
+
+	// 제작 성공한 포션 아이디 기록
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
+
+	void RecordPotionCrafted(const FString& PotionItemID);
+
+
+
+	// 특정 포션의 제작 횟수 조회
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
+
+	int32 GetCraftedPotionCount(const FString& PotionItemID) const;
+
+
+
+	// 특정 포션의 해금/발견 여부 조회
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Reward")
+
+	bool IsPotionDiscovered(const FString& PotionItemID) const;
+
+
+
+	// 데이터 테이블 기반 동적 기준치 및 봉헌 레벨 동기화
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Milestone")
+
+	void SetTargetCropTypeCount(int32 Count);
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Milestone")
+
+	void SetTargetPotionRecipeCount(int32 Count);
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Milestone")
+
+	void SetMaxTributeSteps(int32 Count);
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Milestone")
+
+	void UpdateCurrentTributeLevel(int32 Level);
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Farming")
+
+	void IncrementSleepCount(const FString& StageName = TEXT(""));
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog")
+
+	void SetGameCompleted(bool bCompleted = true);
+
+
+
+	// ==========================================
+
+	// 📌 데이터 내보내기 (구글 시트 / CSV 파이프라인)
+
+	// ==========================================
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Export")
+
+	FString GenerateCSVString() const;
+
+
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Export")
+
+	bool ExportLogsToCSVFile(const FString& FilePath);
+
+
+
+	// 구글 스프레드시트(Apps Script Web App)로 로그 자동 전송 (Shipping 빌드에서는 자동 차단)
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Export")
+
+	void UploadLogsToGoogleSheets(const FString& InWebAppURL = TEXT(""), const FString& InAuthToken = TEXT(""));
+
+
+
+	// 로그 업로드 완료 시 브로드캐스트되는 델리게이트
+
+	UPROPERTY(BlueprintAssignable, Category = "GameplayLog|Export")
+
+	FOnLogUploadCompleted OnLogUploadCompleted;
+
+
+
+	// 원격 로그 전송 활성화 플래그 (체크 해제 시 전송 비활성화)
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Config")
+
+	bool bEnableRemoteUpload = true;
+
+
+
+	// 기본 구글 앱스 스크립트 웹 앱 배포 URL (보안을 위해 Git에 커밋되지 않는 Config/LocalTelemetry.ini에서 로드)
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Config")
+
+	FString GoogleSheetsWebAppURL;
+
+
+
+	// 웹 앱 인증용 비밀 토큰 (보안을 위해 Git에 커밋되지 않는 Config/LocalTelemetry.ini에서 로드)
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Config")
+
+	FString GoogleSheetsAuthToken;
+
+
+
+	// 로컬 설정 파일(Config/LocalTelemetry.ini)에서 보안 URL 및 토큰 읽기
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Config")
+
+	void LoadTelemetryCredentials();
+
+
+
+	// 플레이어가 데미지를 입었을 때 위치, 피해량, 공격자, 데미지타입, 잔여체력 등을 파일(Saved/Logs/PlayerDamageLogs/...)에 실시간 기록
+
+	void LogPlayerDamageTaken(
+
+		const FVector& PlayerLocation,
+
+		float IncomingDamage,
+
+		float AppliedDamage,
+
+		float CurrentHealth,
+
+		float MaxHealth,
+
+		AActor* DamageCauser,
+
+		const FDamageEvent& DamageEvent,
+
+		const FString& GuardState = TEXT("None")
+
+	);
+
+
+
+	// 플레이어 데미지 로그 파일 경로 반환
+
+	UFUNCTION(BlueprintPure, Category = "GameplayLog|Damage")
+
+	FString GetPlayerDamageLogFilePath() const { return PlayerDamageLogFilePath; }
+
+
+
+	// 플레이어가 아이템을 파밍(상자 또는 필드/몬스터 드롭)했을 때 위치, 출처, 아이템명, 수량 등을 파일(Saved/Logs/PlayerItemLootLogs/...)에 실시간 기록
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Loot")
+
+	void LogPlayerItemLooted(
+
+		const FVector& PlayerLocation,
+
+		const FString& LootSource,
+
+		const FString& SourceActorName,
+
+		const FString& ItemID,
+
+		const FString& ItemName,
+
+		int32 Quantity
+
+	);
+
+
+
+	// 플레이어 아이템 파밍 로그 파일 경로 반환
+
+	UFUNCTION(BlueprintPure, Category = "GameplayLog|Loot")
+
+	FString GetPlayerItemLootLogFilePath() const { return PlayerItemLootLogFilePath; }
+
+
+
+	// 플레이어가 몬스터/보스/스포너에게 데미지를 입혔을 때 위치, 대상, 가해 데미지, 대상 잔여체력 등을 파일(Saved/Logs/PlayerDamageDealtLogs/...)에 실시간 기록
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Damage")
+
+	void LogPlayerDamageDealt(
+
+		const FVector& PlayerLocation,
+
+		AActor* TargetActor,
+
+		float DamageDealt,
+
+		float TargetCurrentHealth,
+
+		float TargetMaxHealth,
+
+		const FString& AttackType = TEXT("NormalAttack")
+
+	);
+
+
+
+	// 플레이어 가해 데미지 로그 파일 경로 반환
+
+	UFUNCTION(BlueprintPure, Category = "GameplayLog|Damage")
+
+	FString GetPlayerDamageDealtLogFilePath() const { return PlayerDamageDealtLogFilePath; }
+
+
+
+	// 플레이어가 체력을 회복했을 때 위치, 회복 출처, 회복량, 이전/현재 체력 등을 파일(Saved/Logs/PlayerHealLogs/...)에 실시간 기록
+
+	UFUNCTION(BlueprintCallable, Category = "GameplayLog|Heal")
+
+	void LogPlayerHealed(
+
+		const FVector& PlayerLocation,
+
+		const FString& SourceName,
+
+		float HealAmount,
+
+		float PrevHealth,
+
+		float CurrentHealth,
+
+		float MaxHealth
+
+	);
+
+
+
+	// 플레이어 체력 회복 로그 파일 경로 반환
+
+	UFUNCTION(BlueprintPure, Category = "GameplayLog|Heal")
+
+	FString GetPlayerHealLogFilePath() const { return PlayerHealLogFilePath; }
+
+
+
+protected:
+
+	void EnsurePlayerDamageLogFileInitialized();
+
+	void EnsurePlayerItemLootLogFileInitialized();
+
+	void EnsurePlayerDamageDealtLogFileInitialized();
+
+	void EnsurePlayerHealLogFileInitialized();
+
+
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GameplayLog|Damage")
+
+	FString PlayerDamageLogFilePath;
+
+
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GameplayLog|Loot")
+
+	FString PlayerItemLootLogFilePath;
+
+
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GameplayLog|Damage")
+
+	FString PlayerDamageDealtLogFilePath;
+
+
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GameplayLog|Heal")
+
+	FString PlayerHealLogFilePath;
+
+
+
+	// 실시간 보스전 활성 상태 (레벨 스트리밍 환경에서 보스 전투 시작 ~ 처치/사망 구간 트래킹)
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GameplayLog|Boss")
+
+	bool bIsBossBattleActive = false;
+
+
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GameplayLog|Boss")
+
+	FString CurrentActiveBossName;
+
+
+
+	// 보스를 이미 처치 완료한 스테이지 목록 (처치 후 포탈 타기 전 체류 시간을 '기타' 시간으로 분류하기 위함)
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GameplayLog|Boss")
+
+	TSet<FString> ClearedBossStages;
+
+
+
+	// 기타(비전투/거점/마을/튜토리얼/메뉴) 맵 판별용 기본 키워드 목록
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Config")
+
+	TArray<FString> EtcStageKeywords = { TEXT("Farm"), TEXT("Village"), TEXT("Tutorial"), TEXT("Menu"), TEXT("Lobby"), TEXT("Setting"), TEXT("Controller"), TEXT("Overview"), TEXT("Showcase"), TEXT("Demo") };
+
+
+
+	// 탐험 스테이지 맵 판별용 기본 키워드 목록
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GameplayLog|Config")
+
+	TArray<FString> ExplorationStageKeywords = { TEXT("Forest"), TEXT("Dungeon"), TEXT("Cave"), TEXT("City"), TEXT("Lvl_Combat"), TEXT("Lvl_Platforming"), TEXT("Lvl_SideScrolling") };
+
+};
+
