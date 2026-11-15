@@ -7506,6 +7506,15 @@ void AAGSDCharacter::Input_ToggleInventory()
 
 	}
 
+	// 연금술/봉헌/요리/일시정지 등 다른 전용 UI가 열려 있는 동안에는 인벤토리 열기를 차단합니다.
+	// (이 UI들은 HUD를 숨긴 채 열리므로, 인벤토리를 열면 보이지 않는 인벤토리가 입력 포커스와 닫기 대상(ActiveCloseableUI)을 가로채고,
+	//  다시 닫을 때 CloseInventory가 커서를 숨기고 GameOnly로 전환해 열려 있는 UI에서 마우스가 사라지는 문제가 발생)
+	if (PlayerHUDRef && !PlayerHUDRef->IsInventoryOpen()
+		&& ActiveCloseableUI.IsValid() && ActiveCloseableUI.Get() != PlayerHUDRef)
+	{
+		return;
+	}
+
 
 
 	if (PlayerHUDRef)
